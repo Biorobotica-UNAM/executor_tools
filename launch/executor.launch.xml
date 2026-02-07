@@ -1,13 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <launch>
 
-    <node pkg="task_manager" exec="task_manager_node" name="task_manager_node" output="screen">
-        <param name="use_sim_time" value="false"/>
-    </node>
+  <node
+    pkg="task_manager"
+    exec="task_manager_node"
+    name="task_manager_node"
+    output="screen">
+    <param name="use_sim_time" value="false"/>
+  </node>
 
-    <node pkg="tasks" exec="tasks_node" name="tasks_node" output="screen">  
-       
-    </node>
-    
+  <group>
+    <push_ros_namespace namespace="executor"/>
+
+    <include
+      file="$(find-pkg-share tasks)/launch/tasks.launch.xml"/>
+  </group>
 
 </launch>
+
