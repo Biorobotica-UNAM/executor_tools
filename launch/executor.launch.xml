@@ -7,7 +7,7 @@
     
 	<include file="$(find-pkg-share executor_manager)/launch/executor_manager.launch.xml"/>
 	
-    <include file="$(find-pkg-share executor_backend)/launch/executor_backend.launch.xml"/>
+    <include file="$(find-pkg-share executor_backend)/launch/executor_worker.launch.xml"/>
     
   </group>
 

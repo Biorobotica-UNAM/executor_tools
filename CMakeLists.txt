@@ -1,38 +1,46 @@
 cmake_minimum_required(VERSION 3.8)
 project(executor_tools)
 
-# Opciones de compilación estándar (por si luego metes C++)
-if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-Wall -Wextra -Wpedantic)
-endif()
-
-# Paquete base de CMake para ROS 2
 find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
+find_package(executor_interfaces REQUIRED)
 
-# === Instalar archivos de launch (.launch.xml y .launch.py) ===
-# Equivalente a:
-# (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.xml')),
-# (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
-install(
-  DIRECTORY launch
-  DESTINATION share/${PROJECT_NAME}
+include_directories(include)
+
+add_library(${PROJECT_NAME}
+  src/RequestAuthorization.cpp
+  src/Say.cpp
+  src/Listen.cpp
 )
 
-# === Instalar package.xml ===
-# Equivalente a:
-# ('share/' + package_name, ['package.xml'])
-install(
-  FILES package.xml
-  DESTINATION share/${PROJECT_NAME}
+ament_target_dependencies(${PROJECT_NAME}
+  rclcpp
+  rclcpp_action
+  executor_interfaces
 )
 
-# === Instalar resource/<package_name> ===
-# Equivalente a:
-# ('share/ament_index/resource_index/packages', ['resource/' + package_name])
-#install(
-#  FILES resource/${PROJECT_NAME}
-#  DESTINATION share/ament_index/resource_index/packages
-#)
+target_include_directories(${PROJECT_NAME}
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+
+install(
+  DIRECTORY include/
+  DESTINATION include
+)
+
+install(
+  TARGETS ${PROJECT_NAME}
+  EXPORT export_${PROJECT_NAME}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
+ament_export_targets(export_${PROJECT_NAME})
+ament_export_dependencies(rclcpp rclcpp_action executor_interfaces)
 
 ament_package()
 
