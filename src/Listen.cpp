@@ -1,17 +1,18 @@
 #include "executor_tools/Listen.hpp"
 
-Listen::Listen(const rclcpp::Node::SharedPtr& node_ptr,
-               const std::shared_ptr<HRI>& hri_ptr)
-: node(node_ptr),
-  hri(hri_ptr),
-  executor(node_ptr)
+Listen::Listen(const rclcpp::Node::SharedPtr& node,
+               const std::shared_ptr<HRI>& hri)
+: node(node),
+  hri(hri),
+  executor(node)
 {
 }
 
 bool Listen::run(
   const std::string& grammar,
-  const std::shared_ptr<GoalHandle>& goal_handle)
+  const std::shared_ptr<GoalHandle>& goalHandle)
 {
+  // -------------------- FEEDBACK --------------------
   auto feedback =
     std::make_shared<ExecuteTask::Feedback>();
 
@@ -20,17 +21,22 @@ bool Listen::run(
   feedback->feedback.message =
     "Listening with grammar: " + grammar;
 
-  goal_handle->publish_feedback(feedback);
+  goalHandle->publish_feedback(feedback);
 
+  // -------------------- HRI LISTEN --------------------
   std::string recognized = hri->Listen(grammar);
 
-  std::string worker_result =
-    recognized.empty() ? "no_input" : recognized;
+  if (recognized.empty())
+  {
+    recognized = "no_input";
+  }
 
+  // -------------------- AUTHORIZE --------------------
   return executor.authorize(
     "listen",
     grammar,
-    worker_result,
-    "Recognized: " + worker_result);
+    recognized,
+    "Recognized: " + recognized
+  );
 }
 

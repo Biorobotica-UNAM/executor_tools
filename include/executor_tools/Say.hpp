@@ -15,11 +15,11 @@ public:
     rclcpp_action::ServerGoalHandle<ExecuteTask>;
 
   Say(const rclcpp::Node::SharedPtr& node,
-      const std::shared_ptr<HRI>& hri_ptr);
+      const std::shared_ptr<HRI>& hri);
 
   bool run(
     const std::string& text,
-    const std::shared_ptr<GoalHandle>& goal_handle);
+    const std::shared_ptr<GoalHandle>& goalHandle);
 
 private:
   rclcpp::Node::SharedPtr node;

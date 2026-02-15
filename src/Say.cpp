@@ -1,17 +1,18 @@
 #include "executor_tools/Say.hpp"
 
-Say::Say(const rclcpp::Node::SharedPtr& node_ptr,
-         const std::shared_ptr<HRI>& hri_ptr)
-: node(node_ptr),
-  hri(hri_ptr),
-  executor(node_ptr)
+Say::Say(const rclcpp::Node::SharedPtr& node,
+         const std::shared_ptr<HRI>& hri)
+: node(node),
+  hri(hri),
+  executor(node)
 {
 }
 
 bool Say::run(
   const std::string& text,
-  const std::shared_ptr<GoalHandle>& goal_handle)
+  const std::shared_ptr<GoalHandle>& goalHandle)
 {
+  // -------------------- FEEDBACK --------------------
   auto feedback =
     std::make_shared<ExecuteTask::Feedback>();
 
@@ -20,17 +21,20 @@ bool Say::run(
   feedback->feedback.message =
     "Saying: " + text;
 
-  goal_handle->publish_feedback(feedback);
+  goalHandle->publish_feedback(feedback);
 
-  bool ok = hri->Say(text);
+  // -------------------- HRI SAY --------------------
+  bool success = hri->Say(text);
 
-  std::string worker_result =
-    ok ? "uttered: " + text : "tts_failed";
+  std::string result =
+    success ? "uttered: " + text : "tts_failed";
 
+  // -------------------- AUTHORIZE --------------------
   return executor.authorize(
     "say",
     text,
-    worker_result,
-    "TTS executed");
+    result,
+    success ? "TTS executed" : "TTS failed"
+  );
 }
 
