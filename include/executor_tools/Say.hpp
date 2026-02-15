@@ -2,17 +2,17 @@
 
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "executor_interfaces/action/execute_task.hpp"
-
-#include "supervisor_executor_interfaces/Request.hpp"
+#include "executor_tools/Executor.hpp"
+#include "hri_tools/HRI.hpp"
 
 class Say
 {
 public:
   using ExecuteTask =
-      executor_interfaces::action::ExecuteTask;
+    executor_interfaces::action::ExecuteTask;
 
   using GoalHandle =
-      rclcpp_action::ServerGoalHandle<ExecuteTask>;
+    rclcpp_action::ServerGoalHandle<ExecuteTask>;
 
   explicit Say(const rclcpp::Node::SharedPtr& node);
 
@@ -21,6 +21,8 @@ public:
     const std::shared_ptr<GoalHandle>& goal_handle);
 
 private:
-  rclcpp::Node::SharedPtr node_;
-  RequestAuthorization auth_;
+  rclcpp::Node::SharedPtr node;
+  std::shared_ptr<HRI> hri;
+  Executor executor;
 };
+

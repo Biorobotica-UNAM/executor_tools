@@ -9,7 +9,7 @@ find_package(executor_interfaces REQUIRED)
 include_directories(include)
 
 add_library(${PROJECT_NAME}
-  src/RequestAuthorization.cpp
+  src/Executor.cpp
   src/Say.cpp
   src/Listen.cpp
 )

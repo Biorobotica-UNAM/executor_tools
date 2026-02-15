@@ -1,8 +1,9 @@
 #include "executor_tools/Listen.hpp"
 
 Listen::Listen(const rclcpp::Node::SharedPtr& node)
-: node_(node),
-  auth_(node)
+: node(node),
+  hri(std::make_shared<HRI>(node)),
+  executor(node)
 {
 }
 
@@ -20,19 +21,14 @@ bool Listen::run(
 
   goal_handle->publish_feedback(feedback);
 
-  // Simulación de resultado real
-  bool local_result = true;
-  std::string heard = "coke";
+  std::string recognized = hri->Listen(grammar);
 
-  std::string context =
-    "Heard: " + heard;
+  bool local_result = !recognized.empty();
 
-  bool authorized =
-    auth_.request("listen",
-                  grammar,
-                  local_result,
-                  context);
-
-  return authorized;
+  return executor.authorize(
+    "listen",
+    grammar,
+    local_result,
+    "Recognized: " + recognized);
 }
 

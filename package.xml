@@ -3,8 +3,8 @@
 <package format="3">
   <name>executor_tools</name>
   <version>0.0.0</version>
-  <description>Utilities for executor_worker_node</description>
-  <maintainer email="joshuayz@comunidad.unam.mx">joshua</maintainer>
+  <description>Utilities for executor</description>
+  <maintainer email="marco.soriano5102@comunidad.unam.mx">Marco Soriano</maintainer>
   <license>TODO: License declaration</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
