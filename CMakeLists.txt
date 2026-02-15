@@ -4,6 +4,7 @@ project(executor_tools)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(executor_interfaces REQUIRED)
 find_package(supervisor_executor_interfaces REQUIRED)
 find_package(hri_tools REQUIRED)
@@ -23,6 +24,7 @@ target_include_directories(${PROJECT_NAME}
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   rclcpp_action
+  std_srvs
   executor_interfaces
   supervisor_executor_interfaces
   hri_tools
@@ -45,6 +47,7 @@ ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_dependencies(
   rclcpp
   rclcpp_action
+  std_srvs
   executor_interfaces
   supervisor_executor_interfaces
   hri_tools

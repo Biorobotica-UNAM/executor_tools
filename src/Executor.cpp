@@ -7,11 +7,10 @@ Executor::Executor(const rclcpp::Node::SharedPtr& node)
     "supervisor/supervisor_executor/authorize");
 }
 
-bool Executor::authorize(
-  const std::string& action,
-  const std::string& argument,
-  bool local_result,
-  const std::string& context_message)
+bool Executor::authorize(const std::string& action,
+                         const std::string& argument,
+                         const std::string& worker_result,
+                         const std::string& context_message)
 {
   if (!client->wait_for_service(std::chrono::seconds(2)))
   {
@@ -23,7 +22,7 @@ bool Executor::authorize(
   auto req = std::make_shared<AuthorizeTask::Request>();
   req->action = action;
   req->argument = argument;
-  req->local_result = local_result;
+  req->worker_result = worker_result;
   req->context_message = context_message;
 
   auto future = client->async_send_request(req);
@@ -36,6 +35,6 @@ bool Executor::authorize(
     return false;
   }
 
-  return future.get()->authorized;
+  return future.get()->approved;
 }
 
