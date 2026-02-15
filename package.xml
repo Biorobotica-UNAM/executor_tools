@@ -14,6 +14,8 @@
   <build_depend>std_srvs</build_depend>
   <build_depend>executor_interfaces</build_depend>
   <build_depend>supervisor_executor_interfaces</build_depend>
+  <build_depend>talker_interfaces</build_depend>
+  <build_depend>listener_interfaces</build_depend>
   <build_depend>hri_tools</build_depend>
 
   <exec_depend>rclcpp</exec_depend>
@@ -21,6 +23,8 @@
   <exec_depend>std_srvs</exec_depend>
   <exec_depend>executor_interfaces</exec_depend>
   <exec_depend>supervisor_executor_interfaces</exec_depend>
+  <exec_depend>talker_interfaces</exec_depend>
+  <exec_depend>listener_interfaces</exec_depend>
   <exec_depend>hri_tools</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>

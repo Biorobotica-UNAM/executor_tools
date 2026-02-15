@@ -7,6 +7,8 @@ find_package(rclcpp_action REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(executor_interfaces REQUIRED)
 find_package(supervisor_executor_interfaces REQUIRED)
+find_package(talker_interfaces REQUIRED)
+find_package(listener_interfaces REQUIRED)
 find_package(hri_tools REQUIRED)
 
 add_library(${PROJECT_NAME}
@@ -27,6 +29,8 @@ ament_target_dependencies(${PROJECT_NAME}
   std_srvs
   executor_interfaces
   supervisor_executor_interfaces
+  talker_interfaces
+  listener_interfaces
   hri_tools
 )
 
@@ -50,6 +54,8 @@ ament_export_dependencies(
   std_srvs
   executor_interfaces
   supervisor_executor_interfaces
+  talker_interfaces
+  listener_interfaces
   hri_tools
 )
 
