@@ -14,7 +14,8 @@ public:
   using GoalHandle =
     rclcpp_action::ServerGoalHandle<ExecuteTask>;
 
-  explicit Listen(const rclcpp::Node::SharedPtr& node);
+  Listen(const rclcpp::Node::SharedPtr& node,
+         const std::shared_ptr<HRI>& hri_ptr);
 
   bool run(
     const std::string& grammar,
@@ -25,4 +26,3 @@ private:
   std::shared_ptr<HRI> hri;
   Executor executor;
 };
-

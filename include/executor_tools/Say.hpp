@@ -14,7 +14,8 @@ public:
   using GoalHandle =
     rclcpp_action::ServerGoalHandle<ExecuteTask>;
 
-  explicit Say(const rclcpp::Node::SharedPtr& node);
+  Say(const rclcpp::Node::SharedPtr& node,
+      const std::shared_ptr<HRI>& hri_ptr);
 
   bool run(
     const std::string& text,

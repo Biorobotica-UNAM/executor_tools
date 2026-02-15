@@ -1,9 +1,10 @@
 #include "executor_tools/Listen.hpp"
 
-Listen::Listen(const rclcpp::Node::SharedPtr& node)
-: node(node),
-  hri(std::make_shared<HRI>(node)),
-  executor(node)
+Listen::Listen(const rclcpp::Node::SharedPtr& node_ptr,
+               const std::shared_ptr<HRI>& hri_ptr)
+: node(node_ptr),
+  hri(hri_ptr),
+  executor(node_ptr)
 {
 }
 
@@ -23,12 +24,8 @@ bool Listen::run(
 
   std::string recognized = hri->Listen(grammar);
 
-  std::string worker_result;
-
-  if (!recognized.empty())
-    worker_result = recognized;
-  else
-    worker_result = "no_input";
+  std::string worker_result =
+    recognized.empty() ? "no_input" : recognized;
 
   return executor.authorize(
     "listen",

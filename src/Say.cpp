@@ -1,9 +1,10 @@
 #include "executor_tools/Say.hpp"
 
-Say::Say(const rclcpp::Node::SharedPtr& node)
-: node(node),
-  hri(std::make_shared<HRI>(node)),
-  executor(node)
+Say::Say(const rclcpp::Node::SharedPtr& node_ptr,
+         const std::shared_ptr<HRI>& hri_ptr)
+: node(node_ptr),
+  hri(hri_ptr),
+  executor(node_ptr)
 {
 }
 
@@ -21,9 +22,10 @@ bool Say::run(
 
   goal_handle->publish_feedback(feedback);
 
-  hri->Say(text);
+  bool ok = hri->Say(text);
 
-  std::string worker_result = "uttered: " + text;
+  std::string worker_result =
+    ok ? "uttered: " + text : "tts_failed";
 
   return executor.authorize(
     "say",
