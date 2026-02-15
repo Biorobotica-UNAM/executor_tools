@@ -1,12 +1,12 @@
-#include "executor_tools/RequestAuthorization.hpp"
+#include "executor_tools/Authorize.hpp"
 
 RequestAuthorization::RequestAuthorization(
   const rclcpp::Node::SharedPtr& node)
 : node_(node)
 {
   client_ =
-    node_->create_client<AuthorizeTask>(
-      "/supervisor_executor/authorize_task");
+    node_->create_client<Authorize>(
+      "supervisor/supervisor_executor/authorize");
 }
 
 bool RequestAuthorization::request(

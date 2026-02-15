@@ -3,7 +3,7 @@
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "executor_interfaces/action/execute_task.hpp"
 
-#include "executor_tools/RequestAuthorization.hpp"
+#include "supervisor_executor_interfaces/Authorize.hpp"
 
 class Listen
 {

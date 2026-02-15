@@ -1,13 +1,13 @@
 #pragma once
 
 #include "rclcpp/rclcpp.hpp"
-#include "executor_interfaces/srv/authorize_task.hpp"
+#include "supervisor_executor_interfaces/srv/authorize.hpp"
 
 class RequestAuthorization
 {
 public:
-  using AuthorizeTask =
-      executor_interfaces::srv::AuthorizeTask;
+  using Authorize =
+      supervisor_executor_interfaces::srv::Authorize;
 
   explicit RequestAuthorization(
     const rclcpp::Node::SharedPtr& node);
@@ -20,5 +20,5 @@ public:
 
 private:
   rclcpp::Node::SharedPtr node_;
-  rclcpp::Client<AuthorizeTask>::SharedPtr client_;
+  rclcpp::Client<Authorize>::SharedPtr client_;
 };
