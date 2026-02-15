@@ -23,12 +23,17 @@ bool Listen::run(
 
   std::string recognized = hri->Listen(grammar);
 
-  bool local_result = !recognized.empty();
+  std::string worker_result;
+
+  if (!recognized.empty())
+    worker_result = recognized;
+  else
+    worker_result = "no_input";
 
   return executor.authorize(
     "listen",
     grammar,
-    local_result,
-    "Recognized: " + recognized);
+    worker_result,
+    "Recognized: " + worker_result);
 }
 

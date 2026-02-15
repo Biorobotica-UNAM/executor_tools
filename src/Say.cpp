@@ -23,10 +23,12 @@ bool Say::run(
 
   hri->Say(text);
 
+  std::string worker_result = "uttered: " + text;
+
   return executor.authorize(
     "say",
     text,
-    true,
+    worker_result,
     "TTS executed");
 }
 
