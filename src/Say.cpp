@@ -22,7 +22,7 @@ std::string Say::readSavedValue(const std::string& filename)
         if (config["value"])
             return config["value"].as<std::string>();
         else
-            return filename;
+            return filename; 
     }
     catch (const std::exception& e)
     {
@@ -35,18 +35,26 @@ std::string Say::readSavedValue(const std::string& filename)
 }
 
 // ---------------------------------------------------------
-// Reemplaza placeholder con por el valor guardado
+// Reemplaza placeholders por el valor guardado
 // ---------------------------------------------------------
 std::string Say::replacePlaceholdersWithSaved(const std::string& text)
 {
-    std::string result = text;
+    std::string result;
     std::regex re("\\{([^}]+)\\}");
-    
-    result = std::regex_replace(result, re,
-        [this](const std::smatch& m) -> std::string {
-            std::string key = m.str(1);
-            return readSavedValue(key);
-        });
+    std::string::const_iterator searchStart(text.cbegin());
+    std::smatch match;
+
+    while (std::regex_search(searchStart, text.cend(), match, re))
+    {
+        result += match.prefix().str();
+
+        std::string key = match[1].str();
+        result += readSavedValue(key);
+
+        searchStart = match.suffix().first;
+    }
+
+    result += std::string(searchStart, text.cend());
 
     return result;
 }
@@ -89,7 +97,7 @@ std::string Say::getRandomPhrase(const std::string& action_name)
 }
 
 // ---------------------------------------------------------
-// Ejecuta say
+// Ejecuta 'say'
 // ---------------------------------------------------------
 bool Say::run(
     const std::string& action_name,
