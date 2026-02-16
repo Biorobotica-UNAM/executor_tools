@@ -9,7 +9,7 @@ Say::Say(const rclcpp::Node::SharedPtr& node,
 }
 
 // ---------------------------------------------------------
-// Read saved values
+// Leer valor guardado
 // ---------------------------------------------------------
 std::string Say::readSavedValue(const std::string& filename)
 {
@@ -35,35 +35,24 @@ std::string Say::readSavedValue(const std::string& filename)
 }
 
 // ---------------------------------------------------------
-// Replace placeholders dynamically
+// Reemplaza placeholder con por el valor guardado
 // ---------------------------------------------------------
 std::string Say::replacePlaceholdersWithSaved(const std::string& text)
 {
     std::string result = text;
-    std::regex placeholder_re("\\{([^}]+)\\}");
-    std::smatch match;
-
-    std::string::const_iterator searchStart(result.cbegin());
-    while (std::regex_search(searchStart, result.cend(), match, placeholder_re))
-    {
-        std::string key = match[1].str();
-        std::string value;
-
-        if (key == "guest_1") value = readSavedValue("name_1");
-        else if (key == "guest_2") value = readSavedValue("name_2");
-        else if (key == "drink_1") value = readSavedValue("drink_1");
-        else if (key == "drink_2") value = readSavedValue("drink_2");
-        else value = key;
-
-        result.replace(match.position(0), match.length(0), value);
-        searchStart = result.cbegin() + match.position(0) + value.length();
-    }
+    std::regex re("\\{([^}]+)\\}");
+    
+    result = std::regex_replace(result, re,
+        [this](const std::smatch& m) -> std::string {
+            std::string key = m.str(1);
+            return readSavedValue(key);
+        });
 
     return result;
 }
 
 // ---------------------------------------------------------
-// Get a random phrase
+// Selecciona frase aleatoria
 // ---------------------------------------------------------
 std::string Say::getRandomPhrase(const std::string& action_name)
 {
@@ -100,7 +89,7 @@ std::string Say::getRandomPhrase(const std::string& action_name)
 }
 
 // ---------------------------------------------------------
-// Run say action
+// Ejecuta say
 // ---------------------------------------------------------
 bool Say::run(
     const std::string& action_name,
@@ -114,7 +103,7 @@ bool Say::run(
     auto feedback = std::make_shared<ExecuteTask::Feedback>();
     feedback->feedback.step_id = 1;
     feedback->feedback.progress = 0.5f;
-    feedback->feedback.message = "Saying: " + utterance;
+    feedback->feedback.message = "Diciendo: " + utterance;
     goalHandle->publish_feedback(feedback);
 
     // -------------------- HRI SAY --------------------
@@ -123,12 +112,12 @@ bool Say::run(
     std::string result =
         success ? "uttered: " + utterance : "tts_failed";
 
-    // -------------------- AUTHORIZE --------------------
+    // -------------------- AUTORIZACIÓN --------------------
     return executor.authorize(
         "say",
         action_name,
         result,
-        success ? "TTS executed" : "TTS failed"
+        success ? "TTS ejecutado" : "TTS fallido"
     );
 }
 
