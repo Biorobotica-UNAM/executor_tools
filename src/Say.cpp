@@ -79,19 +79,25 @@ std::string Say::getRandomPhrase(const std::string& action_name)
 // ---------------------------------------------------------
 // Replace all {} with saved values
 // ---------------------------------------------------------
-std::string Say::replacePlaceholdersWithSaved(std::string text)
+std::string Say::replacePlaceholdersWithSaved(const std::string& input)
 {
-  std::regex re("\\{([^}]+)\\}");
-  std::smatch match;
+    std::string result = input;
+    size_t start_pos = 0;
 
-  while (std::regex_search(text, match, re))
-  {
-    std::string key = match[1].str();
-    std::string value = readSavedValue(key);
-    text.replace(match.position(0), match.length(0), value);
-  }
+    while ((start_pos = result.find('{', start_pos)) != std::string::npos)
+    {
+        size_t end_pos = result.find('}', start_pos);
+        if (end_pos == std::string::npos) break;
 
-  return text;
+        std::string key = result.substr(start_pos + 1, end_pos - start_pos - 1);
+        std::string value = readSavedValue(key);
+
+        result.replace(start_pos, end_pos - start_pos + 1, value);
+
+        start_pos += value.length();
+    }
+
+    return result;
 }
 
 // ---------------------------------------------------------
