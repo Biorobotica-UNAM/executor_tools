@@ -12,7 +12,7 @@ Say::Say(const rclcpp::Node::SharedPtr& node,
 }
 
 // =========================================================
-// Lee valor salvado
+// Lee valor guardado
 // =========================================================
 std::string Say::readSavedValue(const std::string& filename)
 {
@@ -43,24 +43,28 @@ std::string Say::readSavedValue(const std::string& filename)
 }
 
 // =========================================================
-// Reemplaza {key} por sus values
+// Reemplaza {key} por value
 // =========================================================
 std::string Say::replacePlaceholdersWithSaved(const std::string& text)
 {
-    std::string result = text;
+    std::string result;
     std::regex re("\\{([^}]+)\\}");
-    std::smatch match;
+    std::sregex_iterator begin(text.begin(), text.end(), re);
+    std::sregex_iterator end;
 
-    auto searchStart = result.cbegin();
-    while (std::regex_search(searchStart, result.cend(), match, re))
+    size_t last_pos = 0;
+    for (auto it = begin; it != end; ++it)
     {
+        std::smatch match = *it;
+        result += text.substr(last_pos, match.position() - last_pos);
+
         std::string key = match[1].str();
-        std::string value = readSavedValue(key);
+        result += readSavedValue(key);
 
-        result.replace(match.position(0), match.length(0), value);
-
-        searchStart = result.cbegin() + match.position(0) + value.length();
+        last_pos = match.position() + match.length();
     }
+
+    result += text.substr(last_pos);
 
     return result;
 }
