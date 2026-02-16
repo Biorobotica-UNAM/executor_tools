@@ -21,7 +21,9 @@ find_package(executor_interfaces REQUIRED)
 find_package(supervisor_executor_interfaces REQUIRED)
 find_package(talker_interfaces REQUIRED)
 find_package(listener_interfaces REQUIRED)
+find_package(known_locations_interfaces REQUIRED)
 find_package(hri_tools REQUIRED)
+find_package(navigation_tools REQUIRED)
 
 # -----------------------------
 # Library
@@ -30,6 +32,7 @@ add_library(${PROJECT_NAME}
   src/Executor.cpp
   src/Say.cpp
   src/Listen.cpp
+  src/GoTo.cpp
 )
 
 target_include_directories(${PROJECT_NAME}
@@ -47,7 +50,9 @@ ament_target_dependencies(${PROJECT_NAME}
   supervisor_executor_interfaces
   talker_interfaces
   listener_interfaces
+  known_locations_interfaces
   hri_tools
+  navigation_tools
 )
 
 target_link_libraries(${PROJECT_NAME}
@@ -88,7 +93,9 @@ ament_export_dependencies(
   supervisor_executor_interfaces
   talker_interfaces
   listener_interfaces
+  known_locations_interfaces
   hri_tools
+  navigation_tools
   ament_index_cpp
 )
 
