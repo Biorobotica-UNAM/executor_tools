@@ -1,32 +1,32 @@
 <?xml version="1.0"?>
-<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd"
+            schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>executor_tools</name>
   <version>0.0.0</version>
   <description>Utilities for executor</description>
-  <maintainer email="marco.soriano5102@comunidad.unam.mx">Marco Soriano</maintainer>
-  <license>TODO: License declaration</license>
+
+  <maintainer email="marco.soriano5102@comunidad.unam.mx">
+    Marco Soriano
+  </maintainer>
+
+  <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <build_depend>rclcpp</build_depend>
-  <build_depend>rclcpp_action</build_depend>
-  <build_depend>std_srvs</build_depend>
-  <build_depend>executor_interfaces</build_depend>
-  <build_depend>supervisor_executor_interfaces</build_depend>
-  <build_depend>talker_interfaces</build_depend>
-  <build_depend>listener_interfaces</build_depend>
-  <build_depend>hri_tools</build_depend>
+  <!-- Dependencies -->
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>std_srvs</depend>
+  <depend>executor_interfaces</depend>
+  <depend>supervisor_executor_interfaces</depend>
+  <depend>talker_interfaces</depend>
+  <depend>listener_interfaces</depend>
+  <depend>hri_tools</depend>
+  <depend>ament_index_cpp</depend>
+  <depend>yaml-cpp</depend>
 
-  <exec_depend>rclcpp</exec_depend>
-  <exec_depend>rclcpp_action</exec_depend>
-  <exec_depend>std_srvs</exec_depend>
-  <exec_depend>executor_interfaces</exec_depend>
-  <exec_depend>supervisor_executor_interfaces</exec_depend>
-  <exec_depend>talker_interfaces</exec_depend>
-  <exec_depend>listener_interfaces</exec_depend>
-  <exec_depend>hri_tools</exec_depend>
-
+  <!-- Test -->
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 

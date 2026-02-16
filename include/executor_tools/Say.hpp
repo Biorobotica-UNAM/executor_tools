@@ -1,6 +1,11 @@
 #pragma once
 
+#include <string>
+#include <memory>
+
+#include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
+
 #include "executor_interfaces/action/execute_task.hpp"
 #include "executor_tools/Executor.hpp"
 #include "hri_tools/HRI.hpp"
@@ -25,5 +30,9 @@ private:
   rclcpp::Node::SharedPtr node;
   std::shared_ptr<HRI> hri;
   Executor executor;
+
+  std::string getRandomPhrase(
+      const std::string& action,
+      const std::string& argument);
 };
 
