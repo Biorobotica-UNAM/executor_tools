@@ -5,20 +5,17 @@
 #include "executor_tools/Executor.hpp"
 #include "hri_tools/HRI.hpp"
 
-#include <ament_index_cpp/get_package_share_directory.hpp>
-#include <yaml-cpp/yaml.h>
-
-#include <random>
-#include <regex>
-#include <fstream>
 #include <string>
-#include <unordered_map>
+#include <memory>
 
 class Say
 {
 public:
-  using ExecuteTask = executor_interfaces::action::ExecuteTask;
-  using GoalHandle = rclcpp_action::ServerGoalHandle<ExecuteTask>;
+  using ExecuteTask =
+    executor_interfaces::action::ExecuteTask;
+
+  using GoalHandle =
+    rclcpp_action::ServerGoalHandle<ExecuteTask>;
 
   Say(const rclcpp::Node::SharedPtr& node,
       const std::shared_ptr<HRI>& hri);
@@ -33,7 +30,7 @@ private:
   Executor executor;
 
   std::string getRandomPhrase(const std::string& action_name);
-  std::string replacePlaceholdersWithSaved(const std::string& text);
+  std::string replacePlaceholdersWithSaved(std::string text);
   std::string readSavedValue(const std::string& filename);
 };
 
