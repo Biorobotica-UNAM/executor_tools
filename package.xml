@@ -22,7 +22,9 @@
   <depend>supervisor_executor_interfaces</depend>
   <depend>talker_interfaces</depend>
   <depend>listener_interfaces</depend>
+  <depend>known_locations_interfaces</depend>
   <depend>hri_tools</depend>
+  <depend>navigation_tools</depend>
   <depend>ament_index_cpp</depend>
   <depend>yaml-cpp</depend>
 
