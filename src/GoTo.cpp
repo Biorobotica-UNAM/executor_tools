@@ -1,4 +1,4 @@
-#include "executor_tools/Goto.hpp"
+#include "executor_tools/GoTo.hpp"
 
 GoTo::GoTo(const rclcpp::Node::SharedPtr &node,
            const std::shared_ptr<Navigation> &navigation)
