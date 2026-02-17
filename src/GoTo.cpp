@@ -19,6 +19,8 @@ bool GoTo::run(const std::string &location_name,
 
   bool navigation_completed = navigation->GoTo(location_name);
 
-  return executor.authorize("Going to " + location_name + " Success: " +
-                            (navigation_completed ? "true" : "false"));
+  return executor.authorize(
+      "GoTo", location_name, navigation_completed ? "success" : "failure",
+      std::string("Going to ") + location_name +
+          " success= " + (navigation_completed ? "true" : "false"));
 }
