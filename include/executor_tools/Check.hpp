@@ -6,7 +6,7 @@
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
-class GoTo {
+class Check {
 public:
   using ExecuteTask = executor_interfaces::action::ExecuteTask;
 
