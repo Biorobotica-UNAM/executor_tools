@@ -33,6 +33,7 @@ add_library(${PROJECT_NAME}
   src/Say.cpp
   src/Listen.cpp
   src/GoTo.cpp
+  src/Check.cpp
 )
 
 target_include_directories(${PROJECT_NAME}
@@ -53,6 +54,7 @@ ament_target_dependencies(${PROJECT_NAME}
   known_locations_interfaces
   hri_tools
   navigation_tools
+  hardware_tools
 )
 
 target_link_libraries(${PROJECT_NAME}
@@ -96,6 +98,7 @@ ament_export_dependencies(
   known_locations_interfaces
   hri_tools
   navigation_tools
+  hardware_tools
   ament_index_cpp
 )
 
