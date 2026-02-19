@@ -24,6 +24,7 @@ find_package(listener_interfaces REQUIRED)
 find_package(known_locations_interfaces REQUIRED)
 find_package(hri_tools REQUIRED)
 find_package(navigation_tools REQUIRED)
+find_package(hardware_tools REQUIRED)
 
 # -----------------------------
 # Library

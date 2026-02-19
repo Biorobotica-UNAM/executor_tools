@@ -9,11 +9,10 @@
 class Check {
 public:
   using ExecuteTask = executor_interfaces::action::ExecuteTask;
-
   using GoalHandle = rclcpp_action::ServerGoalHandle<ExecuteTask>;
 
-  GoTo(const rclcpp::Node::SharedPtr &node,
-       const std::shared_ptr<Hardware> &hardware);
+  Check(const rclcpp::Node::SharedPtr &node,
+        const std::shared_ptr<Hardware> &hardware);
 
   bool run(const std::string &argument,
            const std::shared_ptr<GoalHandle> &goalHandle);
