@@ -20,5 +20,5 @@ bool Check::run(const std::string &argument,
 
   return executor.authorize("Check", argument,
                             door_open ? "success" : "failure",
-                            std::string("Checking ") + argument ));
+                            std::string("Checking ") + argument);
 }
