@@ -1,7 +1,8 @@
+#include "executor_tools/Knowledge.hpp"
 #include "executor_tools/Save.hpp"
 
 Save::Save(const rclcpp::Node::SharedPtr &node,
-           const std::shared_ptr<KnowledgeTools> &knowledge)
+           const std::shared_ptr<Knowledge> &knowledge)
     : node(node), knowledge(knowledge), executor(node) {}
 
 bool Save::run(const std::string &argument,
@@ -16,7 +17,6 @@ bool Save::run(const std::string &argument,
   goalHandle->publish_feedback(feedback);
 
   // 2. -------------------- CALL KNOWLEDGE TOOL --------------------
-  // Aquí NO escribimos el archivo. 
   bool success = knowledge->saveInfo(argument); 
 
   // 3. -------------------- AUTHORIZATION --------------------
