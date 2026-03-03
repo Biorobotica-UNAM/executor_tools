@@ -17,7 +17,7 @@ bool Save::run(const std::string &argument,
   goalHandle->publish_feedback(feedback);
 
   // 2. -------------------- CALL KNOWLEDGE TOOL --------------------
-  bool success = knowledge->saveInfo(argument); 
+  bool success = knowledge->saveToFile(argument);
 
   // 3. -------------------- AUTHORIZATION --------------------
   return executor.authorize("Save", argument,

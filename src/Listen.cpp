@@ -1,9 +1,11 @@
 #include "executor_tools/Listen.hpp"
 
 Listen::Listen(const rclcpp::Node::SharedPtr& node,
-               const std::shared_ptr<HRI>& hri)
-: node(node),
-  hri(hri),
+               const std::shared_ptr<HRI>& hri,
+               const std::shared_ptr<Knowledge>& knowledge)
+: knowledge(knowledge),
+  node(node),
+  hri(hri), 
   executor(node)
 {
 }
@@ -30,6 +32,8 @@ bool Listen::run(
   {
     recognized = "no_input";
   }
+
+  knowledge->setLastRecognized(recognized); // Guardamos el dato
 
   // -------------------- AUTHORIZE --------------------
   return executor.authorize(
