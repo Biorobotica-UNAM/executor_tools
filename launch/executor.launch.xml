@@ -5,9 +5,9 @@
   
     <push_ros_namespace namespace="executor"/>
     
-	<include file="$(find-pkg-share task_manager)/launch/task_manager.launch.xml"/>
+	<include file="$(find-pkg-share executor_manager)/launch/executor_manager.launch.xml"/>
 	
-    <include file="$(find-pkg-share tasks)/launch/tasks.launch.xml"/>
+    <include file="$(find-pkg-share executor_worker)/launch/executor_worker.launch.xml"/>
     
   </group>
 

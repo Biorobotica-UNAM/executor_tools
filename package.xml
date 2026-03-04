@@ -1,14 +1,35 @@
 <?xml version="1.0"?>
-<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd"
+            schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>executor_tools</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="joshuayz@comunidad.unam.mx">joshua</maintainer>
-  <license>TODO: License declaration</license>
+  <description>Utilities for executor</description>
+
+  <maintainer email="marco.soriano5102@comunidad.unam.mx">
+    Marco Soriano
+  </maintainer>
+
+  <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <!-- Dependencies -->
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>std_srvs</depend>
+  <depend>executor_interfaces</depend>
+  <depend>supervisor_executor_interfaces</depend>
+  <depend>talker_interfaces</depend>
+  <depend>listener_interfaces</depend>
+  <depend>known_locations_interfaces</depend>
+  <depend>hri_tools</depend>
+  <depend>navigation_tools</depend>
+  <depend>hardware_tools</depend>
+  <depend>ament_index_cpp</depend>
+  <depend>yaml-cpp</depend>
+
+  <!-- Test -->
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 
@@ -16,3 +37,4 @@
     <build_type>ament_cmake</build_type>
   </export>
 </package>
+
