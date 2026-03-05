@@ -14,6 +14,8 @@ bool Listen::run(
   const std::string& grammar,
   const std::shared_ptr<GoalHandle>& goalHandle)
 {
+  std::string grammar_file = grammar + ".json";
+
   // -------------------- FEEDBACK --------------------
   auto feedback =
     std::make_shared<ExecuteTask::Feedback>();
@@ -21,12 +23,12 @@ bool Listen::run(
   feedback->feedback.step_id = 1;
   feedback->feedback.progress = 0.5f;
   feedback->feedback.message =
-    "Listening with grammar: " + grammar;
+    "Listening with grammar: " + grammar_file;
 
   goalHandle->publish_feedback(feedback);
 
   // -------------------- HRI LISTEN --------------------
-  std::string recognized = hri->Listen(grammar);
+  std::string recognized = hri->Listen(grammar_file);
 
   if (recognized.empty())
   {
@@ -43,4 +45,3 @@ bool Listen::run(
     "Recognized: " + recognized
   );
 }
-
