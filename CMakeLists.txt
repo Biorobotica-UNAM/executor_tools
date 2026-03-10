@@ -36,6 +36,7 @@ add_library(${PROJECT_NAME}
   src/GoTo.cpp
   src/Check.cpp
   src/Save.cpp
+  src/Follow.cpp
 )
 
 target_include_directories(${PROJECT_NAME}
