@@ -30,11 +30,12 @@ bool Follow::run(const std::string &arg,
 
   auto result_future = client->async_send_request(request);
 
-  // Espera síncrona corta para confirmar la activación
   bool service_success = false;
-  if (rclcpp::spin_until_future_complete(node, result_future, std::chrono::seconds(1)) ==
-      rclcpp::FutureReturnCode::SUCCESS) {
-    service_success = result_future.get()->success;
+  if (result_future.wait_for(std::chrono::seconds(1)) == std::future_status::ready) {
+    auto response = result_future.get();
+    service_success = response->success;
+  } else {
+    RCLCPP_ERROR(node->get_logger(), "Service response timed out.");
   }
 
   // -------------------- AUTHORIZE --------------------
