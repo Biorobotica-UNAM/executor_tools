@@ -26,7 +26,7 @@ bool Follow::run(const std::string &arg,
 
   auto request = std::make_shared<std_srvs::srv::SetBool::Request>();
   // Si arg es "stop", apagamos; de lo contrario encendemos
-  request->data = (arg != "stop"); 
+  request->data = (arg != "false"); 
 
   auto result_future = client->async_send_request(request);
 
