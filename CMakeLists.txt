@@ -38,6 +38,7 @@ add_library(${PROJECT_NAME}
   src/Save.cpp
   src/Follow.cpp
   src/MemorizeFace.cpp
+  src/Wait.cpp
 )
 
 target_include_directories(${PROJECT_NAME}
