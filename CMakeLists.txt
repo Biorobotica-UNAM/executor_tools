@@ -25,6 +25,9 @@ find_package(known_locations_interfaces REQUIRED)
 find_package(hri_tools REQUIRED)
 find_package(navigation_tools REQUIRED)
 find_package(hardware_tools REQUIRED)
+find_package(vision_tools REQUIRED)
+find_package(vision_interfaces REQUIRED)
+find_package(faces_interfaces REQUIRED)
 
 # -----------------------------
 # Library
@@ -60,6 +63,9 @@ ament_target_dependencies(${PROJECT_NAME}
   hri_tools
   navigation_tools
   hardware_tools
+  vision_tools      
+  vision_interfaces 
+  faces_interfaces
 )
 
 target_link_libraries(${PROJECT_NAME}
