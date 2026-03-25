@@ -24,7 +24,7 @@ bool Find::run(const std::string &person_name,
 
   // 3. -------------------- PETICIÓN (REQUEST) --------------------
   auto request = std::make_shared<faces_interfaces::srv::FaceRecog::Request>();
-  request->name = person_name; 
+  request->name = (person_name == "person") ? "" : person_name;
 
   auto future = client->async_send_request(request);
 
