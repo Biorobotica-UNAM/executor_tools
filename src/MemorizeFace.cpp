@@ -1,33 +1,50 @@
 #include "executor_tools/MemorizeFace.hpp"
+#include "vision_tools/Vision.hpp"
 
-MemorizeFace::MemorizeFace(const rclcpp::Node::SharedPtr &node)
-    : node(node), executor(node) {}
+MemorizeFace::MemorizeFace(const rclcpp::Node::SharedPtr &node,
+                           const std::shared_ptr<Vision> &vision)
+    : node(node), vision(vision), executor(node) {}
 
 bool MemorizeFace::run(const std::string &person_name,
                       const std::shared_ptr<GoalHandle> &goalHandle) {
 
-  // 1. -------------------- VALIDACIÓN DE ARGUMENTO --------------------
+  // 1. -------------------- VALIDACIÓN --------------------
   if (person_name.empty() || person_name == "unknown") {
-    RCLCPP_WARN(node->get_logger(), "MemorizeFace: Invalid or unknown person name.");
-    return executor.authorize("memorize_face", person_name, "failure", 
-                              "Invalid person name for memorization");
+    return executor.authorize("memorize_face", person_name, "failure", "Invalid name");
   }
 
-  // 2. -------------------- FEEDBACK --------------------
   auto feedback = std::make_shared<ExecuteTask::Feedback>();
-  feedback->feedback.step_id = 1;
-  feedback->feedback.progress = 0.5f;
-  feedback->feedback.message = "Preparing vision system to memorize: " + person_name;
-
+  feedback->feedback.message = "MemorizeFace: Capturing face for " + person_name;
   goalHandle->publish_feedback(feedback);
 
-  // 3. -------------------- PLACEHOLDER DE LA TOOL --------------------
-  // TODO: Integrar aquí el cliente del servicio de reconocimiento facial (vision_tools)
-  RCLCPP_INFO(node->get_logger(), "MemorizeFace: Tool for %s is not yet implemented.", person_name.c_str());
+  RCLCPP_INFO(node->get_logger(), "MemorizeFace: Registering person in current position.");
 
-  // Por ahora mandamos un reject o success simulado para no trabar el plan
-  // Usaremos "success" para que el planificador crea que terminó y pase a la siguiente,
-  // pero con un mensaje de advertencia en el contexto.
-  return executor.authorize("memorize_face", person_name, "success",
-                            "MemorizeFace tool not implemented yet, but arg received: " + person_name);
+  // 2. -------------------- VERIFICACIÓN RÁPIDA --------------------
+  // En lugar de llamar a la FSM (que escanea), llamamos a un servicio de visión 
+  // que solo cheque si hay un rostro EN ESTA IMAGEN. 
+  // (Asumiendo que tienes un método 'IdentifyPerson' o 'DetectPerson' simple en Vision.cpp)
+  
+  bool is_someone_there = vision->IdentifyPerson("unknown"); 
+
+  if (!is_someone_there) {
+    RCLCPP_WARN(node->get_logger(), "MemorizeFace: No face detected in current FOV.");
+    return executor.authorize("memorize_face", person_name, "failure", "No face in front of Justina");
+  }
+
+  // 3. -------------------- REGISTRO --------------------
+  bool registered = false;
+  try {
+      // Directo al grano: guardar lo que estamos viendo
+      registered = vision->RegisterPerson(person_name);
+  } catch (const std::exception &e) {
+      return executor.authorize("memorize_face", person_name, "failure", "Service error");
+  }
+
+  // 4. -------------------- RESULTADO --------------------
+  if (registered) {
+    RCLCPP_INFO(node->get_logger(), "MemorizeFace: %s saved.", person_name.c_str());
+    return executor.authorize("memorize_face", person_name, "success", "Face registered");
+  } else {
+    return executor.authorize("memorize_face", person_name, "failure", "Capture failed");
+  }
 }

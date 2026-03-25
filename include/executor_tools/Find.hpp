@@ -1,23 +1,24 @@
 #pragma once
 
+#include "rclcpp/rclcpp.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
 #include "executor_interfaces/action/execute_task.hpp"
 #include "executor_tools/Executor.hpp"
-#include "rclcpp_action/rclcpp_action.hpp"
-#include "vision_tools/Vision.hpp"
+#include "faces_interfaces/srv/face_recog.hpp" 
 
-class Wait {
+class Find {
 public:
   using ExecuteTask = executor_interfaces::action::ExecuteTask;
   using GoalHandle = rclcpp_action::ServerGoalHandle<ExecuteTask>;
 
-  Wait(const rclcpp::Node::SharedPtr &node, 
-       const std::shared_ptr<Vision> &vision);
+  explicit Find(const rclcpp::Node::SharedPtr &node);
 
-  bool run(const std::string &argument,
+  bool run(const std::string &person_name,
            const std::shared_ptr<GoalHandle> &goalHandle);
 
 private:
   rclcpp::Node::SharedPtr node;
-  std::shared_ptr<Vision> vision; 
   Executor executor;
+  
+  rclcpp::Client<faces_interfaces::srv::FaceRecog>::SharedPtr client;
 };

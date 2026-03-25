@@ -41,7 +41,7 @@ add_library(${PROJECT_NAME}
   src/Save.cpp
   src/Follow.cpp
   src/MemorizeFace.cpp
-  src/Wait.cpp
+  src/Find.cpp
 )
 
 target_include_directories(${PROJECT_NAME}
@@ -111,6 +111,8 @@ ament_export_dependencies(
   hri_tools
   navigation_tools
   hardware_tools
+  vision_tools
+  faces_interfaces
   ament_index_cpp
 )
 
