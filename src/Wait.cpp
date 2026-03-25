@@ -11,33 +11,39 @@ bool Wait::run(const std::string &argument,
   auto feedback = std::make_shared<ExecuteTask::Feedback>();
   feedback->feedback.step_id = 1;
   feedback->feedback.progress = 0.1f;
-  feedback->feedback.message = "Wait: Initializing vision system...";
+  feedback->feedback.message = "Wait: Starting Active Search (FSM)...";
   goalHandle->publish_feedback(feedback);
 
-  RCLCPP_INFO(node->get_logger(), "Wait tool started. Using Vision interface.");
+  RCLCPP_INFO(node->get_logger(), "Wait tool started. Invoking PersonFinder FSM.");
 
-  // -------------------- BUCLE DE ESPERA --------------------
-  rclcpp::WallRate rate(5); // Bajamos un poco la frecuencia para no saturar los servicios
+  // -------------------- LÓGICA DE EJECUCIÓN --------------------
   bool person_found = false;
 
-  while (rclcpp::ok() && !person_found) {
-    // 1. Verificamos si el Supervisor canceló la tarea
-    if (goalHandle->is_canceling()) {
-      return executor.authorize("wait", argument, "failure", "Wait action canceled");
-    }
+  try {
+      if (goalHandle->is_canceling()) {
+          return executor.authorize("wait", argument, "failure", "Wait canceled before start");
+      }
 
-    // 2. Usamos la interfaz de Vision para detectar a la persona
-    person_found = vision->DetectPerson("unknown");
+      std::string target = argument.empty() ? "unknown" : argument;
+      
+      feedback->feedback.message = "Justina is scanning the room for: " + target;
+      goalHandle->publish_feedback(feedback);
 
-    if (!person_found) {
-        feedback->feedback.message = "Still waiting for a person to appear...";
-        goalHandle->publish_feedback(feedback);
-        rate.sleep();
-    }
+      person_found = vision->DetectPerson(target);
+
+  } catch (const std::exception &e) {
+      RCLCPP_ERROR(node->get_logger(), "Wait: FSM Service Error: %s", e.what());
+      return executor.authorize("wait", argument, "failure", "FSM Service unavailable");
   }
 
-  // Si salimos del bucle es porque person_found es true
-  RCLCPP_INFO(node->get_logger(), "Person detected via Vision Interface!");
-
-  return executor.authorize("wait", argument, "success", "Person detected, wait finished");
+  // -------------------- RESULTADO FINAL --------------------
+  if (person_found) {
+      feedback->feedback.message = "Target located successfully!";
+      goalHandle->publish_feedback(feedback);
+      RCLCPP_INFO(node->get_logger(), "Wait: Person found by FSM.");
+      return executor.authorize("wait", argument, "success", "Person located, scan finished");
+  } else {
+      RCLCPP_WARN(node->get_logger(), "Wait: FSM finished without finding anyone.");
+      return executor.authorize("wait", argument, "failure", "No person detected after full scan");
+  }
 }
