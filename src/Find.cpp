@@ -29,10 +29,10 @@ bool Find::run(const std::string &person_name,
   auto future = client->async_send_request(request);
 
   // 4. -------------------- ESPERA SÍNCRONA (TIMEOUT) --------------------
-  if (rclcpp::spin_until_future_complete(node, future, 30s) != rclcpp::FutureReturnCode::SUCCESS) {
-    RCLCPP_ERROR(node->get_logger(), "Find: Service call failed or timed out.");
-    return executor.authorize("Find", person_name, "failure", "Search timed out");
-  }
+  //if (rclcpp::spin_until_future_complete(node, future, 30s) != rclcpp::FutureReturnCode::SUCCESS) {
+  //  RCLCPP_ERROR(node->get_logger(), "Find: Service call failed or timed out.");
+  //  return executor.authorize("Find", person_name, "failure", "Search timed out");
+  //}
 
   auto response = future.get();
 
