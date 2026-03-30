@@ -13,6 +13,12 @@
         name="find_seat_action">
     </node>
 
+    <node
+        pkg="tasks"
+        exec="find_object_action"
+        name="find_object_action">
+    </node>
+
 
 </launch>
 
