@@ -29,6 +29,7 @@
   <depend>ament_index_cpp</depend>
   <depend>yaml-cpp</depend>
   <depend>vision_tools</depend>
+  <depend>tasks_tools</depend>
   <depend>vision_interfaces</depend>
   <depend>faces_interfaces</depend>
 
