@@ -42,6 +42,7 @@ add_library(${PROJECT_NAME}
   src/Follow.cpp
   src/MemorizeFace.cpp
   src/Find.cpp
+  src/Point.cpp
 )
 
 target_include_directories(${PROJECT_NAME}

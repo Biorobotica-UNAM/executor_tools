@@ -1,0 +1,26 @@
+#include "executor_tools/Point.hpp"
+
+Point::Point(const rclcpp::Node::SharedPtr &node,
+             const std::shared_ptr<Hardware> &hardware)
+    : node(node), hardware(hardware), executor(node) {}
+
+bool Point::run(const std::string &target_name,
+               const std::shared_ptr<GoalHandle> &goalHandle) {
+
+  // -------------------- FEEDBACK --------------------
+  auto feedback = std::make_shared<ExecuteTask::Feedback>();
+  feedback->feedback.message = "Executing pointing motion to: " + target_name;
+  goalHandle->publish_feedback(feedback);
+
+  RCLCPP_INFO(node->get_logger(), "Point tool: Aligning and pointing to target.");
+
+  // -------------------- HARDWARE POINTING --------------------
+  
+  bool motion_completed = hardware->PointingMotion();
+
+  // -------------------- AUTHORIZE --------------------
+
+  return executor.authorize("Point", target_name,
+                            motion_completed ? "success" : "failure",
+                            motion_completed ? "Pointing motion finished" : "Pointing motion failed");
+}

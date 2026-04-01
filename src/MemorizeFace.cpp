@@ -20,9 +20,6 @@ bool MemorizeFace::run(const std::string &person_name,
   RCLCPP_INFO(node->get_logger(), "MemorizeFace: Registering person in current position.");
 
   // 2. -------------------- VERIFICACIÓN RÁPIDA --------------------
-  // En lugar de llamar a la FSM (que escanea), llamamos a un servicio de visión 
-  // que solo cheque si hay un rostro EN ESTA IMAGEN. 
-  // (Asumiendo que tienes un método 'IdentifyPerson' o 'DetectPerson' simple en Vision.cpp)
   
   bool is_someone_there = vision->IdentifyPerson("unknown"); 
 
