@@ -1,16 +1,16 @@
 #include "executor_tools/Find.hpp"
-
 // =========================================================
 // Constructor
 // =========================================================
 Find::Find(const rclcpp::Node::SharedPtr& node,
-           const std::shared_ptr<Tasks>& tasks)
+           const std::shared_ptr<Tasks>& tasks,
+           const std::shared_ptr<Knowledge>& knowledge)
 : node(node),
   tasks(tasks),
+  knowledge(knowledge),
   executor(node)
 {
 }
-
 // =========================================================
 // Parsea "category_item" → {"category", "item"}
 // =========================================================
@@ -26,7 +26,18 @@ std::pair<std::string, std::string> Find::parseCategoryItem(const std::string& c
     }
     return {category_item.substr(0, pos), category_item.substr(pos + 1)};
 }
-
+// =========================================================
+// Lee item desde Knowledge RAM
+// =========================================================
+std::string Find::resolveItem(const std::string& item)
+{
+    std::string value = knowledge->getNameFromLabel(item);
+    if (value == item)
+        RCLCPP_WARN(node->get_logger(),
+                    "Find: Label '%s' not found in Knowledge RAM, using as-is",
+                    item.c_str());
+    return value;
+}
 // =========================================================
 // Ejecuta find
 // =========================================================
@@ -35,17 +46,16 @@ bool Find::run(const std::string& category_item,
 {
     // -------------------- PARSE --------------------
     auto [category, item] = parseCategoryItem(category_item);
-
     // -------------------- FEEDBACK --------------------
     auto feedback = std::make_shared<ExecuteTask::Feedback>();
     feedback->feedback.step_id = 1;
     feedback->feedback.progress = 0.5f;
     feedback->feedback.message  = "Buscando: " + item + " (categoría: " + category + ")";
     goalHandle->publish_feedback(feedback);
-
+    // -------------------- RESOLVE --------------------
+    std::string resolved_item = resolveItem(item);
     // -------------------- TASKS CALL --------------------
-    auto response = tasks->Find(category, item);
-
+    auto response = tasks->Find(category, resolved_item);
     // -------------------- RESULT STRING --------------------
     std::string result = response.success
         ? "found: "     + response.detected_class +
@@ -54,7 +64,6 @@ bool Find::run(const std::string& category_item,
           " y="         + std::to_string(response.point.point.y) +
           " z="         + std::to_string(response.point.point.z)
         : "not_found: " + response.message;
-
     // -------------------- AUTHORIZE --------------------
     return executor.authorize(
         "find",
