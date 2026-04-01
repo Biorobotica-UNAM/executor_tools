@@ -26,6 +26,7 @@ find_package(hri_tools REQUIRED)
 find_package(navigation_tools REQUIRED)
 find_package(hardware_tools REQUIRED)
 find_package(vision_tools REQUIRED)
+find_package(tasks_tools REQUIRED)
 find_package(vision_interfaces REQUIRED)
 find_package(faces_interfaces REQUIRED)
 
@@ -64,7 +65,8 @@ ament_target_dependencies(${PROJECT_NAME}
   hri_tools
   navigation_tools
   hardware_tools
-  vision_tools      
+  vision_tools
+  tasks_tools
   vision_interfaces 
   faces_interfaces
 )
@@ -113,6 +115,8 @@ ament_export_dependencies(
   navigation_tools
   hardware_tools
   vision_tools
+  tasks_tools
+  vision_interfaces
   faces_interfaces
   ament_index_cpp
 )
