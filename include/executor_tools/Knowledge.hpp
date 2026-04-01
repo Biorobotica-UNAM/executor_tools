@@ -72,29 +72,35 @@ public:
         }
     }
 
-    //Lo llama save
-    bool saveToFile(const std::string &fileName) {
-        // 1. Actualizamos la memoria RAM (labels) inmediatamente
-        // fileName sería algo como "name_1" o "person_A"
+    // Lo llama la tool Save
+    bool saveToFile(const std::string &labelName) {
+        // 1. Actualizamos la memoria RAM en el nodo YAML completo
+        // labelName sería "name_1", "drink_1", etc.
         if (last_recognized_ != "unknown") {
-            full_config_["labels"][fileName] = last_recognized_;
-            RCLCPP_INFO(node->get_logger(), "Knowledge: Label '%s' linked to '%s' in RAM.", 
-                        fileName.c_str(), last_recognized_.c_str());
-        }
-
-        // 2. Persistencia en DISCO (creamos el archivo .yaml)
-        // Usamos el fileName como nombre de archivo para que sea fácil de encontrar
-        std::string path = "src/Knowledge/knowledge_bank/save/" + fileName + ".yaml";
-        std::ofstream fout(path, std::ios::trunc);
-        
-        if (!fout.is_open()) {
-            RCLCPP_ERROR(node->get_logger(), "Knowledge: Could not open file for saving: %s", path.c_str());
+            // Esto actualiza la sección 'labels' en la variable full_config_
+            full_config_["labels"][labelName] = last_recognized_;
+            
+            RCLCPP_INFO(node->get_logger(), "Knowledge: Linked label '%s' to '%s' in RAM.", 
+                        labelName.c_str(), last_recognized_.c_str());
+        } else {
+            RCLCPP_WARN(node->get_logger(), "Knowledge: Attempted to save 'unknown' value to label '%s'. Skipping.", labelName.c_str());
             return false;
         }
 
-        fout << "value: \"" << last_recognized_ << "\"" << std::endl;
-        fout << "category: \"" << last_category_ << "\"" << std::endl;
+        // 2. Persistencia en DISCO: Sobrescribimos el archivo MAESTRO
+        std::string path = "src/Knowledge/knowledge_bank/save/interest_words.yaml";
+        std::ofstream fout(path, std::ios::trunc);
+        
+        if (!fout.is_open()) {
+            RCLCPP_ERROR(node->get_logger(), "Knowledge: Could not open MASTER file for saving: %s", path.c_str());
+            return false;
+        }
+
+        // 3. Volcamos TODO el nodo YAML (incluyendo categories y los nuevos labels)
+        fout << full_config_; 
         fout.close();
+
+        RCLCPP_INFO(node->get_logger(), "Knowledge: Master file interest_words.yaml updated successfully.");
         return true;
     }
 
@@ -102,6 +108,6 @@ private:
     rclcpp::Node::SharedPtr node;
     YAML::Node full_config_;
     std::string last_recognized_;
-    std::string last_category_; // Nueva variable para saber qué tipo de palabra es
-    std::map<std::string, std::string> word_bank_; // Memoria de palabras de interés
+    std::string last_category_; 
+    std::map<std::string, std::string> word_bank_;
 };
