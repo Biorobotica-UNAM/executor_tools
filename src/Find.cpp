@@ -17,7 +17,6 @@ Find::Find(const rclcpp::Node::SharedPtr& node,
 std::pair<std::string, std::string> Find::parseCategoryItem(const std::string& category_item)
 {
     size_t pos = category_item.find('_');
-
     if (pos == std::string::npos)
     {
         RCLCPP_WARN(node->get_logger(),
@@ -25,9 +24,7 @@ std::pair<std::string, std::string> Find::parseCategoryItem(const std::string& c
                     category_item.c_str());
         return {category_item, ""};
     }
-
     std::string category = category_item.substr(0, pos);
-
     if (pos + 1 >= category_item.size())
     {
         RCLCPP_WARN(node->get_logger(),
@@ -35,8 +32,6 @@ std::pair<std::string, std::string> Find::parseCategoryItem(const std::string& c
                     category_item.c_str());
         return {category, ""};
     }
-
-    // Caso normal
     return {category, category_item.substr(pos + 1)};
 }
 // =========================================================
@@ -45,7 +40,6 @@ std::pair<std::string, std::string> Find::parseCategoryItem(const std::string& c
 std::string Find::resolveItem(const std::string& item)
 {
     std::string value = knowledge->getNameFromLabel(item);
-
     if (value == item)
     {
         RCLCPP_WARN(node->get_logger(),
@@ -53,7 +47,6 @@ std::string Find::resolveItem(const std::string& item)
                     item.c_str());
         return "";
     }
-
     return value;
 }
 // =========================================================
@@ -72,21 +65,51 @@ bool Find::run(const std::string& category_item,
     goalHandle->publish_feedback(feedback);
     // -------------------- RESOLVE --------------------
     std::string resolved_item = resolveItem(item);
-    // -------------------- TASKS CALL --------------------
-    auto response = tasks->Find(category, resolved_item);
-    // -------------------- RESULT STRING --------------------
-    std::string result = response.success
-        ? "found: "     + response.detected_class +
-          " conf="      + std::to_string(response.confidence) +
-          " x="         + std::to_string(response.point.point.x) +
-          " y="         + std::to_string(response.point.point.y) +
-          " z="         + std::to_string(response.point.point.z)
-        : "not_found: " + response.message;
+    // -------------------- TASKS CALL + RESULT --------------------
+    bool        success = false;
+    std::string result;
+
+    if (category == "object")
+    {
+        auto response = tasks->FindObject(resolved_item);
+        success = response.success;
+        result  = success
+            ? "found: "     + response.detected_class +
+              " conf="      + std::to_string(response.confidence) +
+              " x="         + std::to_string(response.point.point.x) +
+              " y="         + std::to_string(response.point.point.y) +
+              " z="         + std::to_string(response.point.point.z)
+            : "not_found: " + response.message;
+    }
+    else if (category == "person")
+    {
+        auto response = tasks->FindPerson(resolved_item);
+        success = response.success;
+        result  = success
+            ? "found: "      + response.name +
+              " description=" + response.description
+            : "not_found: person not recognized";
+    }
+    else if (category == "seat")
+    {
+        auto response = tasks->FindSeat();
+        success = response.success;
+        result  = success
+            ? "found: seat available"
+            : "not_found: " + response.message;
+    }
+    else
+    {
+        RCLCPP_ERROR(node->get_logger(),
+                     "Find: unknown category '%s'", category.c_str());
+        result  = "not_found: unknown category " + category;
+        success = false;
+    }
     // -------------------- AUTHORIZE --------------------
     return executor.authorize(
         "find",
         category_item,
         result,
-        response.success ? "Objeto localizado" : "Objeto no encontrado"
+        success ? "Objeto localizado" : "Objeto no encontrado"
     );
 }
