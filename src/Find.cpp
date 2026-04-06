@@ -17,14 +17,27 @@ Find::Find(const rclcpp::Node::SharedPtr& node,
 std::pair<std::string, std::string> Find::parseCategoryItem(const std::string& category_item)
 {
     size_t pos = category_item.find('_');
+
     if (pos == std::string::npos)
     {
         RCLCPP_WARN(node->get_logger(),
-                    "No underscore found in '%s', using full string as item",
+                    "No underscore found in '%s', using full string as category and empty item",
                     category_item.c_str());
-        return {"", category_item};
+        return {category_item, ""};
     }
-    return {category_item.substr(0, pos), category_item.substr(pos + 1)};
+
+    std::string category = category_item.substr(0, pos);
+
+    if (pos + 1 >= category_item.size())
+    {
+        RCLCPP_WARN(node->get_logger(),
+                    "No item found after '_' in '%s', item will be empty",
+                    category_item.c_str());
+        return {category, ""};
+    }
+
+    // Caso normal
+    return {category, category_item.substr(pos + 1)};
 }
 // =========================================================
 // Lee item desde Knowledge RAM
@@ -32,10 +45,15 @@ std::pair<std::string, std::string> Find::parseCategoryItem(const std::string& c
 std::string Find::resolveItem(const std::string& item)
 {
     std::string value = knowledge->getNameFromLabel(item);
+
     if (value == item)
+    {
         RCLCPP_WARN(node->get_logger(),
-                    "Find: Label '%s' not found in Knowledge RAM, using as-is",
+                    "Find: Label '%s' not found in Knowledge RAM, returning empty",
                     item.c_str());
+        return "";
+    }
+
     return value;
 }
 // =========================================================
