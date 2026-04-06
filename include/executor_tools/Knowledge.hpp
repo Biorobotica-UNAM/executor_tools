@@ -1,15 +1,20 @@
 #pragma once
 #include "rclcpp/rclcpp.hpp"
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <fstream>
 #include <string>
 #include <vector>
 #include <map>
+#include <algorithm>
 #include <yaml-cpp/yaml.h> 
 
 class Knowledge {
 public:
     Knowledge(const rclcpp::Node::SharedPtr &node) : node(node), last_recognized_("") {
-        std::string path = "src/Knowledge/knowledge_bank/save/interest_words.yaml";
+        std::string package_share = ament_index_cpp::get_package_share_directory("knowledge_bank");
+        std::string path = package_share + "/save/interest_words.yaml";
+        
+        RCLCPP_INFO(node->get_logger(), "Knowledge: Loading from: %s", path.c_str());
         loadInterestWords(path);
     }
 
