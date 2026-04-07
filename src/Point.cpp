@@ -9,6 +9,7 @@ bool Point::run(const std::string &target_name,
 
   // -------------------- FEEDBACK --------------------
   auto feedback = std::make_shared<ExecuteTask::Feedback>();
+  bool motion_completed = false;
   feedback->feedback.message = "Executing pointing motion to: " + target_name;
   goalHandle->publish_feedback(feedback);
 
@@ -16,7 +17,14 @@ bool Point::run(const std::string &target_name,
 
   // -------------------- HARDWARE POINTING --------------------
   
-  bool motion_completed = hardware->PointingMotion();
+  if(target_name == "enable")
+  {
+    motion_completed = hardware->PointingMotionEnable();
+  }
+  else if(target_name == "disable")
+  {
+    motion_completed = hardware->PointingMotionDisable();
+  }
 
   // -------------------- AUTHORIZE --------------------
 
