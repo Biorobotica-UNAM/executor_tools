@@ -61,32 +61,51 @@ bool Describe::run(const std::string &person_name,
     else if (person_name == knowledge->getNameFromLabel("name_2")) suffix = "_2";
     else return executor.authorize("Describe", person_name, "failure", "Name not in interest_words");
 
-    // -------------------- STRING PARSER (ATTRIBUTES) --------------------
-    // Género
-    std::vector<std::string> genders = {"female", "woman", "male", "men", "boy", "person"};
-    for (const auto& g : genders) {
-        if (description.find(g) != std::string::npos) {
-            knowledge->updateLabel("guest_gender" + suffix, g);
-            break;
-        }
-    }
-    // Edad
-    std::vector<std::string> ages = {"adult", "young", "elderly"};
-    for (const auto& a : ages) {
-        if (description.find(a) != std::string::npos) {
-            knowledge->updateLabel("guest_age" + suffix, a);
-            break;
-        }
-    }
-    // Colores de ropa
-    std::vector<std::string> colors = {"green", "red", "black", "white", "blue", "yellow", "gray", "grey", "navy", "orange", "purple"};
-    for (const auto& c : colors) {
-        if (description.find(c) != std::string::npos) {
-            knowledge->updateLabel("guest_shirt_color" + suffix, c);
-            break;
+    // -------------------- STRING PARSER (TOKENIZER) --------------------
+    // El script de Python devuelve: "gender, shirt_color, age, hair, emotion, accessories"
+    std::vector<std::string> tokens;
+    std::stringstream ss(description);
+    std::string item;
+
+    // Tokenizamos usando la coma como delimitador
+    while (std::getline(ss, item, ',')) {
+        size_t first = item.find_first_not_of(' ');
+        if (std::string::npos != first) {
+            size_t last = item.find_last_not_of(' ');
+            tokens.push_back(item.substr(first, (last - first + 1)));
         }
     }
 
+    // -------------------- KNOWLEDGE UPDATE --------------------
+    if (tokens.size() >= 6) {
+        // 0: Gender
+        knowledge->updateLabel("guest_gender" + suffix,      tokens[0]);
+        
+        // 1: Shirt Color (Florence regresa ej: "red shirt")
+        knowledge->updateLabel("guest_shirt_color" + suffix, tokens[1]);
+        
+        // 2: Age
+        knowledge->updateLabel("guest_age" + suffix,         tokens[2]);
+        
+        // 3: Hair (Nuevo label en YAML)
+        knowledge->updateLabel("guest_hair" + suffix,        tokens[3]);
+        
+        // 4: Emotion (Nuevo label en YAML)
+        knowledge->updateLabel("guest_emotion" + suffix,     tokens[4]);
+        
+        // 5: Accessories (Nuevo label en YAML)
+        knowledge->updateLabel("guest_accessories" + suffix, tokens[5]);
+    } else {
+        RCLCPP_WARN(node->get_logger(), "Describe: Unexpected string format from vision: %s", description.c_str());
+    }
+
+    // -------------------- PERSISTENCE --------------------
     knowledge->saveToFileDirect();
-    return executor.authorize("Describe", person_name, "success", "Info saved for " + person_name);
+
+    return executor.authorize(
+        "describe", 
+        person_name, 
+        "success", 
+        "Info saved for " + person_name + ". Desc: " + description
+    );
 }
