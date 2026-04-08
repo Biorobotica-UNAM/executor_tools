@@ -109,6 +109,27 @@ public:
         return true;
     }
 
+    void updateLabel(const std::string &label, const std::string &value) {
+        full_config_["labels"][label] = value;
+    }
+
+    bool saveToFileDirect() {
+        std::string path = "src/Knowledge/knowledge_bank/save/interest_words.yaml";
+        std::ofstream fout(path, std::ios::trunc);
+        
+        if (!fout.is_open()) {
+            RCLCPP_ERROR(node->get_logger(), "Knowledge: Could not open MASTER file for direct saving.");
+            return false;
+        }
+
+        // 2. Volcamos la RAM al disco directamente sin pasar por las validaciones de "last_recognized"
+        fout << full_config_; 
+        fout.close();
+
+        RCLCPP_INFO(node->get_logger(), "Knowledge: Direct save successful.");
+        return true;
+    }   
+
 private:
     rclcpp::Node::SharedPtr node;
     YAML::Node full_config_;
