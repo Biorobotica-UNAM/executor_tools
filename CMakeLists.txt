@@ -25,6 +25,10 @@ find_package(known_locations_interfaces REQUIRED)
 find_package(hri_tools REQUIRED)
 find_package(navigation_tools REQUIRED)
 find_package(hardware_tools REQUIRED)
+find_package(vision_tools REQUIRED)
+find_package(tasks_tools REQUIRED)
+find_package(vision_interfaces REQUIRED)
+find_package(faces_interfaces REQUIRED)
 
 # -----------------------------
 # Library
@@ -35,6 +39,11 @@ add_library(${PROJECT_NAME}
   src/Listen.cpp
   src/GoTo.cpp
   src/Check.cpp
+  src/Save.cpp
+  src/Follow.cpp
+  src/MemorizeFace.cpp
+  src/Find.cpp
+  src/Point.cpp
 )
 
 target_include_directories(${PROJECT_NAME}
@@ -56,10 +65,15 @@ ament_target_dependencies(${PROJECT_NAME}
   hri_tools
   navigation_tools
   hardware_tools
+  vision_tools
+  tasks_tools
+  vision_interfaces 
+  faces_interfaces
 )
 
 target_link_libraries(${PROJECT_NAME}
   yaml-cpp
+  ${rclcpp_LIBRARIES}
 )
 
 # -----------------------------
@@ -100,6 +114,10 @@ ament_export_dependencies(
   hri_tools
   navigation_tools
   hardware_tools
+  vision_tools
+  tasks_tools
+  vision_interfaces
+  faces_interfaces
   ament_index_cpp
 )
 

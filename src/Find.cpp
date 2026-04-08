@@ -1,0 +1,115 @@
+#include "executor_tools/Find.hpp"
+// =========================================================
+// Constructor
+// =========================================================
+Find::Find(const rclcpp::Node::SharedPtr& node,
+           const std::shared_ptr<Tasks>& tasks,
+           const std::shared_ptr<Knowledge>& knowledge)
+: node(node),
+  tasks(tasks),
+  knowledge(knowledge),
+  executor(node)
+{
+}
+// =========================================================
+// Parsea "category_item" → {"category", "item"}
+// =========================================================
+std::pair<std::string, std::string> Find::parseCategoryItem(const std::string& category_item)
+{
+    size_t pos = category_item.find('_');
+    if (pos == std::string::npos)
+    {
+        RCLCPP_WARN(node->get_logger(),
+                    "No underscore found in '%s', using full string as category and empty item",
+                    category_item.c_str());
+        return {category_item, ""};
+    }
+    std::string category = category_item.substr(0, pos);
+    if (pos + 1 >= category_item.size())
+    {
+        RCLCPP_WARN(node->get_logger(),
+                    "No item found after '_' in '%s', item will be empty",
+                    category_item.c_str());
+        return {category, ""};
+    }
+    return {category, category_item.substr(pos + 1)};
+}
+// =========================================================
+// Lee item desde Knowledge RAM
+// =========================================================
+std::string Find::resolveItem(const std::string& item)
+{
+    std::string value = knowledge->getNameFromLabel(item);
+    if (value == item)
+    {
+        RCLCPP_WARN(node->get_logger(),
+                    "Find: Label '%s' not found in Knowledge RAM, returning empty",
+                    item.c_str());
+        return "";
+    }
+    return value;
+}
+// =========================================================
+// Ejecuta find
+// =========================================================
+bool Find::run(const std::string& category_item,
+               const std::shared_ptr<GoalHandle>& goalHandle)
+{
+    // -------------------- PARSE --------------------
+    auto [category, item] = parseCategoryItem(category_item);
+    // -------------------- FEEDBACK --------------------
+    auto feedback = std::make_shared<ExecuteTask::Feedback>();
+    feedback->feedback.step_id = 1;
+    feedback->feedback.progress = 0.5f;
+    feedback->feedback.message  = "Buscando: " + item + " (categoría: " + category + ")";
+    goalHandle->publish_feedback(feedback);
+    // -------------------- RESOLVE --------------------
+    std::string resolved_item = resolveItem(item);
+    // -------------------- TASKS CALL + RESULT --------------------
+    bool        success = false;
+    std::string result;
+
+    if (category == "object")
+    {
+        auto response = tasks->FindObject(resolved_item);
+        success = response.success;
+        result  = success
+            ? "found: "     + response.detected_class +
+              " conf="      + std::to_string(response.confidence) +
+              " x="         + std::to_string(response.point.point.x) +
+              " y="         + std::to_string(response.point.point.y) +
+              " z="         + std::to_string(response.point.point.z)
+            : "not_found: " + response.message;
+    }
+    else if (category == "person")
+    {
+        auto response = tasks->FindPerson(resolved_item);
+        success = response.success;
+        result  = success
+            ? "found: "      + response.name +
+              " description=" + response.description
+            : "not_found: person not recognized";
+    }
+    else if (category == "seat")
+    {
+        auto response = tasks->FindSeat();
+        success = response.success;
+        result  = success
+            ? "found: seat available"
+            : "not_found: " + response.message;
+    }
+    else
+    {
+        RCLCPP_ERROR(node->get_logger(),
+                     "Find: unknown category '%s'", category.c_str());
+        result  = "not_found: unknown category " + category;
+        success = false;
+    }
+    // -------------------- AUTHORIZE --------------------
+    return executor.authorize(
+        "find",
+        category_item,
+        result,
+        success ? "Objeto localizado" : "Objeto no encontrado"
+    );
+}

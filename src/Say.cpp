@@ -4,46 +4,31 @@
 // Constructor
 // =========================================================
 Say::Say(const rclcpp::Node::SharedPtr& node,
-         const std::shared_ptr<HRI>& hri)
+         const std::shared_ptr<HRI>& hri,
+         const std::shared_ptr<Knowledge>& knowledge)
 : node(node),
   hri(hri),
+  knowledge(knowledge), // Guardamos la instancia compartida
   executor(node)
 {
 }
 
 // =========================================================
-// Lee valor guardado
+// Lee valor guardado       interest_words.yaml -> labels
 // =========================================================
-std::string Say::readSavedValue(const std::string& filename)
+std::string Say::readSavedValue(const std::string& key)
 {
-    try
-    {
-        std::string package_path = ament_index_cpp::get_package_share_directory("knowledge_bank");
-        std::string file_path = package_path + "/save/" + filename + ".yaml";
+    std::string value = knowledge->getNameFromLabel(key);
 
-        YAML::Node config = YAML::LoadFile(file_path);
-        if (config["value"])
-            return config["value"].as<std::string>();
-        else
-        {
-            RCLCPP_WARN(node->get_logger(),
-                        "No 'value' found in %s, using filename as fallback",
-                        file_path.c_str());
-            return filename;
-        }
+    if (value == key) {
+        RCLCPP_WARN(node->get_logger(), "Say: Key '{%s}' not found in Knowledge RAM", key.c_str());
     }
-    catch (const std::exception& e)
-    {
-        RCLCPP_ERROR(node->get_logger(),
-                     "Failed to read saved value for %s: %s",
-                     filename.c_str(),
-                     e.what());
-        return filename;
-    }
+
+    return value;
 }
 
 // =========================================================
-// Reemplaza {key} por value
+// Reemplaza {key} por el valor en labels 
 // =========================================================
 std::string Say::replacePlaceholdersWithSaved(const std::string& text)
 {
@@ -65,31 +50,28 @@ std::string Say::replacePlaceholdersWithSaved(const std::string& text)
     }
 
     result += text.substr(last_pos);
-
     return result;
 }
 
 // =========================================================
-// Selecciona frase aleatoria
+// Selecciona frase aleatoria 
 // =========================================================
 std::string Say::getRandomPhrase(const std::string& action_name)
 {
     try
     {
         std::string package_path = ament_index_cpp::get_package_share_directory("knowledge_bank");
-        std::string file_path = package_path + "/say/" + action_name + ".yaml";
+        std::string file_path = package_path + "/say/phrases.yaml";
 
         YAML::Node config = YAML::LoadFile(file_path);
 
-        if (!config["phrases"] || config["phrases"].size() == 0)
+        if (!config[action_name] || !config[action_name].IsSequence() || config[action_name].size() == 0)
         {
-            RCLCPP_WARN(node->get_logger(),
-                        "No phrases found in %s",
-                        file_path.c_str());
-            return action_name;
+            RCLCPP_WARN(node->get_logger(), "Category '%s' not found in phrases.yaml", action_name.c_str());
+            return action_name; 
         }
 
-        auto phrases = config["phrases"];
+        auto phrases = config[action_name];
         static std::random_device rd;
         static std::mt19937 gen(rd());
         std::uniform_int_distribution<> dist(0, phrases.size() - 1);
@@ -98,16 +80,13 @@ std::string Say::getRandomPhrase(const std::string& action_name)
     }
     catch (const std::exception& e)
     {
-        RCLCPP_ERROR(node->get_logger(),
-                     "Failed to load phrase for %s: %s",
-                     action_name.c_str(),
-                     e.what());
+        RCLCPP_ERROR(node->get_logger(), "Error in getRandomPhrase: %s", e.what());
         return action_name;
     }
 }
 
 // =========================================================
-// Ejecuta say
+// Ejecuta say 
 // =========================================================
 bool Say::run(const std::string& action_name,
               const std::shared_ptr<GoalHandle>& goalHandle)
@@ -116,25 +95,13 @@ bool Say::run(const std::string& action_name,
 
     utterance = replacePlaceholdersWithSaved(utterance);
 
-    // -------------------- FEEDBACK --------------------
     auto feedback = std::make_shared<ExecuteTask::Feedback>();
-    feedback->feedback.step_id = 1;
-    feedback->feedback.progress = 0.5f;
     feedback->feedback.message = "Diciendo: " + utterance;
     goalHandle->publish_feedback(feedback);
 
-    // -------------------- HRI SAY --------------------
     bool success = hri->Say(utterance);
 
-    std::string result =
-        success ? "uttered: " + utterance : "tts_failed";
-
-    // -------------------- AUTORIZACIÓN --------------------
-    return executor.authorize(
-        "say",
-        action_name,
-        result,
-        success ? "TTS ejecutado" : "TTS fallido"
-    );
+    return executor.authorize("say", action_name, 
+                             success ? "uttered: " + utterance : "tts_failed",
+                             success ? "TTS ejecutado" : "TTS fallido");
 }
-

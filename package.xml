@@ -28,6 +28,10 @@
   <depend>hardware_tools</depend>
   <depend>ament_index_cpp</depend>
   <depend>yaml-cpp</depend>
+  <depend>vision_tools</depend>
+  <depend>tasks_tools</depend>
+  <depend>vision_interfaces</depend>
+  <depend>faces_interfaces</depend>
 
   <!-- Test -->
   <test_depend>ament_lint_auto</test_depend>
