@@ -47,6 +47,7 @@ bool Focus::run(const std::string& args,
 
     auto callback = [&](rclcpp::Client<std_srvs::srv::SetBool>::SharedFuture future)
     {
+        RCLCPP_INFO(node->get_logger(), "hice la pinche llamada");
         auto response = future.get();
         success = response->success;
         result  = success ? "focus: activated" : "focus: rejected — " + response->message;
