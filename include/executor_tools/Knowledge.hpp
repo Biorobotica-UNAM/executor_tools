@@ -109,6 +109,47 @@ public:
         return true;
     }
 
+    void updateLabel(const std::string &label, const std::string &value) {
+        full_config_["labels"][label] = value;
+    }
+
+    bool saveToFileDirect() {
+        std::string path = "src/Knowledge/knowledge_bank/save/interest_words.yaml";
+        std::ofstream fout(path, std::ios::trunc);
+        
+        if (!fout.is_open()) {
+            RCLCPP_ERROR(node->get_logger(), "Knowledge: Could not open MASTER file for direct saving.");
+            return false;
+        }
+
+        // 2. Volcamos la RAM al disco directamente sin pasar por las validaciones de "last_recognized"
+        fout << full_config_; 
+        fout.close();
+
+        RCLCPP_INFO(node->get_logger(), "Knowledge: Direct save successful.");
+        return true;
+    }   
+
+    // =========================================================
+    // Actualización desde servicio externo (Visión/HRI)
+    // =========================================================
+    bool updateFromService(const std::string &label, const std::string &value) {
+        try {
+            // 1. Actualizamos la RAM
+            full_config_["labels"][label] = value;
+            
+            RCLCPP_INFO(node->get_logger(), 
+                        "Knowledge Service: Updated [%s] with value [%s]", 
+                        label.c_str(), value.c_str());
+
+            // 2. Guardamos a disco de inmediato para evitar pérdida de datos
+            return saveToFileDirect();
+        } catch (const std::exception &e) {
+            RCLCPP_ERROR(node->get_logger(), "Knowledge Service Error: %s", e.what());
+            return false;
+        }
+    }
+
 private:
     rclcpp::Node::SharedPtr node;
     YAML::Node full_config_;

@@ -46,6 +46,7 @@ add_library(${PROJECT_NAME}
   src/Point.cpp
   src/Focus.cpp
   src/Unfocus.cpp
+  src/Describe.cpp
 )
 
 target_include_directories(${PROJECT_NAME}
@@ -122,6 +123,8 @@ ament_export_dependencies(
   faces_interfaces
   ament_index_cpp
 )
+
+ament_python_install_package(${PROJECT_NAME})
 
 ament_package()
 
