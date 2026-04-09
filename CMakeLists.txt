@@ -122,5 +122,7 @@ ament_export_dependencies(
   ament_index_cpp
 )
 
+ament_python_install_package(${PROJECT_NAME})
+
 ament_package()
 

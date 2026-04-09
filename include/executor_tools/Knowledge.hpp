@@ -130,6 +130,26 @@ public:
         return true;
     }   
 
+    // =========================================================
+    // Actualización desde servicio externo (Visión/HRI)
+    // =========================================================
+    bool updateFromService(const std::string &label, const std::string &value) {
+        try {
+            // 1. Actualizamos la RAM
+            full_config_["labels"][label] = value;
+            
+            RCLCPP_INFO(node->get_logger(), 
+                        "Knowledge Service: Updated [%s] with value [%s]", 
+                        label.c_str(), value.c_str());
+
+            // 2. Guardamos a disco de inmediato para evitar pérdida de datos
+            return saveToFileDirect();
+        } catch (const std::exception &e) {
+            RCLCPP_ERROR(node->get_logger(), "Knowledge Service Error: %s", e.what());
+            return false;
+        }
+    }
+
 private:
     rclcpp::Node::SharedPtr node;
     YAML::Node full_config_;
