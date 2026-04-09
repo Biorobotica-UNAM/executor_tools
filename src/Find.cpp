@@ -45,7 +45,7 @@ std::string Find::resolveItem(const std::string& item)
         RCLCPP_WARN(node->get_logger(),
                     "Find: Label '%s' not found in Knowledge RAM, returning empty",
                     item.c_str());
-        return "";
+        return "./.";
     }
     return value;
 }
