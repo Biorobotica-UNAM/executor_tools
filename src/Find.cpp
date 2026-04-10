@@ -40,14 +40,17 @@ std::pair<std::string, std::string> Find::parseCategoryItem(const std::string& c
 std::string Find::resolveItem(const std::string& item)
 {
     std::string value = knowledge->getNameFromLabel(item);
+    
+    // Si el valor devuelto es igual al item, significa que NO está en el YAML
     if (value == item)
     {
-        RCLCPP_WARN(node->get_logger(),
-                    "Find: Label '%s' not found in Knowledge RAM, returning empty",
+        RCLCPP_INFO(node->get_logger(),
+                    "Find: '%s' no es un Label, se usará como nombre directo para la visión.",
                     item.c_str());
-        return "./.";
+        return item; // <--- DEVOLVEMOS EL ORIGINAL en lugar de "./."
     }
-    return value;
+    
+    return value; // Devolvemos la traducción (ej. "cutlery" -> "fork")
 }
 // =========================================================
 // Ejecuta find
@@ -78,7 +81,7 @@ bool Find::run(const std::string& category_item,
         RCLCPP_ERROR(node->get_logger(), "Find: Item '%s' not found in Knowledge. Skipping vision call.", item.c_str());
         return executor.authorize("find", category_item, "not_found: unknown_item", "Etiqueta no existe en memoria");
     }
-    
+
     bool success = false;
     std::string result = "not_found: internal_error";
 
