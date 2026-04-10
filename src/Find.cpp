@@ -55,61 +55,64 @@ std::string Find::resolveItem(const std::string& item)
 bool Find::run(const std::string& category_item,
                const std::shared_ptr<GoalHandle>& goalHandle)
 {
-    // -------------------- PARSE --------------------
-    auto [category, item] = parseCategoryItem(category_item);
-    // -------------------- FEEDBACK --------------------
-    auto feedback = std::make_shared<ExecuteTask::Feedback>();
-    feedback->feedback.step_id = 1;
-    feedback->feedback.progress = 0.5f;
-    feedback->feedback.message  = "Buscando: " + item + " (categoría: " + category + ")";
-    goalHandle->publish_feedback(feedback);
-    // -------------------- RESOLVE --------------------
-    std::string resolved_item = resolveItem(item);
-    // -------------------- TASKS CALL + RESULT --------------------
-    bool        success = false;
-    std::string result;
+    // 1. Verificación inicial de seguridad
+    if (!goalHandle || !goalHandle->is_active()) return false;
 
-    if (category == "object")
-    {
-        auto response = tasks->FindObject(resolved_item);
-        success = response.success;
-        result  = success
-            ? "found: "     + response.detected_class +
-              " conf="      + std::to_string(response.confidence) +
-              " x="         + std::to_string(response.point.point.x) +
-              " y="         + std::to_string(response.point.point.y) +
-              " z="         + std::to_string(response.point.point.z)
-            : "not_found: " + response.message;
+    auto [category, item] = parseCategoryItem(category_item);
+    
+    // 2. Feedback con try-catch local
+    try {
+        auto feedback = std::make_shared<ExecuteTask::Feedback>();
+        feedback->feedback.message = "Buscando: " + item + " (categoría: " + category + ")";
+        if (goalHandle->is_active()) goalHandle->publish_feedback(feedback);
+    } catch (...) { 
+        RCLCPP_WARN(node->get_logger(), "Find: Could not publish feedback");
     }
-    else if (category == "person")
-    {
-        auto response = tasks->FindPerson(resolved_item);
-        success = response.success;
-        result  = success
-            ? "found: "      + response.name +
-              " description=" + response.description
-            : "not_found: person not recognized";
-    }
-    else if (category == "seat")
-    {
-        auto response = tasks->FindSeat();
-        success = response.success;
-        result  = success
-            ? "found: seat available"
-            : "not_found: " + response.message;
-    }
-    else
-    {
-        RCLCPP_ERROR(node->get_logger(),
-                     "Find: unknown category '%s'", category.c_str());
-        result  = "not_found: unknown category " + category;
+
+    std::string resolved_item = resolveItem(item);
+    bool success = false;
+    std::string result = "not_found: internal_error";
+
+    // 3. Bloque de ejecución con protección de datos
+    try {
+        if (category == "object") {
+            auto response = tasks->FindObject(resolved_item);
+            success = response.success;
+            
+            if (success) {
+                // SOLO accedemos a las coordenadas si success es true
+                result = "found: " + response.detected_class +
+                         " x=" + std::to_string(response.point.point.x);
+            } else {
+                result = "not_found: " + (response.message.empty() ? "timeout/no_obj" : response.message);
+            }
+        } 
+        else if (category == "person") {
+            auto response = tasks->FindPerson(resolved_item);
+            success = response.success;
+            result = success ? "found: " + response.name : "not_found: person not recognized";
+        }
+        else if (category == "seat") {
+            auto response = tasks->FindSeat();
+            success = response.success;
+            result = success ? "found: seat available" : "not_found: " + response.message;
+        }
+        else {
+            RCLCPP_ERROR(node->get_logger(), "Find: unknown category '%s'", category.c_str());
+            result = "not_found: unknown category";
+            success = false;
+        }
+    } catch (const std::exception &e) {
+        RCLCPP_ERROR(node->get_logger(), "Find: Task call crashed: %s", e.what());
         success = false;
+        result = "not_found: exception_in_vision_layer";
     }
-    // -------------------- AUTHORIZE --------------------
+
+    // 4. Authorize final
     return executor.authorize(
         "find",
         category_item,
         result,
-        success ? "Objeto localizado" : "Objeto no encontrado"
+        success ? "Objeto localizado" : "Fallo en localización"
     );
 }
