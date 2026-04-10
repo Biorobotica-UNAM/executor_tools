@@ -3,7 +3,6 @@
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "executor_interfaces/action/execute_task.hpp"
 #include "executor_tools/Executor.hpp"
-#include "std_srvs/srv/set_bool.hpp"
 #include <string>
 
 class Focus
@@ -19,6 +18,5 @@ public:
 
 private:
     rclcpp::Node::SharedPtr node;
-    rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr client;
     Executor executor;
 };

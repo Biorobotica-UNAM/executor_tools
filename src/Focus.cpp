@@ -1,8 +1,6 @@
 #include "executor_tools/Focus.hpp"
 #include "std_srvs/srv/set_bool.hpp"
 #include <chrono>
-#include <mutex>
-#include <condition_variable>
 
 using namespace std::chrono_literals;
 
@@ -13,7 +11,6 @@ Focus::Focus(const rclcpp::Node::SharedPtr& node)
 : node(node),
   executor(node)
 {
-    client = node->create_client<std_srvs::srv::SetBool>("/vision/focus");
 }
 
 // =========================================================
@@ -30,39 +27,47 @@ bool Focus::run(const std::string& args,
     goalHandle->publish_feedback(feedback);
 
     // -------------------- SERVICE CALL --------------------
-    if (!client->wait_for_service(3s))
+    // Nodo auxiliar con su propio executor, completamente independiente
+    // del nodo principal que ya está siendo spinneado en main()
+    auto aux_node = rclcpp::Node::make_shared("focus_aux_node");
+    auto client   = aux_node->create_client<std_srvs::srv::SetBool>("/vision/focus");
+
+    rclcpp::executors::SingleThreadedExecutor aux_exec;
+    aux_exec.add_node(aux_node);
+
+    // Esperar servicio
+    while (!client->wait_for_service(1s))
     {
-        RCLCPP_ERROR(node->get_logger(), "Focus: service /vision/focus not available");
-        return executor.authorize("focus", args, "error: service unavailable", "Focus fallido");
+        if (!rclcpp::ok())
+        {
+            RCLCPP_ERROR(node->get_logger(), "Focus: rclcpp interrupted while waiting for service");
+            return executor.authorize("focus", args, "error: interrupted", "Focus fallido");
+        }
+        RCLCPP_WARN(node->get_logger(), "Focus: waiting for /vision/focus...");
     }
 
     auto request  = std::make_shared<std_srvs::srv::SetBool::Request>();
     request->data = true;
 
-    std::mutex mtx;
-    std::condition_variable cv;
-    bool done    = false;
-    bool success = false;
+    auto future = client->async_send_request(request);
+
+    // Spin el aux_executor hasta que el future esté listo
+    auto status = aux_exec.spin_until_future_complete(future, 5s);
+
+    bool        success = false;
     std::string result;
 
-    auto callback = [&](rclcpp::Client<std_srvs::srv::SetBool>::SharedFuture future)
+    if (status == rclcpp::FutureReturnCode::SUCCESS)
     {
-        RCLCPP_INFO(node->get_logger(), "hice la pinche llamada");
-        auto response = future.get();
-        success = response->success;
-        result  = success ? "focus: activated" : "focus: rejected — " + response->message;
-        done    = true;
-        cv.notify_one();
-    };
-
-    client->async_send_request(request, callback);
-
-    std::unique_lock<std::mutex> lock(mtx);
-    if (!cv.wait_for(lock, 5s, [&]{ return done; }))
+        success = future.get()->success;
+        result  = success
+            ? "focus: activated"
+            : "focus: rejected — " + future.get()->message;
+    }
+    else
     {
-        RCLCPP_ERROR(node->get_logger(), "Focus: service call timed out");
-        result  = "error: service call timed out";
-        success = false;
+        RCLCPP_ERROR(node->get_logger(), "Focus: service call timed out or interrupted");
+        result = "error: service call timed out";
     }
 
     // -------------------- AUTHORIZE --------------------
