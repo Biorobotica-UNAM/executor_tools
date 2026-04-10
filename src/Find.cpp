@@ -59,6 +59,8 @@ bool Find::run(const std::string& category_item,
     if (!goalHandle || !goalHandle->is_active()) return false;
 
     auto [category, item] = parseCategoryItem(category_item);
+
+    
     
     // 2. Feedback con try-catch local
     try {
@@ -70,6 +72,13 @@ bool Find::run(const std::string& category_item,
     }
 
     std::string resolved_item = resolveItem(item);
+
+    // Si el item no se resolvió (es "./."), mejor ni le preguntamos a la visión
+    if (resolved_item == "./.") {
+        RCLCPP_ERROR(node->get_logger(), "Find: Item '%s' not found in Knowledge. Skipping vision call.", item.c_str());
+        return executor.authorize("find", category_item, "not_found: unknown_item", "Etiqueta no existe en memoria");
+    }
+    
     bool success = false;
     std::string result = "not_found: internal_error";
 
