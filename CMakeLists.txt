@@ -47,6 +47,7 @@ add_library(${PROJECT_NAME}
   src/Focus.cpp
   src/Unfocus.cpp
   src/Describe.cpp
+  src/Saveloc.cpp
 )
 
 target_include_directories(${PROJECT_NAME}
