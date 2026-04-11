@@ -57,24 +57,28 @@ public:
 
         std::stringstream ss(lower_phrase);
         std::string word;
-        bool found = false;
+        std::vector<std::string> found_words; // Guardaremos todas las que coincidan
 
         while (ss >> word) {
             if (word_bank_.count(word)) {
-                last_recognized_ = word;
-                last_category_ = word_bank_[word];
-                
-                RCLCPP_INFO(node->get_logger(), "Filter: Found '%s' in category '%s'", 
-                            word.c_str(), last_category_.c_str());
-                found = true;
-                break; 
+                found_words.push_back(word);
+                RCLCPP_INFO(node->get_logger(), "Filter: Found keyword '%s'", word.c_str());
             }
         }
 
-        if (!found) {
+        if (!found_words.empty()) {
+            std::string result = "";
+            for (size_t i = 0; i < found_words.size(); ++i) {
+                result += found_words[i] + (i == found_words.size() - 1 ? "" : " ");
+            }
+            last_recognized_ = result;
+        } else {
             last_recognized_ = "unknown";
-            last_category_ = "none";
         }
+    }
+    // En la sección public de Knowledge.hpp
+    std::string getLastRecognized() const {
+        return last_recognized_;
     }
 
     // Lo llama la tool Save
