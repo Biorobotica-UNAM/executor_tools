@@ -105,7 +105,8 @@ bool Find::run(const std::string& category_item,
             }
         } 
         else if (category == "person") {
-            auto response = tasks->FindPerson(resolved_item);
+            std::string person_to_find = (resolved_item == "anybody") ? "" : resolved_item;
+            auto response = tasks->FindPerson(person_to_find);
             success = response.success;
             result = success ? "found: " + response.name : "not_found: person not recognized";
         }
