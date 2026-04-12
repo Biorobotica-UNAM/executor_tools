@@ -26,6 +26,7 @@ find_package(hri_tools REQUIRED)
 find_package(navigation_tools REQUIRED)
 find_package(hardware_tools REQUIRED)
 find_package(vision_tools REQUIRED)
+find_package(take_interfaces REQUIRED)
 find_package(tasks_tools REQUIRED)
 find_package(vision_interfaces REQUIRED)
 find_package(faces_interfaces REQUIRED)
@@ -48,6 +49,7 @@ add_library(${PROJECT_NAME}
   src/Unfocus.cpp
   src/Describe.cpp
   src/Saveloc.cpp
+  src/Take.cpp
 )
 
 target_include_directories(${PROJECT_NAME}
@@ -70,6 +72,7 @@ ament_target_dependencies(${PROJECT_NAME}
   navigation_tools
   hardware_tools
   vision_tools
+  take_interfaces
   tasks_tools
   vision_interfaces 
   faces_interfaces
@@ -120,6 +123,7 @@ ament_export_dependencies(
   hardware_tools
   vision_tools
   tasks_tools
+  take_interfaces
   vision_interfaces
   faces_interfaces
   ament_index_cpp
