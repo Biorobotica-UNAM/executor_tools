@@ -25,7 +25,11 @@ bool Take::run(const std::string &object_name,
   geometry_msgs::msg::PoseStamped target_pose;
   target_pose.header = target_point.header;
   target_pose.pose.position = target_point.point;
-  target_pose.pose.orientation.w = 1.0; 
+  // Cuaternión normalizado para rotación de 90° en Y (Mirando abajo)
+  target_pose.pose.orientation.x = 0.0; 
+  target_pose.pose.orientation.y = -0.7071; 
+  target_pose.pose.orientation.z = 0.0; 
+  target_pose.pose.orientation.w = 0.7071;
 
   // --- LÓGICA DE SELECCIÓN DE BRAZO ---
   std::string selected_arm;
