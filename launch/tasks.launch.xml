@@ -19,6 +19,17 @@
         name="find_object_action">
     </node>
 
+    <node
+        pkg="tasks"
+        exec="find_waving_action"
+        name="find_waving_action">
+    </node>
+
+    <node
+        pkg="tasks"
+        exec="take_node"
+        name="take_node">
+    </node>
 
 </launch>
 
