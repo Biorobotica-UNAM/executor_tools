@@ -95,6 +95,7 @@ bool Find::run(const std::string& category_item,
                 // 'response' es lo que regresó el ObjectFinderNode
                 knowledge->saveInRAM("last_object_found", response.detected_class);
                 knowledge->updateLabel("object_1", response.detected_class);
+                knowledge->updateLabel("last_object_found", response.detected_class);
                 // Para que el brazo sepa a dónde ir
                 knowledge->updateObjectPose(item, response.point);
                 // SOLO accedemos a las coordenadas si success es true
