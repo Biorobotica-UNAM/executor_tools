@@ -27,7 +27,17 @@ bool Take::run(const std::string &object_name,
   target_pose.pose.position = target_point.point;
   target_pose.pose.orientation.w = 1.0; 
 
-  // 3. CONFIGURAR CLIENTE (Usamos el cliente del nodo principal)
+  // --- LÓGICA DE SELECCIÓN DE BRAZO ---
+  std::string selected_arm;
+  if (target_point.point.y > 0.0) {
+      selected_arm = "left";
+      RCLCPP_INFO(node->get_logger(), "Objeto a la izquierda (y=%.2f), usando brazo izquierdo", target_point.point.y);
+  } else {
+      selected_arm = "right";
+      RCLCPP_INFO(node->get_logger(), "Objeto a la derecha (y=%.2f), usando brazo derecho", target_point.point.y);
+  }
+
+  // 3. CONFIGURAR CLIENTE Y REQUEST
   auto client = node->create_client<take_interfaces::srv::Take>("/take");
 
   if (!client->wait_for_service(3s)) {
@@ -35,7 +45,7 @@ bool Take::run(const std::string &object_name,
   }
 
   auto request = std::make_shared<take_interfaces::srv::Take::Request>();
-  request->arm = "right";
+  request->arm = selected_arm; 
   request->target_pose = target_pose;
 
   // 4. LLAMADA ASÍNCRONA 
