@@ -77,7 +77,7 @@ bool Find::run(const std::string& category_item,
     std::string resolved_item = resolveItem(item);
 
     // Si el item no se resolvió (es "./."), mejor ni le preguntamos a la visión
-    if (resolved_item == "./.") {
+    if (resolved_item == "./." && category != "waving" && category != "seat") {
         RCLCPP_ERROR(node->get_logger(), "Find: Item '%s' not found in Knowledge. Skipping vision call.", item.c_str());
         return executor.authorize("find", category_item, "not_found: unknown_item", "Etiqueta no existe en memoria");
     }
