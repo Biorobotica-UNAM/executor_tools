@@ -115,6 +115,16 @@ bool Find::run(const std::string& category_item,
             success = response.success;
             result = success ? "found: seat available" : "not_found: " + response.message;
         }
+        else if (category == "waving") {
+            auto response = tasks->FindWavingHuman(); 
+            success = response.success;
+            
+            if (success) {
+                result = "found: waving_human";
+            } else {
+                result = "not_found: no_one_waving";
+            }
+        }
         else {
             RCLCPP_ERROR(node->get_logger(), "Find: unknown category '%s'", category.c_str());
             result = "not_found: unknown category";
