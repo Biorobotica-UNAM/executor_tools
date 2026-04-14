@@ -35,6 +35,7 @@ find_package(faces_interfaces REQUIRED)
 # Library
 # -----------------------------
 add_library(${PROJECT_NAME}
+  src/Align.cpp
   src/Executor.cpp
   src/Say.cpp
   src/Listen.cpp
