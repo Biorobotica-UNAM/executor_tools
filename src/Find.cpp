@@ -63,7 +63,11 @@ bool Find::run(const std::string& category_item,
 
     auto [category, item] = parseCategoryItem(category_item);
 
-    
+    // Si la categoría es waving o seat, no necesitamos un item.
+    // Forzamos un item genérico para que no truene el resolveItem.
+    if (category == "waving" && item.empty()) {
+        item = "human"; 
+    }
     
     // 2. Feedback con try-catch local
     try {
@@ -78,8 +82,7 @@ bool Find::run(const std::string& category_item,
 
     // Si el item no se resolvió (es "./."), mejor ni le preguntamos a la visión
     if (resolved_item == "./." && category != "waving" && category != "seat") {
-        RCLCPP_ERROR(node->get_logger(), "Find: Item '%s' not found in Knowledge. Skipping vision call.", item.c_str());
-        return executor.authorize("find", category_item, "not_found: unknown_item", "Etiqueta no existe en memoria");
+        return executor.authorize("find", category_item, "not_found: unknown_item", "Etiqueta no existe");
     }
 
     bool success = false;
