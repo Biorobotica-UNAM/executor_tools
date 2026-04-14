@@ -1,46 +1,44 @@
 #include "executor_tools/Align.hpp"
 
-using namespace std::chrono_literals;
-
 Align::Align(const rclcpp::Node::SharedPtr &node)
-    : node(node), executor(node) { 
-  align_client_ = node->create_client<AlignSrv>("vision/align");
+    : node(node), executor(node) {
+  client = node->create_client<std_srvs::srv::Trigger>("/tasks/table_align");
 }
 
-bool Align::run(const std::string &target_name,
-                const std::shared_ptr<GoalHandle> &goalHandle) {
+bool Align::run(const std::string &argument,
+               const std::shared_ptr<GoalHandle> &goalHandle) {
 
   // -------------------- FEEDBACK --------------------
   auto feedback = std::make_shared<ExecuteTask::Feedback>();
   feedback->feedback.step_id = 1;
   feedback->feedback.progress = 0.5f;
-  feedback->feedback.message = "Aligning with " + target_name;
+  feedback->feedback.message = "Aligning to table" + (argument.empty() ? "" : ": " + argument);
+
   goalHandle->publish_feedback(feedback);
 
-  // -------------------- WAIT FOR SERVICE --------------------
-  if (!align_client_->wait_for_service(2s)) {
-    RCLCPP_ERROR(node->get_logger(), "Align service unavailable");
-    return executor.authorize("Align", target_name, "failure",
-                              "Align service unavailable");
+  // -------------------- SERVICE CALL --------------------
+  if (!client->wait_for_service(std::chrono::seconds(2))) {
+    RCLCPP_ERROR(node->get_logger(), "Table Align service not available.");
+    return executor.authorize("align", argument, "failure", "Service unavailable");
   }
 
-  // -------------------- REQUEST --------------------
-  auto request = std::make_shared<AlignSrv::Request>();
-  request->target_name = target_name;
+  auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
+  auto result_future = client->async_send_request(request);
 
-  auto future = align_client_->async_send_request(request);
+  bool service_success = false;
+  std::string response_message = "Timeout";
 
-  // -------------------- WAIT RESPONSE --------------------
-  if (future.wait_for(10s) != std::future_status::ready) {
-    RCLCPP_ERROR(node->get_logger(), "Align service timeout");
-    return executor.authorize("Align", target_name, "failure",
-                              "Align service timeout");
+  // Alignment takes max 15s in the table_align node, so 20s wait is safe.
+  if (result_future.wait_for(std::chrono::seconds(20)) == std::future_status::ready) {
+    auto response = result_future.get();
+    service_success = response->success;
+    response_message = response->message;
+  } else {
+    RCLCPP_ERROR(node->get_logger(), "Table Align service response timed out.");
   }
 
-  auto response = future.get();
-  bool align_completed = response->success;
-
-  return executor.authorize("Align", target_name,
-                            align_completed ? "success" : "failure",
-                            std::string("Aligning with ") + target_name);
+  // -------------------- AUTHORIZE --------------------
+  return executor.authorize("align", argument,
+                            service_success ? "success" : "failure",
+                            service_success ? "Alignment completed" : "Alignment failed");
 }
