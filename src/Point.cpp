@@ -25,6 +25,14 @@ bool Point::run(const std::string &target_name,
   {
     motion_completed = hardware->PointingMotionDisable();
   }
+  else if(target_name == "bag")
+  {
+
+  }
+  else if(target_name == "nobag")
+  {
+    
+  }
 
   // -------------------- AUTHORIZE --------------------
 
