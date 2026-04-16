@@ -29,6 +29,7 @@ bool Point::run(const std::string &target_name,
   }
   else if(target_name == "bag")
   {
+    rclcpp::sleep_for(std::chrono::seconds(3));
     RCLCPP_INFO(node->get_logger(), "Point tool: Sending Grasp effort -0.1 to gripper...");
     
     using GripperApplyEffort = tmc_control_msgs::action::GripperApplyEffort;
@@ -65,6 +66,7 @@ bool Point::run(const std::string &target_name,
   }
   else if(target_name == "nobag")
   {
+    rclcpp::sleep_for(std::chrono::seconds(3));
     RCLCPP_INFO(node->get_logger(), "Point tool: Sending Grasp effort 0.1 to gripper...");
     
     using GripperApplyEffort = tmc_control_msgs::action::GripperApplyEffort;
