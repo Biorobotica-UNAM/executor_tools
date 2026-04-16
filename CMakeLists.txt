@@ -30,6 +30,7 @@ find_package(take_interfaces REQUIRED)
 find_package(tasks_tools REQUIRED)
 find_package(vision_interfaces REQUIRED)
 find_package(faces_interfaces REQUIRED)
+find_package(tmc_control_msgs REQUIRED)
 
 # -----------------------------
 # Library
@@ -62,6 +63,7 @@ target_include_directories(${PROJECT_NAME}
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   rclcpp_action
+  tmc_control_msgs
   std_srvs
   ament_index_cpp
   executor_interfaces
@@ -113,6 +115,7 @@ ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_dependencies(
   rclcpp
   rclcpp_action
+  tmc_control_msgs
   std_srvs
   executor_interfaces
   supervisor_executor_interfaces

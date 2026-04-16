@@ -17,6 +17,7 @@
   <!-- Dependencies -->
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
+  <depend>tmc_control_msgs</depend>
   <depend>std_srvs</depend>
   <depend>executor_interfaces</depend>
   <depend>supervisor_executor_interfaces</depend>
