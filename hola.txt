@@ -1,26 +1,5 @@
-pumas@Takeshi-Lap01:~/Takeshi$ ros2 action send_goal /gripper_controller/grasp tmc_control_msgs/action/GripperApplyEffort "{effort: -0.1, do_control_stop: true}"
-Waiting for an action server to become available...
-Sending goal:
-     effort: -0.1
-do_control_stop: true
+https://git.hsr.io/users/sign_in
 
-Goal accepted with ID: 14968cad651a4596a873f4f98f413f7f
 
-Result:
-    effort: 0.007228571557653063
-stalled: true
-
-Goal finished with status: SUCCEEDED
-pumas@Takeshi-Lap01:~/Takeshi$ ros2 action send_goal /gripper_controller/grasp tmc_control_msgs/action/GripperApplyEffort "{effort: 0.1, do_control_stop: true}"
-Waiting for an action server to become available...
-Sending goal:
-     effort: 0.1
-do_control_stop: true
-
-Goal accepted with ID: becdd3b9bbfa4dfb845450a71dbb52be
-
-Result:
-    effort: 0.0
-stalled: true
-
-Goal finished with status: SUCCEEDED
+abel_pacheco
+un4m_m3c4tr0nic424
