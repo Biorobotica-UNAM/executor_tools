@@ -30,7 +30,7 @@ bool Take::run(const std::string &argument,
   std::string msg = "Timeout";
 
   // Espera de hasta 30 segundos (ajusta según lo que tarde tu FSM física)
-  if (result_future.wait_for(300s) == std::future_status::ready) {
+  if (result_future.wait_for(90s) == std::future_status::ready) {
     auto response = result_future.get();
     success = response->success;
     msg = response->message;
