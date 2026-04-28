@@ -32,6 +32,8 @@
   <depend>tasks_tools</depend>
   <depend>vision_interfaces</depend>
   <depend>faces_interfaces</depend>
+  <depend>human_interfaces</depend> 
+  <depend>take_interfaces</depend>
 
   <!-- Test -->
   <test_depend>ament_lint_auto</test_depend>

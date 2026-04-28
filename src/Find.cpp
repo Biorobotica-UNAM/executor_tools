@@ -40,14 +40,17 @@ std::pair<std::string, std::string> Find::parseCategoryItem(const std::string& c
 std::string Find::resolveItem(const std::string& item)
 {
     std::string value = knowledge->getNameFromLabel(item);
+    
+    // Si el valor devuelto es igual al item, significa que NO está en el YAML
     if (value == item)
     {
-        RCLCPP_WARN(node->get_logger(),
-                    "Find: Label '%s' not found in Knowledge RAM, returning empty",
+        RCLCPP_INFO(node->get_logger(),
+                    "Find: '%s' no es un Label, se usará como nombre directo para la visión.",
                     item.c_str());
-        return "";
+        return item; // <--- DEVOLVEMOS EL ORIGINAL en lugar de "./."
     }
-    return value;
+    
+    return value; // Devolvemos la traducción (ej. "cutlery" -> "fork")
 }
 // =========================================================
 // Ejecuta find
@@ -55,61 +58,93 @@ std::string Find::resolveItem(const std::string& item)
 bool Find::run(const std::string& category_item,
                const std::shared_ptr<GoalHandle>& goalHandle)
 {
-    // -------------------- PARSE --------------------
-    auto [category, item] = parseCategoryItem(category_item);
-    // -------------------- FEEDBACK --------------------
-    auto feedback = std::make_shared<ExecuteTask::Feedback>();
-    feedback->feedback.step_id = 1;
-    feedback->feedback.progress = 0.5f;
-    feedback->feedback.message  = "Buscando: " + item + " (categoría: " + category + ")";
-    goalHandle->publish_feedback(feedback);
-    // -------------------- RESOLVE --------------------
-    std::string resolved_item = resolveItem(item);
-    // -------------------- TASKS CALL + RESULT --------------------
-    bool        success = false;
-    std::string result;
+    // 1. Verificación inicial de seguridad
+    if (!goalHandle || !goalHandle->is_active()) return false;
 
-    if (category == "object")
-    {
-        auto response = tasks->FindObject(resolved_item);
-        success = response.success;
-        result  = success
-            ? "found: "     + response.detected_class +
-              " conf="      + std::to_string(response.confidence) +
-              " x="         + std::to_string(response.point.point.x) +
-              " y="         + std::to_string(response.point.point.y) +
-              " z="         + std::to_string(response.point.point.z)
-            : "not_found: " + response.message;
+    auto [category, item] = parseCategoryItem(category_item);
+
+    // Si la categoría es waving o seat, no necesitamos un item.
+    // Forzamos un item genérico para que no truene el resolveItem.
+    if (category == "waving" && item.empty()) {
+        item = "human"; 
     }
-    else if (category == "person")
-    {
-        auto response = tasks->FindPerson(resolved_item);
-        success = response.success;
-        result  = success
-            ? "found: "      + response.name +
-              " description=" + response.description
-            : "not_found: person not recognized";
+    
+    // 2. Feedback con try-catch local
+    try {
+        auto feedback = std::make_shared<ExecuteTask::Feedback>();
+        feedback->feedback.message = "Buscando: " + item + " (categoría: " + category + ")";
+        if (goalHandle->is_active()) goalHandle->publish_feedback(feedback);
+    } catch (...) { 
+        RCLCPP_WARN(node->get_logger(), "Find: Could not publish feedback");
     }
-    else if (category == "seat")
-    {
-        auto response = tasks->FindSeat();
-        success = response.success;
-        result  = success
-            ? "found: seat available"
-            : "not_found: " + response.message;
+
+    std::string resolved_item = resolveItem(item);
+
+    // Si el item no se resolvió (es "./."), mejor ni le preguntamos a la visión
+    if (resolved_item == "./." && category != "waving" && category != "seat") {
+        return executor.authorize("find", category_item, "not_found: unknown_item", "Etiqueta no existe");
     }
-    else
-    {
-        RCLCPP_ERROR(node->get_logger(),
-                     "Find: unknown category '%s'", category.c_str());
-        result  = "not_found: unknown category " + category;
+
+    bool success = false;
+    std::string result = "not_found: internal_error";
+
+    // 3. Bloque de ejecución con protección de datos
+    try {
+        if (category == "object") {
+            auto response = tasks->FindObject(resolved_item);
+            success = response.success;
+            
+            if (success) {
+                // 'response' es lo que regresó el ObjectFinderNode
+                knowledge->saveInRAM("last_object_found", response.detected_class);
+                knowledge->updateLabel("object_1", response.detected_class);
+                knowledge->updateLabel("last_object_found", response.detected_class);
+                // Para que el brazo sepa a dónde ir
+                knowledge->updateObjectPose(item, response.point);
+                // SOLO accedemos a las coordenadas si success es true
+                result = "found: " + response.detected_class +
+                         " x=" + std::to_string(response.point.point.x);
+            } else {
+                result = "not_found: " + (response.message.empty() ? "timeout/no_obj" : response.message);
+            }
+        } 
+        else if (category == "person") {
+            std::string person_to_find = (resolved_item == "anybody") ? "" : resolved_item;
+            auto response = tasks->FindPerson(person_to_find);
+            success = response.success;
+            result = success ? "found: " + response.name : "not_found: person not recognized";
+        }
+        else if (category == "seat") {
+            auto response = tasks->FindSeat();
+            success = response.success;
+            result = success ? "found: seat available" : "not_found: " + response.message;
+        }
+        else if (category == "waving") {
+            auto response = tasks->FindWavingHuman(); 
+            success = response.success;
+            
+            if (success) {
+                result = "found: waving_human";
+            } else {
+                result = "not_found: no_one_waving";
+            }
+        }
+        else {
+            RCLCPP_ERROR(node->get_logger(), "Find: unknown category '%s'", category.c_str());
+            result = "not_found: unknown category";
+            success = false;
+        }
+    } catch (const std::exception &e) {
+        RCLCPP_ERROR(node->get_logger(), "Find: Task call crashed: %s", e.what());
         success = false;
+        result = "not_found: exception_in_vision_layer";
     }
-    // -------------------- AUTHORIZE --------------------
+
+    // 4. Authorize final
     return executor.authorize(
         "find",
         category_item,
         result,
-        success ? "Objeto localizado" : "Objeto no encontrado"
+        success ? "Objeto localizado" : "Fallo en localización"
     );
 }

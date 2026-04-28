@@ -13,7 +13,7 @@ bool Point::run(const std::string &target_name,
   feedback->feedback.message = "Executing pointing motion to: " + target_name;
   goalHandle->publish_feedback(feedback);
 
-  RCLCPP_INFO(node->get_logger(), "Point tool: Aligning and pointing to target.");
+  RCLCPP_INFO(node->get_logger(), "Point tool: Aligning and pointing to target. Target: %s", target_name.c_str());
 
   // -------------------- HARDWARE POINTING --------------------
   
@@ -24,6 +24,14 @@ bool Point::run(const std::string &target_name,
   else if(target_name == "disable")
   {
     motion_completed = hardware->PointingMotionDisable();
+  }
+  else if(target_name == "bag")
+  {
+
+  }
+  else if(target_name == "nobag")
+  {
+    
   }
 
   // -------------------- AUTHORIZE --------------------

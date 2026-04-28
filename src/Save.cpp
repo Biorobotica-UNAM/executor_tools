@@ -1,5 +1,7 @@
 #include "executor_tools/Knowledge.hpp"
 #include "executor_tools/Save.hpp"
+#include <vector>
+#include <sstream>
 
 Save::Save(const rclcpp::Node::SharedPtr &node,
            const std::shared_ptr<Knowledge> &knowledge)
@@ -17,11 +19,28 @@ bool Save::run(const std::string &argument,
   goalHandle->publish_feedback(feedback);
 
   // 2. -------------------- CALL KNOWLEDGE TOOL --------------------
-  bool success = knowledge->saveToFile(argument);
+  
+  // Obtenemos lo último reconocido (ej: "coffee milk")
+  std::string recognized = knowledge->getLastRecognized();
+  std::string final_value = recognized;
+
+  // Lógica especial para órdenes (Restaurant)
+  // Si el argumento contiene "order", cambiamos el espacio por " and "
+  if (argument.find("order") != std::string::npos) {
+      size_t space_pos = recognized.find(' ');
+      if (space_pos != std::string::npos) {
+          // Reemplaza "coffee milk" -> "coffee and milk"
+          final_value.replace(space_pos, 1, " and ");
+          RCLCPP_INFO(node->get_logger(), "Save: Formatted order with 'and': %s", final_value.c_str());
+      }
+  }
+
+  // Usamos updateFromService para persistir en RAM y Disco
+  bool success = knowledge->updateFromService(argument, final_value);
 
   // 3. -------------------- AUTHORIZATION --------------------
   return executor.authorize("Save", argument,
                             success ? "success" : "failure",
-                            success ? "Data successfully saved in Knowledge" 
+                            success ? ("Data saved as: " + final_value) 
                                     : "Knowledge tool failed to save data");
 }
