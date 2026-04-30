@@ -91,23 +91,31 @@ bool Find::run(const std::string& category_item,
     // 3. Bloque de ejecución con protección de datos
     try {
         if (category == "object") {
-            auto response = tasks->GetBbox(resolved_item);
+            // Cambiamos la llamada al nuevo método que implementamos en Tasks.cpp
+            auto response = tasks->FindObject(resolved_item);
             success = response.success;
             
             if (success) {
-                // 'response' es lo que regresó el ObjectFinderNode
+                // Guardamos en RAM y actualizamos labels usando la clase detectada que viene en la respuesta
                 knowledge->saveInRAM("last_object_found", response.detected_class);
                 knowledge->updateLabel("object_1", response.detected_class);
                 knowledge->updateLabel("last_object_found", response.detected_class);
-                // Para que el brazo sepa a dónde ir
-               // knowledge->updateObjectPose(item, response.point);
-                // SOLO accedemos a las coordenadas si success es true
-                //result = "found: " + response.detected_class +
-                  //       " x=" + std::to_string(response.point.point.x);
-            } //else {
-               // result = "not_found: " + (response.message.empty() ? "timeout/no_obj" : response.message);
-           // }
-        } 
+
+                // Actualizamos la posición del objeto para que el brazo (u otros nodos) puedan usarla.
+                // Como response.point ya es un geometry_msgs::msg::PointStamped, lo pasamos directo.
+                knowledge->updateObjectPose(resolved_item, response.point);
+
+                result = "found: " + response.detected_class + 
+                        " at x=" + std::to_string(response.point.point.x) + 
+                        ", y=" + std::to_string(response.point.point.y);
+                
+                RCLCPP_INFO(node->get_logger(), "Find SUCCESS: %s", result.c_str());
+            } else {
+                // Manejo de error o no encontrado
+                result = "not_found: " + (response.message.empty() ? "search_failed" : response.message);
+                RCLCPP_WARN(node->get_logger(), "Find FAILED: %s", result.c_str());
+            }
+        }
         else if (category == "person") {
             std::string person_to_find = (resolved_item == "anybody") ? "" : resolved_item;
             auto response = tasks->FindPerson(person_to_find);
