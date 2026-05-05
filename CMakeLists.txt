@@ -48,6 +48,10 @@ add_library(${PROJECT_NAME}
   src/Point.cpp
   src/Focus.cpp
   src/Unfocus.cpp
+  src/FindObject.cpp
+  src/FindPerson.cpp
+  src/FindWaving.cpp
+  src/FindSeat.cpp
   src/Describe.cpp
   src/Saveloc.cpp
   src/Take.cpp

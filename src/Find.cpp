@@ -91,21 +91,24 @@ bool Find::run(const std::string& category_item,
     // 3. Bloque de ejecución con protección de datos
     try {
         if (category == "object") {
-            // Cambiamos la llamada al nuevo método que implementamos en Tasks.cpp
             auto response = tasks->FindObject(resolved_item);
             success = response.success;
             
             if (success) {
-                // Guardamos en RAM y actualizamos labels usando la clase detectada que viene en la respuesta
-                knowledge->saveInRAM("last_object_found", response.detected_class);
-                knowledge->updateLabel("object_1", response.detected_class);
-                knowledge->updateLabel("last_object_found", response.detected_class);
+                // 1. Usamos el nombre real que detectó la visión (ej. "tomato")
+                std::string final_name = response.detected_class;
 
-                // Actualizamos la posición del objeto para que el brazo (u otros nodos) puedan usarla.
-                // Como response.point ya es un geometry_msgs::msg::PointStamped, lo pasamos directo.
-                knowledge->updateObjectPose(resolved_item, response.point);
+                // 2. Guardamos el nombre en las etiquetas de RAM
+                knowledge->saveInRAM("last_object_found", final_name);
+                knowledge->updateLabel("object_1", final_name);
+                knowledge->updateLabel("last_object_found", final_name);
 
-                result = "found: " + response.detected_class + 
+                // 3. CORRECCIÓN: Guardamos la pose bajo el nombre real Y bajo la etiqueta[cite: 8]
+                // Esto asegura que si alguien busca "last_object_found", obtenga estas coordenadas.
+                knowledge->updateObjectPose(final_name, response.point);
+                knowledge->updateObjectPose("last_object_found", response.point);
+
+                result = "found: " + final_name + 
                         " at x=" + std::to_string(response.point.point.x) + 
                         ", y=" + std::to_string(response.point.point.y);
                 
