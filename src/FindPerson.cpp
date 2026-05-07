@@ -23,46 +23,45 @@ bool FindPerson::run(const std::string& name_to_find,
 {
     if (!goalHandle || !goalHandle->is_active()) return false;
 
-    // 1. Feedback inicial
     auto feedback = std::make_shared<ExecuteTask::Feedback>();
-    feedback->feedback.message = "Buscando a la persona: " + name_to_find;
+    feedback->feedback.message = "Buscando a: " + name_to_find;
     goalHandle->publish_feedback(feedback);
 
-    // 2. Resolución del nombre (Habilitamos búsqueda por etiquetas)
     std::string final_name = resolvePersonName(name_to_find);
-
-    RCLCPP_INFO(node->get_logger(), "FindPerson: Starting search for '%s'", 
-                final_name.empty() ? "anybody" : final_name.c_str());
-
     bool success = false;
     std::string result_msg = "not_found: person_not_recognized";
 
     try {
-        // 3. Llamada al servicio de reconocimiento facial
+        // 3. Llamada al servicio (El nodo FSM hará el paneo/tilteo)
         auto response = tasks->FindPerson(final_name);
         success = response.success;
 
         if (success) {
-            result_msg = "found: " + response.name;
+            // El nombre que realmente devolvió el nodo (puede ser el original o uno nuevo)
+            std::string actual_name = response.name; 
+            result_msg = "found: " + actual_name;
             
-            // Actualizamos el Knowledge con la persona encontrada
-            knowledge->saveInRAM("last_person_found", response.name);
-            knowledge->updateLabel("person_1", response.name);
+            // --- ACTUALIZACIÓN DE KNOWLEDGE ---
+            knowledge->saveInRAM("last_person_found", actual_name);
             
-            RCLCPP_INFO(node->get_logger(), "FindPerson SUCCESS: Found %s", response.name.c_str());
-        } else {
-            RCLCPP_WARN(node->get_logger(), "FindPerson FAILED: Person not in sight");
-        }
+            // Si el Supervisor pidió buscar a "guest", actualizamos el label específico
+            if (name_to_find.find("guest") != std::string::npos || name_to_find.find("name_") != std::string::npos) {
+                 knowledge->updateLabel(name_to_find, actual_name);
+            }
+
+            // OPCIONAL: Si el .srv trae la descripción de Florence-2, guárdala de una vez
+            if (!response.description.empty()) {
+                knowledge->saveInRAM("last_description", response.description);
+                RCLCPP_INFO(node->get_logger(), "Description received: %s", response.description.c_str());
+            }
+            
+            RCLCPP_INFO(node->get_logger(), "FindPerson SUCCESS: Found %s", actual_name.c_str());
+        } 
     } catch (const std::exception &e) {
         RCLCPP_ERROR(node->get_logger(), "FindPerson CRASH: %s", e.what());
         result_msg = "not_found: internal_error";
     }
 
-    // 4. Autorización final al Supervisor
-    return executor.authorize(
-        "find_person",
-        name_to_find,
-        result_msg,
-        success ? "Persona localizada" : "No se encontró a la persona"
-    );
+    return executor.authorize("find_person", name_to_find, result_msg, 
+                            success ? "Persona localizada" : "No se encontró");
 }

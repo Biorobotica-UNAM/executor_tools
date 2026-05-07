@@ -49,7 +49,9 @@ bool FindObject::run(const std::string& object_label,
             knowledge->updateObjectPose("last_object_found", response.point);
 
             result_msg = "found: " + final_class + 
-                         " at x=" + std::to_string(response.point.point.x);
+                         " at x=" + std::to_string(response.point.point.x)+ 
+                         " at y=" + std::to_string(response.point.point.y)+ 
+                         " at z=" + std::to_string(response.point.point.z);
             
             RCLCPP_INFO(node->get_logger(), "FindObject SUCCESS: %s", final_class.c_str());
         } else {
