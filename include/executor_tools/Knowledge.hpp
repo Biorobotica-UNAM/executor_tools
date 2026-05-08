@@ -7,7 +7,7 @@
 #include <map>
 #include <algorithm>
 #include <yaml-cpp/yaml.h> 
-#include "geometry_msgs/msg/point_stamped.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
 
 class Knowledge {
 public:
@@ -33,18 +33,18 @@ public:
     }
 
     // Lo llama el Find para guardar LA POSICIÓN del objeto para el brazo
-    void updateObjectPose(const std::string &item, const geometry_msgs::msg::PointStamped &pose) {
+    void updateObjectPose(const std::string &item, const geometry_msgs::msg::PoseStamped &pose) {
         object_poses_[item] = pose;
-        RCLCPP_INFO(node->get_logger(), "Knowledge: Position for '%s' stored (x: %.2f)", 
-                    item.c_str(), pose.point.x);
+        RCLCPP_INFO(node->get_logger(), "Knowledge RAM: Pose for '%s' stored (x: %.2f, qz: %.2f)", 
+                    item.c_str(), pose.pose.position.x, pose.pose.orientation.z);
     }
 
     // Lo llama el Take para saber A DÓNDE MOVERSE
-    geometry_msgs::msg::PointStamped getObjectPose(const std::string &item) {
+    geometry_msgs::msg::PoseStamped getObjectPose(const std::string &item) {
         if (object_poses_.count(item)) return object_poses_[item];
         
-        RCLCPP_WARN(node->get_logger(), "Knowledge: Pose for '%s' not found!", item.c_str());
-        return geometry_msgs::msg::PointStamped(); // Devuelve una pose vacía si no existe
+        RCLCPP_WARN(node->get_logger(), "Knowledge RAM: Pose for '%s' not found!", item.c_str());
+        return geometry_msgs::msg::PoseStamped(); 
     }
 
     // --- MÉTODOS DE PERSISTENCIA (YAML) ---
@@ -105,6 +105,12 @@ public:
     std::string getLastRecognized() const { return last_recognized_; }
 
     bool updateFromService(const std::string &label, const std::string &value) {
+        // Si el valor es unknown o vacío, ignoramos para no ensuciar el YAML
+        if (value == "unknown" || value.empty()) {
+            RCLCPP_WARN(node->get_logger(), "Knowledge: Blocked update of [%s] with unknown value", label.c_str());
+            return false; 
+        }
+        
         try {
             full_config_["labels"][label] = value;
             return saveToFileDirect();
@@ -145,7 +151,7 @@ private:
     
     // NUEVAS ESTRUCTURAS DE DATOS PARA RAM
     std::map<std::string, std::string> memory_ram_;
-    std::map<std::string, geometry_msgs::msg::PointStamped> object_poses_;
+    std::map<std::string, geometry_msgs::msg::PoseStamped> object_poses_;
     
     std::map<std::string, std::string> word_bank_;
 };

@@ -8,8 +8,8 @@ FindObject::FindObject(const rclcpp::Node::SharedPtr& node,
 
 std::string FindObject::resolveObjectName(const std::string& label)
 {
+    // Intentamos traducir si es una etiqueta (ej. "drink" -> "coke")
     std::string resolved = knowledge->getNameFromLabel(label);
-    // Si no es una etiqueta conocida, devolvemos el original para la visión directa
     return (resolved == label || resolved == "./.") ? label : resolved;
 }
 
@@ -18,56 +18,65 @@ bool FindObject::run(const std::string& object_label,
 {
     if (!goalHandle || !goalHandle->is_active()) return false;
 
-    // 1. Feedback al Supervisor
+    // 1. Feedback inicial para el Supervisor
     auto feedback = std::make_shared<ExecuteTask::Feedback>();
-    feedback->feedback.message = "Iniciando escaneo para: " + object_label;
+    feedback->feedback.message = "Escaneando y calculando TF para: " + object_label;
     goalHandle->publish_feedback(feedback);
 
-    // 2. Traducción de etiqueta (ej. "beverage" -> "coke")
     std::string target_name = resolveObjectName(object_label);
     RCLCPP_INFO(node->get_logger(), "FindObject: Looking for '%s'", target_name.c_str());
 
     bool success = false;
-    std::string result_msg = "not_found: object_not_seen";
+    std::string result_msg = "not_found";
 
     try {
-        // 3. Llamada a tu nueva FSM (la que probaste con service call)
+        // 2. Llamada a la FSM mediante el wrapper de Tasks
+        // Ahora esperamos un PoseStamped en la respuesta
         auto response = tasks->FindObject(target_name);
         success = response.success;
 
         if (success) {
             std::string final_class = response.detected_class;
 
-            // 4. GUARDADO ESTRATÉGICO EN KNOWLEDGE
+            // Extraemos datos de Pose (Position + Orientation)
+            const auto &p = response.pose.pose.position;
+            const auto &o = response.pose.pose.orientation;
+
+            // 3. GUARDADO EN RAM (Knowledge Bank)
             // Guardamos el nombre real detectado
             knowledge->saveInRAM("last_object_found", final_class);
             knowledge->updateLabel("object_1", final_class);
             
-            // Guardamos la Pose bajo el nombre real Y bajo la etiqueta genérica
-            // Esto permite que el brazo busque "last_object_found" sin saber qué es.
-            knowledge->updateObjectPose(final_class, response.point);
-            knowledge->updateObjectPose("last_object_found", response.point);
+            // Guardamos la Pose completa (PoseStamped) para que el brazo tenga orientación
+            knowledge->updateObjectPose(final_class, response.pose);
+            knowledge->updateObjectPose("last_object_found", response.pose);
 
-            result_msg = "found: " + final_class + 
-                         " at x=" + std::to_string(response.point.point.x)+ 
-                         " at y=" + std::to_string(response.point.point.y)+ 
-                         " at z=" + std::to_string(response.point.point.z);
+            // 4. CONSTRUCCIÓN DEL MENSAJE DETALLADO
+            // Usamos substr para no saturar la terminal con decimales de flotantes
+            result_msg = "found:" + final_class + 
+                         " pos[x:" + std::to_string(p.x) + 
+                         ",y:" + std::to_string(p.y) + 
+                         ",z:" + std::to_string(p.z) + "]" +
+                         " ori[qx:" + std::to_string(o.x) + 
+                         ",qy:" + std::to_string(o.y) + 
+                         ",qz:" + std::to_string(o.z) + 
+                         ",qw:" + std::to_string(o.w)+ "]";
             
-            RCLCPP_INFO(node->get_logger(), "FindObject SUCCESS: %s", final_class.c_str());
+            RCLCPP_INFO(node->get_logger(), "FindObject SUCCESS: %s", result_msg.c_str());
         } else {
-            result_msg = "not_found: " + (response.message.empty() ? "scan_finished_without_success" : response.message);
-            RCLCPP_WARN(node->get_logger(), "FindObject FAILED: %s", result_msg.c_str());
+            result_msg = "not_found";
+            RCLCPP_WARN(node->get_logger(), "FindObject: Object '%s' not found during scan.", target_name.c_str());
         }
     } catch (const std::exception &e) {
         RCLCPP_ERROR(node->get_logger(), "FindObject CRASH: %s", e.what());
-        result_msg = "not_found: vision_service_error";
+        result_msg = "not_found";
     }
 
-    // 5. Autorización final
+    // 5. Autorización final al Supervisor con el reporte de ejecución
     return executor.authorize(
         "find_object",
         object_label,
         result_msg,
-        success ? "Objeto encontrado y posicionado" : "No se pudo localizar el objeto"
+        success ? "Objeto localizado y orientado en base_link" : "No se pudo localizar el objeto"
     );
 }

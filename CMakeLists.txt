@@ -44,7 +44,6 @@ add_library(${PROJECT_NAME}
   src/Save.cpp
   src/Follow.cpp
   src/MemorizeFace.cpp
-  src/Find.cpp
   src/Point.cpp
   src/Focus.cpp
   src/Unfocus.cpp

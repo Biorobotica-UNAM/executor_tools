@@ -13,27 +13,32 @@ bool Take::run(const std::string &object_name,
 
   // 1. FEEDBACK
   auto feedback = std::make_shared<ExecuteTask::Feedback>();
-  feedback->feedback.message = "Calling take service for: " + object_name;
+  feedback->feedback.message = "Iniciando manipulación para: " + object_name;
   goalHandle->publish_feedback(feedback);
 
-  // 2. OBTENER POSE DE LA RAM
-  geometry_msgs::msg::PointStamped target_point = knowledge->getObjectPose(object_name);
-  if (target_point.point.x == 0 && target_point.point.y == 0) {
+  // 2. OBTENER POSE COMPLETA (PoseStamped) DE LA RAM
+  // Ahora el Knowledge devuelve la pose con la orientación real de TF2
+  geometry_msgs::msg::PoseStamped target_pose = knowledge->getObjectPose(object_name);
+  
+  // Verificación básica: Si la pose está vacía (x e y en 0)
+  if (target_pose.pose.position.x == 0 && target_pose.pose.position.y == 0) {
+      RCLCPP_WARN(node->get_logger(), "Take: No se encontró la pose de %s en RAM", object_name.c_str());
       return executor.authorize("take", object_name, "failure", "Object pose not found in RAM");
   }
 
-  geometry_msgs::msg::PoseStamped target_pose;
-  target_pose.header = target_point.header;
-  target_pose.pose.position = target_point.point;
-  // Cuaternión normalizado para rotación de 90° en Y (Mirando abajo)
+  // OPCIONAL: Si el brazo requiere una orientación específica por diseño (ej. siempre desde arriba)
+  // puedes sobreescribir el quaternion aquí, pero lo ideal es usar el que ya calculó la visión.
+  /*
   target_pose.pose.orientation.x = 0.0; 
   target_pose.pose.orientation.y = -0.7071; 
   target_pose.pose.orientation.z = 0.0; 
   target_pose.pose.orientation.w = 0.7071;
+  */
 
   // --- LÓGICA DE SELECCIÓN DE BRAZO ---
-  std::string selected_arm;
-  selected_arm = "left";
+  // Puedes dejarlo en "left" o decidir según la coordenada 'y' del objeto
+  std::string selected_arm = (target_pose.pose.position.y > 0) ? "left" : "right";
+  RCLCPP_INFO(node->get_logger(), "Take: Seleccionando brazo %s para alcanzar objeto", selected_arm.c_str());
 
   // 3. CONFIGURAR CLIENTE Y REQUEST
   auto client = node->create_client<take_interfaces::srv::Take>("/take");
@@ -44,7 +49,7 @@ bool Take::run(const std::string &object_name,
 
   auto request = std::make_shared<take_interfaces::srv::Take::Request>();
   request->arm = selected_arm; 
-  request->target_pose = target_pose;
+  request->target_pose = target_pose; // Enviamos la PoseStamped completa
 
   // 4. LLAMADA ASÍNCRONA 
   auto result_future = client->async_send_request(request);
