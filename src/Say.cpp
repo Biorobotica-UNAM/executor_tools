@@ -29,7 +29,7 @@ Say::Say(const rclcpp::Node::SharedPtr& node,
 // =========================================================
 // run
 // =========================================================
-ToolResult Say::run(const std::string&                 phrase_key,
+Result Say::run(const std::string&                 phrase_key,
                     const std::shared_ptr<GoalHandle>& gh)
 {
     if (!gh || !gh->is_active())

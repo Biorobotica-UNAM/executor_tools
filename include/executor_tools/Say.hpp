@@ -34,7 +34,7 @@ public:
     Say(const rclcpp::Node::SharedPtr& node,
         const std::shared_ptr<HRI>&    hri);
 
-    ToolResult run(const std::string&                 phrase_key,
+    Result run(const std::string& phrase_key,
                    const std::shared_ptr<GoalHandle>& gh);
 
 private:
