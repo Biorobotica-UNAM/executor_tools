@@ -26,7 +26,7 @@ bool Saveloc::run(const std::string &location_name,
   aux_exec.add_node(aux_node);
 
   // Esperar al servicio (máximo 3 segundos)
-  if (!client->wait_for_service(3s)) {
+  if (!client->wait_for_service(3s)) {    
     RCLCPP_ERROR(node->get_logger(), "Saveloc: Service /locations_manager/add not available");
     return executor.authorize("saveloc", location_name, "failure", "Service not available");
   }
