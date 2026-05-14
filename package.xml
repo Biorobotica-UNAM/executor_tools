@@ -1,39 +1,27 @@
 <?xml version="1.0"?>
-<?xml-model href="http://download.ros.org/schema/package_format3.xsd"
-            schematypens="http://www.w3.org/2001/XMLSchema"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>executor_tools</name>
   <version>0.0.0</version>
   <description>Utilities for executor</description>
-
-  <maintainer email="marco.soriano5102@comunidad.unam.mx">
-    Marco Soriano
-  </maintainer>
-
+  <maintainer email="marco.soriano5102@comunidad.unam.mx">Marco Soriano</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <!-- Dependencies -->
+  <!-- C++ / Build -->
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
-  <depend>std_srvs</depend>
-  <depend>executor_interfaces</depend>
-  <depend>supervisor_executor_interfaces</depend>
-  <depend>talker_interfaces</depend>
-  <depend>listener_interfaces</depend>
-  <depend>known_locations_interfaces</depend>
-  <depend>hri_tools</depend>
-  <depend>navigation_tools</depend>
-  <depend>hardware_tools</depend>
   <depend>ament_index_cpp</depend>
   <depend>yaml-cpp</depend>
-  <depend>vision_tools</depend>
-  <depend>tasks_tools</depend>
-  <depend>vision_interfaces</depend>
-  <depend>faces_interfaces</depend>
-  <depend>human_interfaces</depend> 
-  <depend>take_interfaces</depend>
+
+  <!-- ROS -->
+
+  <!-- Tools -->
+  <depend>hri_tools</depend>
+
+  <!-- Interfaces -->
+  <depend>executor_interfaces</depend>
 
   <!-- Test -->
   <test_depend>ament_lint_auto</test_depend>
