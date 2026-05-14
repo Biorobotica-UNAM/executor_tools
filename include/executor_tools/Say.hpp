@@ -3,7 +3,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "executor_interfaces/action/execute_task.hpp"
-#include "executor_tools/ToolResult.hpp"
+#include "executor_tools/Result.hpp"
 #include "hri_tools/HRI.hpp"
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
