@@ -15,9 +15,6 @@ find_package(executor_interfaces REQUIRED)
 find_package(hri_tools REQUIRED)
 find_package(navigation_tools REQUIRED)
 find_package(hardware_tools REQUIRED)
-find_package(tf2 REQUIRED)
-find_package(tf2_ros REQUIRED)
-find_package(tf2_geometry_msgs REQUIRED)
 
 # -----------------------------
 # Library
@@ -43,9 +40,6 @@ ament_target_dependencies(${PROJECT_NAME}
   hri_tools
   navigation_tools
   hardware_tools
-  tf2
-  tf2_ros
-  tf2_geometry_msgs
 )
 
 target_link_libraries(${PROJECT_NAME}
@@ -86,9 +80,6 @@ ament_export_dependencies(
   hri_tools
   navigation_tools
   hardware_tools
-  tf2
-  tf2_ros
-  tf2_geometry_msgs
 )
 
 ament_package()

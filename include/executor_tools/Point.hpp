@@ -6,19 +6,16 @@
 #include "executor_tools/Result.hpp"
 #include "hardware_tools/Hardware.hpp"
 
-#include <tf2/utils.h>
-#include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
-
 #include <string>
-#include <memory>
 
+// =========================================================
+// Estados de la FSM
+// =========================================================
 enum class PointState {
     READY,
-    ALIGNING_BASE,
-    MOVING_HEAD,
-    POINTING_ARM,
+    ALIGNING,       // enable: girando base + centrando cabeza
+    POINTING,       // enable: publicando pose de brazo
+    RESETTING,      // disable: bajando brazo
     SUCCESS,
     FAILED
 };
@@ -29,26 +26,29 @@ public:
     using ExecuteTask = executor_interfaces::action::ExecuteTask;
     using GoalHandle  = rclcpp_action::ServerGoalHandle<ExecuteTask>;
 
-    explicit Point(const rclcpp::Node::SharedPtr& node,
-                      const std::shared_ptr<Hardware>& hardware);
+    Point(const rclcpp::Node::SharedPtr&   node,
+          const std::shared_ptr<Hardware>& hardware);
 
-    Result run(const std::shared_ptr<GoalHandle>& gh);
-    Result disable(const std::shared_ptr<GoalHandle>& gh);
+    Result run(const std::string&                 argument,
+               const std::shared_ptr<GoalHandle>& gh);
 
 private:
+    Result enable(const std::shared_ptr<GoalHandle>& gh);
+    Result disable(const std::shared_ptr<GoalHandle>& gh);
+
     void publishFeedback(const std::shared_ptr<GoalHandle>& gh,
-                         PointState state,
-                         const std::string& detail = "");
+                         PointState                         state,
+                         const std::string&                 detail = "");
 
     static std::string stateName(PointState s);
 
-    tf2_ros::Buffer tf_buffer_;
-    tf2_ros::TransformListener tf_listener_;
+    // Posiciones de brazo izquierdo (6 DOF) — Justina
+    static constexpr std::array<double, 6> ARM_POINTING = {0.6, 0.1, 0.3, 1.2, 0.0, 0.0};
+    static constexpr std::array<double, 6> ARM_RESTING  = {0.0, 0.0, 0.3, 1.5, 0.0, 1.2};
 
-    bool use_takeshi_;
-    std::string camera_frame_;
-    std::string base_frame_;
+    static constexpr double ANGULAR_SPEED = 0.6;   // rad/s
+    static constexpr double ALIGN_EXTRA   = 0.3;   // s extra tras el giro
 
-    rclcpp::Node::SharedPtr node_;
+    rclcpp::Node::SharedPtr   node_;
     std::shared_ptr<Hardware> hardware_;
 };
