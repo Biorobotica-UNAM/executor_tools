@@ -14,6 +14,7 @@ find_package(executor_interfaces REQUIRED)
 
 find_package(hri_tools REQUIRED)
 find_package(navigation_tools REQUIRED)
+find_package(hardware_tools REQUIRED)
 
 # -----------------------------
 # Library
@@ -21,6 +22,7 @@ find_package(navigation_tools REQUIRED)
 add_library(${PROJECT_NAME}
   src/Say.cpp
   src/GoTo.cpp
+  src/Check.cpp
 )
 
 target_include_directories(${PROJECT_NAME}
@@ -36,6 +38,7 @@ ament_target_dependencies(${PROJECT_NAME}
   executor_interfaces
   hri_tools
   navigation_tools
+  hardware_tools
 )
 
 target_link_libraries(${PROJECT_NAME}
@@ -75,6 +78,7 @@ ament_export_dependencies(
   executor_interfaces
   hri_tools
   navigation_tools
+  hardware_tools
 )
 
 ament_package()

@@ -20,6 +20,7 @@
   <!-- Tools -->
   <depend>hri_tools</depend>
   <depend>navigation_tools</depend>
+  <depend>hardware_tools</depend>
 
   <!-- Interfaces -->
   <depend>executor_interfaces</depend>
