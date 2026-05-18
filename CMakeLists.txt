@@ -15,6 +15,7 @@ find_package(executor_interfaces REQUIRED)
 find_package(hri_tools REQUIRED)
 find_package(navigation_tools REQUIRED)
 find_package(hardware_tools REQUIRED)
+find_package(vision_tools REQUIRED)
 
 # -----------------------------
 # Library
@@ -41,6 +42,7 @@ ament_target_dependencies(${PROJECT_NAME}
   hri_tools
   navigation_tools
   hardware_tools
+  vision_tools
 )
 
 target_link_libraries(${PROJECT_NAME}
@@ -81,6 +83,7 @@ ament_export_dependencies(
   hri_tools
   navigation_tools
   hardware_tools
+  vision_tools
 )
 
 ament_package()
