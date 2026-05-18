@@ -126,9 +126,9 @@ bool FindObject::detectWithOWL(
     if (result.second.empty())
         return false;
 
-    pose = result.second[0].pose;
-
-    return true;
+    return vision_->DetectionToPose(
+        result.second[0],
+        pose);
 }
 
 bool FindObject::detectEmptyChair(
