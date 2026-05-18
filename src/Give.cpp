@@ -78,7 +78,7 @@ Result Give::enable(const std::shared_ptr<GoalHandle>& gh)
     }
 
     // 3. Abrir el Gripper
-    hardware_->OpenGripper();
+    //hardware_->OpenGripper();
     std::this_thread::sleep_for(500ms); // Breve pausa para asegurar apertura física
 
     // 4. Hablar
@@ -87,7 +87,7 @@ Result Give::enable(const std::shared_ptr<GoalHandle>& gh)
 
     // 5. Cerrar la mano
     publishFeedback(gh, GiveState::MOVING_ARM, "Closing gripper");
-    hardware_->CloseGripper();
+    //hardware_->CloseGripper();
     std::this_thread::sleep_for(1s); // Tiempo para asegurar el agarre firme
 
     publishFeedback(gh, GiveState::SUCCESS, "enable_completed");
@@ -117,7 +117,7 @@ Result Give::disable(const std::shared_ptr<GoalHandle>& gh)
 
     // 3. Abrir la mano
     publishFeedback(gh, GiveState::MOVING_ARM, "Opening gripper");
-    hardware_->OpenGripper();
+    //hardware_->OpenGripper();
 
     // 4. Esperar 2 segundos mientras la persona retira la bolsa
     publishFeedback(gh, GiveState::WAITING, "Waiting 2 seconds");
@@ -125,7 +125,7 @@ Result Give::disable(const std::shared_ptr<GoalHandle>& gh)
 
     // 5. Cerrar mano y regresar a posición de reposo
     publishFeedback(gh, GiveState::MOVING_ARM, "Resetting arm to resting position");
-    hardware_->CloseGripper(); // Cierra pinza para navegar compacto
+    //hardware_->CloseGripper(); // Cierra pinza para navegar compacto
     std::this_thread::sleep_for(500ms);
 
     bool reset_ok = hardware_->MoveLeftArm(
