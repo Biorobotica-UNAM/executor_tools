@@ -47,7 +47,7 @@ Result Point::enable(const std::shared_ptr<GoalHandle>& gh)
     // 2. Calcular duración del giro para alinear base con pan
     if (std::abs(pan) > 1e-3)
     {
-        const double duration_s = std::abs(pan / ANGULAR_SPEED) + ALIGN_EXTRA;
+        const double duration_s = std::abs(pan / ANGULAR_SPEED);
         const double sign       = (pan < 0.0) ? -1.0 : 1.0;
 
         rclcpp::Rate rate(30.0);

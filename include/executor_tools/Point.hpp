@@ -47,7 +47,6 @@ private:
     static constexpr std::array<double, 6> ARM_RESTING  = {0.0, 0.0, 0.3, 1.5, 0.0, 1.2};
 
     static constexpr double ANGULAR_SPEED = 0.6;   // rad/s
-    static constexpr double ALIGN_EXTRA   = 0.3;   // s extra tras el giro
 
     rclcpp::Node::SharedPtr   node_;
     std::shared_ptr<Hardware> hardware_;
