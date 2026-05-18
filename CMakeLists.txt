@@ -28,6 +28,7 @@ add_library(${PROJECT_NAME}
   src/Give.cpp
   src/FindPerson.cpp
   src/FindObject.cpp
+  src/Receive.cpp
 )
 
 target_include_directories(${PROJECT_NAME}

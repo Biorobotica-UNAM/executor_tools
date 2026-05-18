@@ -11,11 +11,10 @@
 #include <array>
 
 // =========================================================
-// Estados de la FSM para Give
+// Estados de la FSM para Give 
 // =========================================================
 enum class GiveState {
     READY,
-    ALIGNING,
     MOVING_ARM,
     SPEAKING,
     WAITING,
@@ -33,25 +32,19 @@ public:
          const std::shared_ptr<Hardware>& hardware,
          const std::shared_ptr<HRI>& hri);
 
-    Result run(const std::string& argument,
+    Result run(const std::string& object_name,
                const std::shared_ptr<GoalHandle>& gh);
 
 private:
-    Result enable(const std::shared_ptr<GoalHandle>& gh);
-    Result disable(const std::shared_ptr<GoalHandle>& gh);
-
     void publishFeedback(const std::shared_ptr<GoalHandle>& gh,
                          GiveState state,
                          const std::string& detail = "");
 
     static std::string stateName(GiveState s);
 
-    // Mismas constantes cinemáticas heredadas de Point
+    // Constantes cinemáticas del brazo izquierdo (6 DOF)
     static constexpr std::array<double, 6> ARM_POINTING = {0.6, 0.1, 0.3, 1.2, 0.0, 0.0};
     static constexpr std::array<double, 6> ARM_RESTING  = {0.0, 0.0, 0.3, 1.5, 0.0, 1.2};
-
-    static constexpr double ANGULAR_SPEED = 0.6;   // rad/s
-    static constexpr double ALIGN_EXTRA   = 0.3;   // s
 
     rclcpp::Node::SharedPtr   node_;
     std::shared_ptr<Hardware> hardware_;
