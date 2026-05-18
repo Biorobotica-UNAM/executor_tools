@@ -24,6 +24,7 @@ add_library(${PROJECT_NAME}
   src/GoTo.cpp
   src/Check.cpp
   src/Point.cpp
+  src/Give.cpp
 )
 
 target_include_directories(${PROJECT_NAME}
