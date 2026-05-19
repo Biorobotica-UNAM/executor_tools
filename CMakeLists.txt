@@ -25,6 +25,7 @@ add_library(${PROJECT_NAME}
   src/GoTo.cpp
   src/Check.cpp
   src/Point.cpp
+  src/Align.cpp
   src/Give.cpp
   src/FindPerson.cpp
   src/FindObject.cpp
