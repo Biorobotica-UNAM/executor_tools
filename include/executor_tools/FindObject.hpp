@@ -6,6 +6,8 @@
 
 #include "executor_interfaces/action/execute_task.hpp"
 
+#include "executor_tools/Result.hpp"
+
 #include "hardware_tools/Hardware.hpp"
 #include "vision_tools/Vision.hpp"
 
@@ -23,13 +25,6 @@ public:
 
     using GoalHandle =
         rclcpp_action::ServerGoalHandle<ExecuteTask>;
-
-    struct Result
-    {
-        bool success;
-        std::string state;
-        std::string message;
-    };
 
     enum class FindObjectState
     {

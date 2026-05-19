@@ -1,4 +1,5 @@
 #include "executor_tools/FindObject.hpp"
+#include "executor_tools/Result.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -15,7 +16,7 @@ FindObject::FindObject(
   vision_(vision)
 {}
 
-FindObject::Result FindObject::run(
+Result FindObject::run(
     const std::string& object_name,
     const std::shared_ptr<GoalHandle>& gh)
 {
