@@ -13,15 +13,7 @@ FindObject::FindObject(
 : node_(node),
   hardware_(hardware),
   vision_(vision)
-{
-    tf_buffer_ =
-        std::make_shared<tf2_ros::Buffer>(
-            node_->get_clock());
-
-    tf_listener_ =
-        std::make_shared<tf2_ros::TransformListener>(
-            *tf_buffer_);
-}
+{}
 
 FindObject::Result FindObject::run(
     const std::string& object_name,

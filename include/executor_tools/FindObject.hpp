@@ -15,9 +15,6 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 
-#include "tf2_ros/buffer.h"
-#include "tf2_ros/transform_listener.h"
-
 class FindObject
 {
 public:
@@ -77,11 +74,6 @@ private:
     std::shared_ptr<Hardware> hardware_;
 
     std::shared_ptr<Vision> vision_;
-
-    // TF
-    std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
-
-    std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 
     std::vector<std::pair<float,float>> scan_poses_ =
     {
