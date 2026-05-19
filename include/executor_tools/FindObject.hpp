@@ -1,66 +1,95 @@
 #pragma once
 
-#include "rclcpp/rclcpp.hpp"
-#include "rclcpp_action/rclcpp_action.hpp"
+#include <memory>
+#include <string>
+#include <vector>
 
 #include "executor_interfaces/action/execute_task.hpp"
-#include "executor_tools/Result.hpp"
 
-#include "hardware_tools/Hardware.hpp"
+#include "executor_tools/Hardware.hpp"
 #include "vision_tools/Vision.hpp"
 
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/point_stamped.hpp"
 
-#include <string>
-#include <vector>
+#include "rclcpp/rclcpp.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
 
-enum class FindObjectState {
-    READY,
-    MOVING_HEAD,
-    STABILIZING,
-    DETECTING,
-    LOOKING_AT_TARGET,
-    SUCCESS,
-    FAILED
-};
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_listener.h"
 
 class FindObject
 {
 public:
+
     using ExecuteTask = executor_interfaces::action::ExecuteTask;
-    using GoalHandle  = rclcpp_action::ServerGoalHandle<ExecuteTask>;
 
-    FindObject(const rclcpp::Node::SharedPtr& node,
-               const std::shared_ptr<Hardware>& hardware,
-               const std::shared_ptr<Vision>& vision);
+    using GoalHandle =
+        rclcpp_action::ServerGoalHandle<ExecuteTask>;
 
-    Result run(const std::string& object_name,
-               const std::shared_ptr<GoalHandle>& gh);
+    struct Result
+    {
+        bool success;
+        std::string state;
+        std::string message;
+    };
+
+    enum class FindObjectState
+    {
+        READY,
+        MOVING_HEAD,
+        STABILIZING,
+        DETECTING,
+        LOOKING_AT_TARGET,
+        SUCCESS,
+        FAILED
+    };
+
+    FindObject(
+        const rclcpp::Node::SharedPtr& node,
+        const std::shared_ptr<Hardware>& hardware,
+        const std::shared_ptr<Vision>& vision);
+
+    Result run(
+        const std::string& object_name,
+        const std::shared_ptr<GoalHandle>& gh);
 
 private:
-    bool detectWithOWL(const std::string& object_name,
-                       geometry_msgs::msg::PoseStamped& pose);
 
-    bool detectEmptyChair(geometry_msgs::msg::PointStamped& point);
+    bool detectWithOWL(
+        const std::string& object_name,
+        geometry_msgs::msg::PoseStamped& pose);
 
-    void publishFeedback(const std::shared_ptr<GoalHandle>& gh,
-                         FindObjectState state,
-                         const std::string& detail = "");
+    bool detectEmptyChair(
+        geometry_msgs::msg::PointStamped& point);
 
-    static std::string stateName(FindObjectState s);
+    void publishFeedback(
+        const std::shared_ptr<GoalHandle>& gh,
+        FindObjectState state,
+        const std::string& detail = "");
+
+    std::string stateName(FindObjectState s);
+
+private:
 
     rclcpp::Node::SharedPtr node_;
 
     std::shared_ptr<Hardware> hardware_;
+
     std::shared_ptr<Vision> vision_;
 
-    const std::vector<std::pair<double,double>> scan_poses_ = {
-        { 0.0,  -0.35},
-        {-0.35, -0.45},
-        { 0.35, -0.45},
-        { 0.0,  -0.60},
-        {-0.25, -0.65},
-        { 0.25, -0.65}
+    // TF
+    std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
+
+    std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+
+    std::vector<std::pair<float,float>> scan_poses_ =
+    {
+        { 0.0f,  -0.35f},
+        {-0.35f, -0.45f},
+        { 0.35f, -0.45f},
+        { 0.0f,  -0.60f},
+        {-0.25f, -0.65f},
+        { 0.25f, -0.65f}
     };
 };
