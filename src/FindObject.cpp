@@ -147,73 +147,9 @@ bool FindObject::detectWithOWL(
     const std::string& object_name,
     geometry_msgs::msg::PoseStamped& pose)
 {
-    auto result =
-        vision_->DetectOwlV2({object_name});
-
-    if (!result.first)
-        return false;
-
-    if (result.second.empty())
-        return false;
-
-    auto detection = result.second[0];
-
-    std::string label =
-        detection.class_name;
-
-    std::replace(
-        label.begin(),
-        label.end(),
-        ' ',
-        '_');
-
-    try
-    {
-        auto tf =
-            tf_buffer_->lookupTransform(
-                "base_link",
-                "OWL_" + label + "_0",
-                tf2::TimePointZero,
-                200ms);
-
-        pose.header =
-            tf.header;
-
-        pose.header.frame_id =
-            "base_link";
-
-        pose.pose.position.x =
-            tf.transform.translation.x;
-
-        pose.pose.position.y =
-            tf.transform.translation.y;
-
-        pose.pose.position.z =
-            tf.transform.translation.z;
-
-        pose.pose.orientation =
-            tf.transform.rotation;
-
-        RCLCPP_INFO(
-            node_->get_logger(),
-            "Object found [%s] at [%.2f %.2f %.2f]",
-            label.c_str(),
-            pose.pose.position.x,
-            pose.pose.position.y,
-            pose.pose.position.z);
-
-        return true;
-    }
-    catch (const tf2::TransformException& ex)
-    {
-        RCLCPP_WARN(
-            node_->get_logger(),
-            "TF lookup failed for [%s]: %s",
-            label.c_str(),
-            ex.what());
-
-        return false;
-    }
+    return vision_->FindObjectTF(
+        object_name,
+        pose);
 }
 
 bool FindObject::detectEmptyChair(
