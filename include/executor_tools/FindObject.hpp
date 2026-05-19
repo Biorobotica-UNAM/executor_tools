@@ -6,7 +6,7 @@
 
 #include "executor_interfaces/action/execute_task.hpp"
 
-#include "executor_tools/Hardware.hpp"
+#include "hardware_tools/Hardware.hpp"
 #include "vision_tools/Vision.hpp"
 
 #include "geometry_msgs/msg/pose_stamped.hpp"
