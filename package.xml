@@ -16,7 +16,10 @@
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
   <depend>yaml-cpp</depend>
-  <!-- ROS -->
+  <depend> tf2</depend>
+  <depend> tf2_ros</depend>
+  <depend> geometry_msgs</depend>
+    <!-- ROS -->
 
   <!-- Tools -->
   <depend>hri_tools</depend>
