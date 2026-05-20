@@ -27,8 +27,12 @@
   <depend>manipulation_tools</depend>
 
 
+
   <!-- Interfaces -->
   <depend>executor_interfaces</depend>
+  <depend>manipulation_controller_interfaces</depend>
+  <depend>manipulation_planner_interfaces</depend>
+
 
   <!-- Test -->
   <test_depend>ament_lint_auto</test_depend>
