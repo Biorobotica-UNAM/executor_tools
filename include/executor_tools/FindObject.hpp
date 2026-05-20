@@ -11,17 +11,15 @@
 
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/point_stamped.hpp"
-// 1. AGREGA ESTO: Incluir el mensaje de la TF que te faltaba
 #include "geometry_msgs/msg/transform_stamped.hpp" 
 
-// 2. AGREGA ESTO: Headers necesarios para los buffers y listeners de TF2
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
 #include "tf2/time.h"
 
 #include <string>
 #include <vector>
-#include <memory> // Por si acaso para std::shared_ptr
+#include <memory> 
 
 enum class FindObjectState {
     READY,
