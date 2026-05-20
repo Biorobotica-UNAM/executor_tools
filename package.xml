@@ -16,8 +16,6 @@
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
   <depend>yaml-cpp</depend>
-  <depend> tf2</depend>
-  <depend> tf2_ros</depend>
   <depend> geometry_msgs</depend>
     <!-- ROS -->
 
