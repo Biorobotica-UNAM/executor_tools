@@ -1,9 +1,11 @@
 #pragma once
 
-#include "rclcpp/rclcpp.hpp"
-#include "rclcpp_action/rclcpp_action.hpp"
+#include <memory>
+#include <string>
+#include <vector>
 
 #include "executor_interfaces/action/execute_task.hpp"
+
 #include "executor_tools/Result.hpp"
 
 #include "hardware_tools/Hardware.hpp"
@@ -36,31 +38,54 @@ enum class FindObjectState {
 class FindObject
 {
 public:
+
     using ExecuteTask = executor_interfaces::action::ExecuteTask;
-    using GoalHandle  = rclcpp_action::ServerGoalHandle<ExecuteTask>;
 
-    FindObject(const rclcpp::Node::SharedPtr& node,
-               const std::shared_ptr<Hardware>& hardware,
-               const std::shared_ptr<Vision>& vision);
+    using GoalHandle =
+        rclcpp_action::ServerGoalHandle<ExecuteTask>;
 
-    Result run(const std::string& object_name,
-               const std::shared_ptr<GoalHandle>& gh);
+    enum class FindObjectState
+    {
+        READY,
+        MOVING_HEAD,
+        STABILIZING,
+        DETECTING,
+        LOOKING_AT_TARGET,
+        SUCCESS,
+        FAILED
+    };
+
+    FindObject(
+        const rclcpp::Node::SharedPtr& node,
+        const std::shared_ptr<Hardware>& hardware,
+        const std::shared_ptr<Vision>& vision);
+
+    Result run(
+        const std::string& object_name,
+        const std::shared_ptr<GoalHandle>& gh);
 
 private:
-    bool detectWithOWL(const std::string& object_name,
-                       geometry_msgs::msg::PoseStamped& pose);
 
-    bool detectEmptyChair(geometry_msgs::msg::PointStamped& point);
+    bool detectWithOWL(
+        const std::string& object_name,
+        geometry_msgs::msg::PoseStamped& pose);
 
-    void publishFeedback(const std::shared_ptr<GoalHandle>& gh,
-                         FindObjectState state,
-                         const std::string& detail = "");
+    bool detectEmptyChair(
+        geometry_msgs::msg::PointStamped& point);
 
-    static std::string stateName(FindObjectState s);
+    void publishFeedback(
+        const std::shared_ptr<GoalHandle>& gh,
+        FindObjectState state,
+        const std::string& detail = "");
+
+    std::string stateName(FindObjectState s);
+
+private:
 
     rclcpp::Node::SharedPtr node_;
 
     std::shared_ptr<Hardware> hardware_;
+
     std::shared_ptr<Vision> vision_;
 
     // 3. AGREGA ESTO: Declarar los objetos de TF2 que inicializas en el constructor del .cpp

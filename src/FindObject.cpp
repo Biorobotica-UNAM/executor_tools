@@ -1,5 +1,7 @@
 #include "executor_tools/FindObject.hpp"
+#include "executor_tools/Result.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <thread>
 #include <algorithm>
@@ -30,7 +32,10 @@ Result FindObject::run(
     if (!gh || !gh->is_active())
         return {false, "FAILED", "goal_inactive"};
 
-    publishFeedback(gh, FindObjectState::READY, object_name);
+    publishFeedback(
+        gh,
+        FindObjectState::READY,
+        object_name);
 
     for (const auto& [pan, tilt] : scan_poses_)
     {
@@ -79,7 +84,9 @@ Result FindObject::run(
         {
             geometry_msgs::msg::PoseStamped object_pose;
 
-            if (detectWithOWL(object_name, object_pose))
+            if (detectWithOWL(
+                    object_name,
+                    object_pose))
             {
                 publishFeedback(gh, FindObjectState::LOOKING_AT_TARGET);
                 hardware_->LookAt(object_pose);
@@ -190,7 +197,8 @@ bool FindObject::detectWithOWL(
 bool FindObject::detectEmptyChair(
     geometry_msgs::msg::PointStamped& point)
 {
-    auto result = vision_->FindSeat();
+    auto result =
+        vision_->FindSeat();
 
     if (!result.first)
         return false;
@@ -210,7 +218,8 @@ void FindObject::publishFeedback(
     if (!gh->is_active())
         return;
 
-    std::string msg = "[find_object] " + stateName(state);
+    std::string msg =
+        "[find_object] " + stateName(state);
 
     if (!detail.empty())
         msg += ": " + detail;
@@ -219,7 +228,10 @@ void FindObject::publishFeedback(
     fb->feedback.message = msg;
     gh->publish_feedback(fb);
 
-    RCLCPP_INFO(node_->get_logger(), "%s", msg.c_str());
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "%s",
+        msg.c_str());
 }
 
 // ─────────────────────────────────────────────────────────────

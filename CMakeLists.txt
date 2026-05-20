@@ -28,11 +28,13 @@ add_library(${PROJECT_NAME}
   src/GoTo.cpp
   src/Check.cpp
   src/Point.cpp
+  src/Align.cpp
   src/Give.cpp
   src/FindPerson.cpp
   src/FindObject.cpp
   src/Focus.cpp
   src/Receive.cpp
+  src/Follow.cpp
 )
 
 target_include_directories(${PROJECT_NAME}

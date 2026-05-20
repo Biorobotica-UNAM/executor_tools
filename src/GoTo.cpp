@@ -23,15 +23,15 @@ Result GoTo::run(const std::string&                 location_name,
     // ── NAVIGATING ────────────────────────────────────────
     publishFeedback(gh, GoToState::NAVIGATING, location_name);
 
-    bool ok = navigation_->GoTo(location_name);
+    auto nav_result = navigation_->GoToDetailed(location_name);
 
     // ── SUCCESS / FAILED ──────────────────────────────────
-    if (ok) {
+    if (nav_result.success) {
         publishFeedback(gh, GoToState::SUCCESS, location_name);
-        return {true, "SUCCESS", "arrived_at: " + location_name};
+        return {true, "SUCCESS", "arrived_at: " + location_name + ": " + nav_result.message};
     } else {
-        publishFeedback(gh, GoToState::FAILED, location_name);
-        return {false, "FAILED", "navigation_failed: " + location_name};
+        publishFeedback(gh, GoToState::FAILED, location_name + ": " + nav_result.message);
+        return {false, "FAILED", "navigation_failed: " + location_name + ": " + nav_result.message};
     }
 }
 
