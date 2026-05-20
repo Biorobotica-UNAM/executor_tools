@@ -11,9 +11,17 @@
 
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/point_stamped.hpp"
+// 1. AGREGA ESTO: Incluir el mensaje de la TF que te faltaba
+#include "geometry_msgs/msg/transform_stamped.hpp" 
+
+// 2. AGREGA ESTO: Headers necesarios para los buffers y listeners de TF2
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_listener.h"
+#include "tf2/time.h"
 
 #include <string>
 #include <vector>
+#include <memory> // Por si acaso para std::shared_ptr
 
 enum class FindObjectState {
     READY,
@@ -54,6 +62,16 @@ private:
 
     std::shared_ptr<Hardware> hardware_;
     std::shared_ptr<Vision> vision_;
+
+    // 3. AGREGA ESTO: Declarar los objetos de TF2 que inicializas en el constructor del .cpp
+    std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
+    std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+
+    // 4. AGREGA ESTO: Las constantes numéricas que usa tu función detectWithOWL
+    static constexpr int    MAX_OWL_INSTANCES = 5;       // Ajusta el número si es necesario
+    static constexpr double MAX_TF_AGE_S      = 2.0;     // Segundos máximos de antigüedad
+    static constexpr double MIN_Z_THRESHOLD   = 0.2;     // Umbral de altura mínima
+    static constexpr double MIN_Z_HEIGHT      = 0.5;     // Altura de seguridad corregida
 
     const std::vector<std::pair<double,double>> scan_poses_ = {
         { 0.0,  -0.35},

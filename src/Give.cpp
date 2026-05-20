@@ -92,7 +92,7 @@ void Give::publishFeedback(const std::shared_ptr<GoalHandle>& gh,
 // =========================================================
 // stateName
 // =========================================================
-std::string GiveStateName(GiveState s)
+std::string Give::stateName(GiveState s)
 {
     switch (s) {
         case GiveState::READY:      return "READY";

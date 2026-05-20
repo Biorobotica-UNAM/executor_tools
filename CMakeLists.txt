@@ -9,6 +9,9 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(ament_index_cpp REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(geometry_msgs REQUIRED)
 
 find_package(executor_interfaces REQUIRED)
 
@@ -28,6 +31,7 @@ add_library(${PROJECT_NAME}
   src/Give.cpp
   src/FindPerson.cpp
   src/FindObject.cpp
+  src/Focus.cpp
   src/Receive.cpp
 )
 
@@ -40,6 +44,9 @@ target_include_directories(${PROJECT_NAME}
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   rclcpp_action
+  tf2
+  tf2_ros
+  geometry_msgs
   ament_index_cpp
   executor_interfaces
   hri_tools

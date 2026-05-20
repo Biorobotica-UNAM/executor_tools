@@ -14,7 +14,10 @@
   <depend>rclcpp_action</depend>
   <depend>ament_index_cpp</depend>
   <depend>yaml-cpp</depend>
-  <!-- ROS -->
+  <depend> tf2</depend>
+  <depend> tf2_ros</depend>
+  <depend> geometry_msgs</depend>
+    <!-- ROS -->
 
   <!-- Tools -->
   <depend>hri_tools</depend>
