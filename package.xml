@@ -17,13 +17,15 @@
   <depend>tf2_ros</depend>
   <depend>yaml-cpp</depend>
   <depend> geometry_msgs</depend>
-    <!-- ROS -->
+  <!-- ROS -->
 
   <!-- Tools -->
   <depend>hri_tools</depend>
   <depend>navigation_tools</depend>
   <depend>hardware_tools</depend>
   <depend>vision_tools</depend>
+  <depend>manipulation_tools</depend>
+
 
   <!-- Interfaces -->
   <depend>executor_interfaces</depend>
