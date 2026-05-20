@@ -1,5 +1,7 @@
 #include "executor_tools/FindObject.hpp"
+#include "executor_tools/Result.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <thread>
 
@@ -21,7 +23,10 @@ Result FindObject::run(
     if (!gh || !gh->is_active())
         return {false, "FAILED", "goal_inactive"};
 
-    publishFeedback(gh, FindObjectState::READY, object_name);
+    publishFeedback(
+        gh,
+        FindObjectState::READY,
+        object_name);
 
     for (const auto& [pan, tilt] : scan_poses_)
     {
@@ -31,7 +36,10 @@ Result FindObject::run(
         // =====================================================
         // MOVING_HEAD
         // =====================================================
-        publishFeedback(gh, FindObjectState::MOVING_HEAD);
+
+        publishFeedback(
+            gh,
+            FindObjectState::MOVING_HEAD);
 
         hardware_->MoveHead({pan, tilt});
 
@@ -40,18 +48,25 @@ Result FindObject::run(
         // =====================================================
         // STABILIZING
         // =====================================================
-        publishFeedback(gh, FindObjectState::STABILIZING);
+
+        publishFeedback(
+            gh,
+            FindObjectState::STABILIZING);
 
         std::this_thread::sleep_for(500ms);
 
         // =====================================================
         // DETECTING
         // =====================================================
-        publishFeedback(gh, FindObjectState::DETECTING);
+
+        publishFeedback(
+            gh,
+            FindObjectState::DETECTING);
 
         // =====================================================
-        // EMPTY CHAIR SPECIAL CASE
+        // EMPTY CHAIR
         // =====================================================
+
         if (object_name == "empty_chair")
         {
             geometry_msgs::msg::PointStamped seat_point;
@@ -76,11 +91,18 @@ Result FindObject::run(
                 };
             }
         }
+
+        // =====================================================
+        // NORMAL OBJECTS
+        // =====================================================
+
         else
         {
             geometry_msgs::msg::PoseStamped object_pose;
 
-            if (detectWithOWL(object_name, object_pose))
+            if (detectWithOWL(
+                    object_name,
+                    object_pose))
             {
                 publishFeedback(
                     gh,
@@ -118,23 +140,16 @@ bool FindObject::detectWithOWL(
     const std::string& object_name,
     geometry_msgs::msg::PoseStamped& pose)
 {
-    auto result = vision_->DetectOwlV2({object_name});
-
-    if (!result.first)
-        return false;
-
-    if (result.second.empty())
-        return false;
-
-    pose = result.second[0].pose;
-
-    return true;
+    return vision_->FindObjectTF(
+        object_name,
+        pose);
 }
 
 bool FindObject::detectEmptyChair(
     geometry_msgs::msg::PointStamped& point)
 {
-    auto result = vision_->FindSeat();
+    auto result =
+        vision_->FindSeat();
 
     if (!result.first)
         return false;
@@ -152,31 +167,52 @@ void FindObject::publishFeedback(
     if (!gh->is_active())
         return;
 
-    std::string msg = "[find_object] " + stateName(state);
+    std::string msg =
+        "[find_object] " + stateName(state);
 
     if (!detail.empty())
         msg += ": " + detail;
 
-    auto fb = std::make_shared<ExecuteTask::Feedback>();
+    auto fb =
+        std::make_shared<ExecuteTask::Feedback>();
 
     fb->feedback.message = msg;
 
     gh->publish_feedback(fb);
 
-    RCLCPP_INFO(node_->get_logger(), "%s", msg.c_str());
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "%s",
+        msg.c_str());
 }
 
-std::string FindObject::stateName(FindObjectState s)
+std::string FindObject::stateName(
+    FindObjectState s)
 {
     switch (s)
     {
-        case FindObjectState::READY:				return "READY";
-        case FindObjectState::MOVING_HEAD:			return "MOVING_HEAD";
-        case FindObjectState::STABILIZING:			return "STABILIZING";
-        case FindObjectState::DETECTING:			return "DETECTING";
-        case FindObjectState::LOOKING_AT_TARGET:	return "LOOKING_AT_TARGET";
-        case FindObjectState::SUCCESS:				return "SUCCESS";
-        case FindObjectState::FAILED:				return "FAILED";
-        default:									return "UNKNOWN";
+        case FindObjectState::READY:
+            return "READY";
+
+        case FindObjectState::MOVING_HEAD:
+            return "MOVING_HEAD";
+
+        case FindObjectState::STABILIZING:
+            return "STABILIZING";
+
+        case FindObjectState::DETECTING:
+            return "DETECTING";
+
+        case FindObjectState::LOOKING_AT_TARGET:
+            return "LOOKING_AT_TARGET";
+
+        case FindObjectState::SUCCESS:
+            return "SUCCESS";
+
+        case FindObjectState::FAILED:
+            return "FAILED";
+
+        default:
+            return "UNKNOWN";
     }
 }
