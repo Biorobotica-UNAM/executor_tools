@@ -1,5 +1,35 @@
 #include "executor_tools/Check.hpp"
 
+#include <algorithm>
+#include <cctype>
+
+namespace
+{
+std::string normalizeCheckArgument(std::string value)
+{
+    std::transform(
+        value.begin(),
+        value.end(),
+        value.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+bool isDoorCheckArgument(const std::string& argument)
+{
+    const std::string normalized = normalizeCheckArgument(argument);
+    return normalized == "door" ||
+           normalized == "door_open" ||
+           normalized == "open_door";
+}
+
+bool isContainerCheckArgument(const std::string& argument)
+{
+    const std::string normalized = normalizeCheckArgument(argument);
+    return normalized == "container";
+}
+}  // namespace
+
 // =========================================================
 // Constructor
 // =========================================================
@@ -17,8 +47,17 @@ Result Check::run(const std::string&                 argument,
     if (!gh || !gh->is_active())
         return {false, "FAILED", "goal_handle_inactive"};
 
-    // Check is intentionally argument-agnostic: every "check" instruction means
-    // "verify that the door is open", even if the planner attached a wrong arg.
+    // Check has explicit targets. Door is implemented; container is
+    // recognized but not available yet; everything else is rejected early.
+    if (isContainerCheckArgument(argument)) {
+        publishFeedback(gh, CheckState::FAILED, "check_not_available: " + argument);
+        return {false, "FAILED", "check_not_available: " + argument};
+    }
+
+    if (!isDoorCheckArgument(argument)) {
+        publishFeedback(gh, CheckState::FAILED, "unsupported_check: " + argument);
+        return {false, "FAILED", "unsupported_check: " + argument};
+    }
 
     // Without the hardware facade this is an infrastructure failure, not a closed door.
     if (!hardware_) {
