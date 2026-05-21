@@ -7,13 +7,13 @@
  * Flow: READY → LISTENING → PARSING → UPDATING → SUCCESS | FAILED
  *
  * Design patterns applied:
- *   Facade          (GoF Structural) — delegates to HRI, Planning, KNOWLEDGE.
+ *   Facade          (GoF Structural) — delegates to HRI, Planning, Knowledge.
  *   Template Method (GoF Behavioral) — run() defines the invariant FSM
  *                                      sequence; each private step supplies
  *                                      only what varies.
  * Principles applied:
  *   SRP  — one class, one responsibility: orchestrate the listen pipeline.
- *   DIP  — depends on HRI / Planning / KNOWLEDGE abstractions, not on
+ *   DIP  — depends on HRI / Planning / Knowledge abstractions, not on
  *          rclcpp service internals.
  *   OCP  — new entity categories can be added without modifying this class.
  *
@@ -23,7 +23,7 @@
 #include "executor_interfaces/action/execute_task.hpp"
 #include "executor_tools/Result.hpp"
 #include "hri_tools/HRI.hpp"
-#include "knowledge_tools/KNOWLEDGE.hpp"
+#include "knowledge_tools/Knowledge.hpp"
 #include "planning_tools/Planning.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -43,7 +43,7 @@ public:
 
   Listen(const rclcpp::Node::SharedPtr &node, const std::shared_ptr<HRI> &hri,
          const std::shared_ptr<Planning> &planning,
-         const std::shared_ptr<KNOWLEDGE> &knowledge);
+         const std::shared_ptr<Knowledge> &knowledge);
 
   /**
    * Execute the full listen pipeline synchronously.
@@ -87,7 +87,7 @@ private:
                      std::string &out_index) const;
 
   /**
-   * Build the JSON payload expected by KNOWLEDGE::update_world_state().
+   * Build the JSON payload expected by Knowledge::update_world_state().
    *
    * Schema:
    * {
@@ -110,5 +110,5 @@ private:
   rclcpp::Node::SharedPtr node_;
   std::shared_ptr<HRI> hri_;
   std::shared_ptr<Planning> planning_;
-  std::shared_ptr<KNOWLEDGE> knowledge_;
+  std::shared_ptr<Knowledge> knowledge_;
 };

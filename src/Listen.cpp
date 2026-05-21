@@ -22,7 +22,7 @@ using namespace std::chrono_literals;
 Listen::Listen(const rclcpp::Node::SharedPtr &node,
                const std::shared_ptr<HRI> &hri,
                const std::shared_ptr<Planning> &planning,
-               const std::shared_ptr<KNOWLEDGE> &knowledge)
+               const std::shared_ptr<Knowledge> &knowledge)
     : node_(node), hri_(hri), planning_(planning), knowledge_(knowledge) {}
 
 // =========================================================
