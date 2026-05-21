@@ -7,10 +7,7 @@ project(executor_tools)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
-find_package(yaml-cpp REQUIRED)
-find_package(yaml-cpp REQUIRED)
 find_package(nlohmann_json REQUIRED)
-find_package(ament_index_cpp REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(manipulation_controller_interfaces REQUIRED)
@@ -61,7 +58,6 @@ ament_target_dependencies(${PROJECT_NAME}
   tf2
   tf2_ros
   geometry_msgs
-  ament_index_cpp
   executor_interfaces
   hri_tools
   navigation_tools
@@ -75,10 +71,6 @@ ament_target_dependencies(${PROJECT_NAME}
   semantic_parser_interfaces
   knowledge_interfaces
   clips_interfaces
-)
-
-target_link_libraries(${PROJECT_NAME}
-  yaml-cpp
 )
 
 # -----------------------------
@@ -110,7 +102,6 @@ ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_dependencies(
   rclcpp
   rclcpp_action
-  ament_index_cpp
   executor_interfaces
   hri_tools
   navigation_tools
