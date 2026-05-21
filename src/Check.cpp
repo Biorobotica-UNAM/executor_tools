@@ -17,22 +17,45 @@ Result Check::run(const std::string&                 argument,
     if (!gh || !gh->is_active())
         return {false, "FAILED", "goal_handle_inactive"};
 
+    // Check is intentionally argument-agnostic: every "check" instruction means
+    // "verify that the door is open", even if the planner attached a wrong arg.
+
+    // Without the hardware facade this is an infrastructure failure, not a closed door.
+    if (!hardware_) {
+        return {false, "FAILED", "check_service_failed: hardware_unavailable"};
+    }
+
     // ── READY ─────────────────────────────────────────────
     publishFeedback(gh, CheckState::READY, argument);
 
     // ── CHECKING ──────────────────────────────────────────
     publishFeedback(gh, CheckState::CHECKING, argument);
 
-    bool ok = hardware_->CheckDoor();
+    const auto door_state = hardware_->CheckDoorState();
 
     // ── SUCCESS / FAILED ──────────────────────────────────
-    if (ok) {
-        publishFeedback(gh, CheckState::SUCCESS, argument);
-        return {true, "SUCCESS", "door_open: " + argument};
-    } else {
-        publishFeedback(gh, CheckState::FAILED, argument);
-        return {false, "FAILED", "door_closed: " + argument};
+    // SUCCESS is reserved for the only condition that lets the plan continue:
+    // the door detector confirmed that the door is open.
+    switch (door_state) {
+        case Hardware::DoorCheckResult::OPEN:
+            publishFeedback(gh, CheckState::SUCCESS, argument);
+            return {true, "SUCCESS", "door_open: " + argument};
+
+        case Hardware::DoorCheckResult::CLOSED:
+            // A closed door is a valid sensor reading; the supervisor may ask a
+            // human to open it and retry this same check.
+            publishFeedback(gh, CheckState::FAILED, "door_closed");
+            return {false, "FAILED", "door_closed: " + argument};
+
+        case Hardware::DoorCheckResult::SERVICE_FAILED:
+            // Service failures should not start the door-wait loop.
+            publishFeedback(gh, CheckState::FAILED, "check_service_failed");
+            return {false, "FAILED", "check_service_failed: " + argument};
     }
+
+    // Defensive fallback for future enum values.
+    publishFeedback(gh, CheckState::FAILED, "unknown_door_state");
+    return {false, "FAILED", "check_service_failed: unknown_door_state"};
 }
 
 // =========================================================
