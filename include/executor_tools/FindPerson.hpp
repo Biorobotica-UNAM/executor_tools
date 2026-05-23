@@ -8,9 +8,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
-#include "vision_interfaces/srv/bbox_to_pose.hpp"
 
-#include <atomic>
 #include <string>
 
 // ============================================================
@@ -31,15 +29,6 @@ enum class FindPersonState {
 };
 
 
-struct PersonData
-{
-    std::string name;
-    std::string description;
-    std::string coords;   // "x1,y1,x2,y2" corners from FaceRecog.srv
-    float       z{0.f};  // depth in metres from FaceRecog.srv
-};
-
-
 class FindPerson
 {
 public:
@@ -57,16 +46,12 @@ public:
 
 private:
     bool scanPosition(
-        double pan,
-        double tilt,
-        bool anybody,
-        const std::string& target,
-        PersonData& data,
-        const std::shared_ptr<GoalHandle>& gh);
-
-    bool bboxToPose(
-        const PersonData& data,
-        geometry_msgs::msg::PoseStamped& pose_out);
+		double pan,
+		double tilt,
+		bool anybody,
+		const std::string& target,
+		std::string& found_name,
+		const std::shared_ptr<GoalHandle>& gh);
 
     void publishFeedback(
         const std::shared_ptr<GoalHandle>& gh,
@@ -79,7 +64,4 @@ private:
     rclcpp::Node::SharedPtr   node_;
     std::shared_ptr<Hardware> hardware_;
     std::shared_ptr<Vision>   vision_;
-
-    rclcpp::Client<vision_interfaces::srv::BboxToPose>::SharedPtr
-        bbox_to_pose_client_;
 };

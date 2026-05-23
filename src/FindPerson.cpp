@@ -1,8 +1,6 @@
 #include "executor_tools/FindPerson.hpp"
 
-#include <atomic>
 #include <chrono>
-#include <sstream>
 #include <thread>
 #include <vector>
 
@@ -19,13 +17,7 @@ FindPerson::FindPerson(
 : node_(node),
   hardware_(hardware),
   vision_(vision)
-{
-    bbox_to_pose_client_ =
-        node_->create_client<vision_interfaces::srv::BboxToPose>(
-            "/vision/bbox_to_pose",
-            rmw_qos_profile_services_default,
-            vision_->getCallbackGroup());  // reuse Vision's registered Reentrant group
-}
+{}
 
 // ============================================================
 // run
@@ -64,16 +56,17 @@ Result FindPerson::run(
         if (!gh->is_active())
             return {false, "FAILED", "goal_cancelled"};
 
-        PersonData data;
-        const bool found = scanPosition(
-            sp.pan, sp.tilt, anybody, argument, data, gh);
+        std::string found_name;
+
+		const bool found = scanPosition(
+    		sp.pan, sp.tilt, anybody, argument, found_name, gh);
 
         if (!gh->is_active())
             return {false, "FAILED", "goal_cancelled"};
 
         if (found) {
-            publishFeedback(gh, FindPersonState::SUCCESS, data.name);
-            return {true, "SUCCESS", "person_found: " + data.name};
+            publishFeedback(gh, FindPersonState::SUCCESS, found_name);
+			return {true, "SUCCESS", "person_found: " + found_name};
         }
     }
 
@@ -104,7 +97,7 @@ bool FindPerson::scanPosition(
     double tilt,
     bool anybody,
     const std::string& target,
-    PersonData& data,
+    std::string& found_name,
     const std::shared_ptr<GoalHandle>& gh)
 {
     // ── 1. Move head ──────────────────────────────────────────
@@ -116,24 +109,18 @@ bool FindPerson::scanPosition(
         if (!gh->is_active()) return false;
     }
 
-    // ── 2. Detect ─────────────────────────────────────────────
-    publishFeedback(gh, FindPersonState::DETECTING);
+    // ── 2. Detect + pose ──────────────────────────────────────
+	publishFeedback(gh, FindPersonState::DETECTING);
 
-    // Pass empty name: server detects any visible person
-    if (!vision_->DetectPerson("", data.coords, data.z))
-        return false;
+	Vision::PersonDetection detection;
 
-    if (!gh->is_active()) return false;
+	if (!vision_->DetectPersonPose(detection))
+		return false;
 
-    // ── 3. BboxToPose ─────────────────────────────────────────
-    publishFeedback(gh, FindPersonState::CALCULATING_POSE);
+	if (!gh->is_active())
+		return false;
 
-    geometry_msgs::msg::PoseStamped target_pose;
-    if (!bboxToPose(data, target_pose)) {
-        RCLCPP_WARN(node_->get_logger(),
-                    "[FindPerson] BboxToPose failed — skipping position");
-        return false;
-    }
+	geometry_msgs::msg::PoseStamped target_pose = detection.pose;
 
     if (!gh->is_active()) return false;
 
@@ -169,20 +156,22 @@ bool FindPerson::scanPosition(
             return false;
         }
 
-        data.name = identified_name;
+        found_name = identified_name;
         RCLCPP_INFO(node_->get_logger(),
-                    "[FindPerson] Person identified: %s", data.name.c_str());
+                    "[FindPerson] Person identified: %s", found_name.c_str());
 
         // ── 6a. Describe ──────────────────────────────────────
         publishFeedback(gh, FindPersonState::DESCRIBING);
 
-        if (vision_->DescribePerson(data.name, data.description))
-            RCLCPP_INFO(node_->get_logger(),
-                        "[FindPerson] Description: %s", data.description.c_str());
-        else
-            RCLCPP_WARN(node_->get_logger(),
-                        "[FindPerson] DescribePerson failed for '%s'",
-                        data.name.c_str());
+        std::string description;
+
+		if (vision_->DescribePerson(found_name, description))
+			RCLCPP_INFO(node_->get_logger(),
+				        "[FindPerson] Description: %s", description.c_str());
+		else
+			RCLCPP_WARN(node_->get_logger(),
+				        "[FindPerson] DescribePerson failed for '%s'",
+				        found_name.c_str());
 
         return true;   // success for both anybody and named target
     }
@@ -202,120 +191,31 @@ bool FindPerson::scanPosition(
     const std::string new_name = generatePersonName();
 
     if (vision_->RegisterPerson(new_name)) {
-        data.name = new_name;
+        found_name = new_name;
         RCLCPP_INFO(node_->get_logger(),
-                    "[FindPerson] Person registered as: %s", data.name.c_str());
+                    "[FindPerson] Person registered as: %s", found_name.c_str());
     } else {
         RCLCPP_ERROR(node_->get_logger(),
                      "[FindPerson] Registration failed for '%s'", new_name.c_str());
         // Even if registration failed we still found somebody — report with
         // a fallback name so the caller knows a person was detected.
-        data.name = new_name;
+        found_name = new_name;
     }
 
     // ── 6b. Describe ─────────────────────────────────────────
     publishFeedback(gh, FindPersonState::DESCRIBING);
 
-    if (vision_->DescribePerson(data.name, data.description))
-        RCLCPP_INFO(node_->get_logger(),
-                    "[FindPerson] Description: %s", data.description.c_str());
-    else
-        RCLCPP_WARN(node_->get_logger(),
-                    "[FindPerson] DescribePerson failed for '%s'",
-                    data.name.c_str());
+    std::string description;
+
+	if (vision_->DescribePerson(found_name, description))
+		RCLCPP_INFO(node_->get_logger(),
+		            "[FindPerson] Description: %s", description.c_str());
+	else
+		RCLCPP_WARN(node_->get_logger(),
+		            "[FindPerson] DescribePerson failed for '%s'",
+		            found_name.c_str());
 
     return true;   // anybody=true: any detected person counts as success
-}
-
-// ============================================================
-// bboxToPose
-// ============================================================
-
-bool FindPerson::bboxToPose(
-    const PersonData& data,
-    geometry_msgs::msg::PoseStamped& pose_out)
-{
-    int32_t x1{0}, y1{0}, x2{0}, y2{0};
-
-    if (!data.coords.empty())
-    {
-        try {
-            std::istringstream ss(data.coords);
-            std::string tok;
-            std::vector<int32_t> vals;
-            while (std::getline(ss, tok, ','))
-                vals.push_back(static_cast<int32_t>(std::stoi(tok)));
-
-            if (vals.size() >= 4) {
-                x1 = vals[0]; y1 = vals[1];
-                x2 = vals[2]; y2 = vals[3];
-            } else {
-                RCLCPP_WARN(node_->get_logger(),
-                            "[FindPerson] bboxToPose: incomplete coords '%s'",
-                            data.coords.c_str());
-                return false;
-            }
-        }
-        catch (const std::exception& e) {
-            RCLCPP_ERROR(node_->get_logger(),
-                         "[FindPerson] bboxToPose: parse error '%s': %s",
-                         data.coords.c_str(), e.what());
-            return false;
-        }
-    }
-    else if (data.z <= 0.f)
-    {
-        RCLCPP_ERROR(node_->get_logger(),
-                     "[FindPerson] bboxToPose: no coords and no depth");
-        return false;
-    }
-
-    if (!bbox_to_pose_client_->wait_for_service(1s)) {
-        RCLCPP_ERROR(node_->get_logger(),
-                     "[FindPerson] /vision/bbox_to_pose service not available");
-        return false;
-    }
-
-    auto request =
-        std::make_shared<vision_interfaces::srv::BboxToPose::Request>();
-    request->header.stamp    = node_->now();
-    request->header.frame_id = "head_front_camera_rgb_optical_frame";
-    request->x1 = x1;  request->y1 = y1;
-    request->x2 = x2;  request->y2 = y2;
-
-    // Use callback-based async_send_request (same pattern as Vision::call_service)
-    // to avoid blocking the executor thread.
-    auto prom =
-        std::make_shared<std::promise<
-            vision_interfaces::srv::BboxToPose::Response::SharedPtr>>();
-    auto fut = prom->get_future();
-
-    bbox_to_pose_client_->async_send_request(
-        request,
-        [prom](rclcpp::Client<vision_interfaces::srv::BboxToPose>::SharedFuture f) {
-            prom->set_value(f.get());
-        });
-
-    if (fut.wait_for(5s) != std::future_status::ready) {
-        RCLCPP_ERROR(node_->get_logger(),
-                     "[FindPerson] bboxToPose: timeout after 5 s");
-        return false;
-    }
-
-    auto response = fut.get();
-    if (!response->success) {
-        RCLCPP_ERROR(node_->get_logger(),
-                     "[FindPerson] bboxToPose: service returned failure");
-        return false;
-    }
-
-    pose_out = response->pose;
-    RCLCPP_INFO(node_->get_logger(),
-                "[FindPerson] bboxToPose: (%.2f, %.2f, %.2f)",
-                pose_out.pose.position.x,
-                pose_out.pose.position.y,
-                pose_out.pose.position.z);
-    return true;
 }
 
 // ============================================================
@@ -325,7 +225,7 @@ bool FindPerson::bboxToPose(
 std::string FindPerson::generatePersonName()
 {
     static std::atomic<uint64_t> counter{0};
-    return "Person_" + std::to_string(++counter);
+    return "people_" + std::to_string(++counter);
 }
 
 // ============================================================
