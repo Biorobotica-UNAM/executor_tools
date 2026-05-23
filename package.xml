@@ -15,7 +15,7 @@
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
   <depend>nlohmann_json</depend>
-  <depend> geometry_msgs</depend>
+  <depend>geometry_msgs</depend>
   <!-- ROS -->
 
   <!-- Tools -->
@@ -33,8 +33,6 @@
   <depend>executor_interfaces</depend>
   <depend>manipulation_controller_interfaces</depend>
   <depend>manipulation_planner_interfaces</depend>
-  <depend>semantic_parser_interfaces</depend>
-  <depend>knowledge_interfaces</depend>
 
 
   <!-- Test -->
