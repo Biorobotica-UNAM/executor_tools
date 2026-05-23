@@ -38,7 +38,7 @@ Result Align::run(const std::string &argument,
     return {false, "FAILED", "move_head_failed"};
   }
 
-  const double kAngleTolerance = 0.0;
+  const double kAngleTolerance = 2.0;
   const double kAngularSpeed = 0.2;
   const auto kMaxDuration = 15s;
 
