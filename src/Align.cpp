@@ -40,18 +40,27 @@ Result Align::run(const std::string &argument,
 
   const double kAngleTolerance = 0.5;
   const double kAngularSpeed = 0.2;
-  const auto kMaxDuration = 15s;
+  const auto kMaxDuration = 30s;
+  // Publish several cmd_vel samples per vision measurement so the base
+  // controller does not brake between sparse GetTableAlignment calls.
+  const int kCommandBursts = 5;
+  rclcpp::Rate command_rate(30.0);
 
   auto start_time = std::chrono::steady_clock::now();
 
-  double last_angular_velocity = 0.0;
+  // Implementacion original de referencia:
+  // double last_angular_velocity = 0.0;
+
   while (gh->is_active()) {
     double angle = vision_->GetTableAlignment();
 
     publishFeedback(gh, AlignState::GET_ALIGNMENT, std::to_string(angle));
 
     if (std::fabs(angle) <= kAngleTolerance) {
-      // Dar un último pulso en la misma dirección para compensar
+      /*
+      Implementacion original de referencia:
+
+      // Dar un ultimo pulso en la misma direccion para compensar
       if (last_angular_velocity != 0.0) {
         double pulse_velocity = (last_angular_velocity > 0) ? 0.3 : -0.3;
         RCLCPP_INFO(node_->get_logger(),
@@ -61,6 +70,7 @@ Result Align::run(const std::string &argument,
         std::this_thread::sleep_for(
             std::chrono::milliseconds(300)); // pulso de 300ms
       }
+      */
 
       hardware_->MoveBase(0.0, 0.0, 0.0);
       publishFeedback(gh, AlignState::SUCCESS);
@@ -84,25 +94,44 @@ Result Align::run(const std::string &argument,
     if (angular < 0 && angular > -min_speed)
       angular = -min_speed;
 
-    last_angular_velocity = angular;
+    // Implementacion original de referencia:
+    // last_angular_velocity = angular;
 
-    // Log the angular velocity command
     RCLCPP_INFO(node_->get_logger(),
                 "Ang error: %.2f, Rotating with angular velocity: %.2f", angle,
                 angular);
 
-    hardware_->MoveBase(0.0, 0.0, angular);
     publishFeedback(gh, AlignState::ROTATING);
 
+    /*
+    Implementacion original de referencia:
+
+    hardware_->MoveBase(0.0, 0.0, angular);
     std::this_thread::sleep_for(100ms);
+    */
+
+    for (int i = 0; i < kCommandBursts && gh->is_active(); ++i) {
+      hardware_->MoveBase(0.0, 0.0, angular);
+      command_rate.sleep();
+    }
 
     /*
+    Implementacion original de referencia:
+
     if (std::chrono::steady_clock::now() - start_time > kMaxDuration) {
         hardware_->MoveBase(0.0, 0.0, 0.0);
         publishFeedback(gh, AlignState::FAILED, "timeout");
         return {false, "FAILED", "timeout"};
     }
     */
+
+    if (std::chrono::steady_clock::now() - start_time > kMaxDuration) {
+        // Keep the behavior bounded if vision keeps returning a large error
+        // or the base does not physically rotate.
+        hardware_->MoveBase(0.0, 0.0, 0.0);
+        publishFeedback(gh, AlignState::FAILED, "timeout");
+        return {false, "FAILED", "timeout"};
+    }
   }
 
   // goal cancelled
