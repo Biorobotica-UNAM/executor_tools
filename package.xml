@@ -12,8 +12,6 @@
   <!-- C++ / Build -->
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
-  <depend>tf2</depend>
-  <depend>tf2_ros</depend>
 
   <!-- Tools -->
   <depend>hri_tools</depend>

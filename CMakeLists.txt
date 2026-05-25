@@ -7,8 +7,6 @@ project(executor_tools)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
-find_package(tf2 REQUIRED)
-find_package(tf2_ros REQUIRED)
 
 find_package(executor_interfaces REQUIRED)
 
@@ -48,8 +46,6 @@ target_include_directories(${PROJECT_NAME}
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   rclcpp_action
-  tf2
-  tf2_ros
   executor_interfaces
   hri_tools
   navigation_tools
