@@ -39,8 +39,15 @@ Result Receive::run(const std::string& object_name,
     }
 
     // 2. Abrir el Gripper 
-    // hardware_->OpenGripper();
-    std::this_thread::sleep_for(500ms); 
+    publishFeedback(gh, ReceiveState::MOVING_GRIPPER, "Opening gripper to receive " + item);
+    bool gripper_ok = hardware_->MoveLeftGripper("open");
+
+    if (!gripper_ok) {
+        publishFeedback(gh, ReceiveState::FAILED, "gripper_open_failed");
+        return {false, "FAILED", "gripper_open_failed"};
+    }
+
+    std::this_thread::sleep_for(200ms); 
 
     // 3. Hablar 
     publishFeedback(gh, ReceiveState::SPEAKING, "Requesting placement of: " + item);
@@ -48,8 +55,13 @@ Result Receive::run(const std::string& object_name,
     hri_->Say(phrase);
 
     // 4. Cerrar la mano 
-    publishFeedback(gh, ReceiveState::MOVING_ARM, "Closing gripper on " + item);
-    // hardware_->CloseGripper();
+    publishFeedback(gh, ReceiveState::MOVING_GRIPPER, "Closing gripper on " + item);
+    bool gripper_ok = hardware_->MoveLeftGripper("close");
+
+    if (!gripper_ok) {
+        publishFeedback(gh, ReceiveState::FAILED, "gripper_close_failed");
+        return {false, "FAILED", "gripper_close_failed"};
+    }
     std::this_thread::sleep_for(1s); 
 
     // 5. Regresar el brazo a la posición de reposo
@@ -92,11 +104,12 @@ void Receive::publishFeedback(const std::shared_ptr<GoalHandle>& gh,
 std::string Receive::stateName(ReceiveState s)
 {
     switch (s) {
-        case ReceiveState::READY:      return "READY";
-        case ReceiveState::MOVING_ARM: return "MOVING_ARM";
-        case ReceiveState::SPEAKING:   return "SPEAKING";
-        case ReceiveState::SUCCESS:    return "SUCCESS";
-        case ReceiveState::FAILED:     return "FAILED";
-        default:                       return "UNKNOWN";
+        case ReceiveState::READY:          return "READY";
+        case ReceiveState::MOVING_ARM:     return "MOVING_ARM";
+        case ReceiveState::MOVING_GRIPPER: return "MOVING_GRIPPER";
+        case ReceiveState::SPEAKING:       return "SPEAKING";
+        case ReceiveState::SUCCESS:        return "SUCCESS";
+        case ReceiveState::FAILED:         return "FAILED";
+        default:                           return "UNKNOWN";
     }
 }

@@ -45,16 +45,20 @@ Result Give::run(const std::string& object_name,
     hri_->Say(phrase);
 
     // 3. Abrir la mano 
-    publishFeedback(gh, GiveState::MOVING_ARM, "Opening gripper");
-    // hardware_->OpenGripper();
+    publishFeedback(gh, GiveState::MOVING_GRIPPER, "Opening gripper");
+    bool gripper_ok = hardware_->MoveLeftGripper("open");
+
+    if (!gripper_ok) {
+        publishFeedback(gh, GiveState::FAILED, "gripper_open_failed");
+        return {false, "FAILED", "gripper_open_failed"};
+    }
 
     // 4. Esperar 2 segundos mientras la persona retira el objeto
     publishFeedback(gh, GiveState::WAITING, "Waiting 2 seconds");
     std::this_thread::sleep_for(2s);
 
-    // 5. Cerrar mano y regresar el brazo a la posición de reposo
+    // 5. Regresar el brazo a la posición de reposo
     publishFeedback(gh, GiveState::MOVING_ARM, "Resetting arm to resting position");
-    // hardware_->CloseGripper();
     std::this_thread::sleep_for(500ms);
 
     bool reset_ok = hardware_->MoveLeftArm(
@@ -95,12 +99,13 @@ void Give::publishFeedback(const std::shared_ptr<GoalHandle>& gh,
 std::string Give::stateName(GiveState s)
 {
     switch (s) {
-        case GiveState::READY:      return "READY";
-        case GiveState::MOVING_ARM: return "MOVING_ARM";
-        case GiveState::SPEAKING:   return "SPEAKING";
-        case GiveState::WAITING:    return "WAITING";
-        case GiveState::SUCCESS:    return "SUCCESS";
-        case GiveState::FAILED:     return "FAILED";
-        default:                    return "UNKNOWN";
+        case GiveState::READY:             return "READY";
+        case GiveState::MOVING_ARM:        return "MOVING_ARM";
+        case GiveState::SPEAKING:          return "SPEAKING";
+        case GiveState::MOVING_GRIPPER:    return "MOVING_GRIPPER";
+        case GiveState::WAITING:           return "WAITING";
+        case GiveState::SUCCESS:           return "SUCCESS";
+        case GiveState::FAILED:            return "FAILED";
+        default:                           return "UNKNOWN";
     }
 }

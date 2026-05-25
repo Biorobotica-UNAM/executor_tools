@@ -17,6 +17,7 @@ enum class GiveState {
     READY,
     MOVING_ARM,
     SPEAKING,
+    MOVING_GRIPPER,
     WAITING,
     SUCCESS,
     FAILED

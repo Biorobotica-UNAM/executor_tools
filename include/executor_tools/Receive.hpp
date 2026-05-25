@@ -16,6 +16,7 @@
 enum class ReceiveState {
     READY,
     MOVING_ARM,
+    MOVING_GRIPPER,
     SPEAKING,
     SUCCESS,
     FAILED
