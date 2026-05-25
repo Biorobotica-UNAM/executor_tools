@@ -8,13 +8,16 @@
 
 #include "hardware_tools/Hardware.hpp"
 #include "vision_tools/Vision.hpp"
+#include "knowledge_tools/Knowledge.hpp"
 
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/point_stamped.hpp"
 
+#include "nlohmann/json.hpp"
+
+#include <memory>
 #include <string>
 #include <vector>
-#include <memory> 
 
 enum class FindObjectState {
     READY,
@@ -22,6 +25,7 @@ enum class FindObjectState {
     STABILIZING,
     DETECTING,
     LOOKING_AT_TARGET,
+    UPDATING,
     SUCCESS,
     FAILED
 };
@@ -30,7 +34,8 @@ class FindObject
 {
 public:
 
-    using ExecuteTask = executor_interfaces::action::ExecuteTask;
+    using ExecuteTask =
+        executor_interfaces::action::ExecuteTask;
 
     using GoalHandle =
         rclcpp_action::ServerGoalHandle<ExecuteTask>;
@@ -38,16 +43,27 @@ public:
     FindObject(
         const rclcpp::Node::SharedPtr& node,
         const std::shared_ptr<Hardware>& hardware,
-        const std::shared_ptr<Vision>& vision);
+        const std::shared_ptr<Vision>& vision,
+        const std::shared_ptr<Knowledge>& knowledge);
 
     Result run(
-        const std::string& object_name,
+        const std::string& argument,
         const std::shared_ptr<GoalHandle>& gh);
 
 private:
 
     bool detectEmptyChair(
         geometry_msgs::msg::PointStamped& point);
+
+    bool parseArgument(
+        const std::string& argument,
+        std::string& out_name,
+        std::string& out_index) const;
+
+    nlohmann::json buildManipulationPayload(
+        const std::string& index,
+        const std::string& name,
+        const geometry_msgs::msg::PoseStamped& pose) const;
 
     void publishFeedback(
         const std::shared_ptr<GoalHandle>& gh,
@@ -63,6 +79,8 @@ private:
     std::shared_ptr<Hardware> hardware_;
 
     std::shared_ptr<Vision> vision_;
+
+    std::shared_ptr<Knowledge> knowledge_;
 
     const std::vector<std::pair<double,double>> scan_poses_ = {
         { 0.0,  -0.35},
