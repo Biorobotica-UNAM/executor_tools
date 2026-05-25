@@ -10,9 +10,6 @@ find_package(rclcpp_action REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
-find_package(manipulation_controller_interfaces REQUIRED)
-find_package(manipulation_planner_interfaces REQUIRED)
-find_package(geometry_msgs REQUIRED)
 
 find_package(executor_interfaces REQUIRED)
 
@@ -54,7 +51,6 @@ ament_target_dependencies(${PROJECT_NAME}
   rclcpp_action
   tf2
   tf2_ros
-  geometry_msgs
   executor_interfaces
   hri_tools
   navigation_tools
@@ -63,8 +59,6 @@ ament_target_dependencies(${PROJECT_NAME}
   manipulation_tools
   planning_tools
   knowledge_tools
-  manipulation_controller_interfaces
-  manipulation_planner_interfaces
 )
 
 # -----------------------------
@@ -104,8 +98,6 @@ ament_export_dependencies(
   manipulation_tools
   planning_tools
   knowledge_tools
-  manipulation_controller_interfaces
-  manipulation_planner_interfaces
 )
 
 ament_package()
