@@ -35,6 +35,7 @@ add_library(${PROJECT_NAME}
   src/Follow.cpp
   src/Take.cpp
   src/Listen.cpp
+  src/Approach.cpp
 )
 
 target_include_directories(${PROJECT_NAME}
