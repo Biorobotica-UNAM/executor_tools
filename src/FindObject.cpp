@@ -282,7 +282,7 @@ nlohmann::json FindObject::buildManipulationPayload(
     };
 
     return {
-        {"objects", object}
+        {"object", object}
     };
 }
 
