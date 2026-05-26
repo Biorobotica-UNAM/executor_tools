@@ -96,7 +96,7 @@ Result Listen::run(const std::string &argument,
                   "people[" + index + "]." + attribute + "=" + entity);
 
   const nlohmann::json payload =
-      buildUpdatePayload(index, category, "people", attribute, entity);
+      buildUpdatePayload(index, category, "person", attribute, entity);
 
   const bool stored = knowledge_->update_world_state(payload);
 
