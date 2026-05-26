@@ -86,7 +86,7 @@ Result Take::run(
     publishFeedback(gh, TakeState::PLANNING_EXTEND);
 
     std::string msg;
-    auto pose_opt = jsonToPose(target_data, node_->get_clock())
+    auto pose_opt = jsonToPose(target_data, node_->get_clock());
 
     if (!pose_opt)
     {
