@@ -63,6 +63,11 @@ Result Take::run(
                                 object_index, 
                                 "manipulation");
 
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "Pose JSON: %s",
+        target_data.dump().c_str());
+
     if (target_data.empty())
     {
         publishFeedback(
@@ -82,6 +87,21 @@ Result Take::run(
 
     std::string msg;
     PoseStamped target_pose = jsonToPose(target_data, node_->get_clock());
+
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "PoseStamped:\n"
+        "  frame_id: %s\n"
+        "  position: [%.3f, %.3f, %.3f]\n"
+        "  orientation: [%.3f, %.3f, %.3f, %.3f]",
+        target_pose.header.frame_id.c_str(),
+        target_pose.pose.position.x,
+        target_pose.pose.position.y,
+        target_pose.pose.position.z,
+        target_pose.pose.orientation.x,
+        target_pose.pose.orientation.y,
+        target_pose.pose.orientation.z,
+        target_pose.pose.orientation.w);
 
     bool ok = manipulation_->PlanTrajectory(
             target_pose, "left_arm_group", joint_names_, waypoints_, msg);
