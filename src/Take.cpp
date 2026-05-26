@@ -69,16 +69,12 @@ Result Take::run(
     // ── CLOSE_GRIPPER ─────────────────────────────────────────
     publishFeedback(gh, TakeState::CLOSE_GRIPPER);
 
-    ok = attempt("CLOSE_GRIPPER", gh, [&](std::string& msg) {
-        // TODO: reemplazar con llamada real al gripper
-        RCLCPP_INFO(node_->get_logger(), "[take] Cerrando gripper (fake)");
-        std::this_thread::sleep_for(1s);
-        msg = "";
-        return true;
-    });
+    ok = hardware_->MoveLeftGripper("close");
 
-    if (!ok)
-        return {false, "FAILED", "close_gripper_failed"};
+    if (!gripper_ok) {
+        publishFeedback(gh, TakeState::FAILED, "gripper_close_failed");
+        return {false, "FAILED", "gripper_close_failed"};
+    }
 
     if (!gh->is_active())
         return {false, "FAILED", "goal_cancelled"};
