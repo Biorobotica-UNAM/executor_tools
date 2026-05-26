@@ -87,7 +87,6 @@ ament_export_dependencies(
   rclcpp
   rclcpp_action
   executor_interfaces
-  std_srvs
   hri_tools
   navigation_tools
   hardware_tools
