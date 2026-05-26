@@ -7,7 +7,6 @@ project(executor_tools)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
-
 find_package(executor_interfaces REQUIRED)
 
 find_package(hri_tools REQUIRED)
@@ -27,6 +26,7 @@ add_library(${PROJECT_NAME}
   src/Check.cpp
   src/Point.cpp
   src/Align.cpp
+  src/Drop.cpp
   src/Give.cpp
   src/FindPerson.cpp
   src/FindObject.cpp
@@ -87,6 +87,7 @@ ament_export_dependencies(
   rclcpp
   rclcpp_action
   executor_interfaces
+  std_srvs
   hri_tools
   navigation_tools
   hardware_tools
