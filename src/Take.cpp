@@ -14,7 +14,8 @@ using namespace std::chrono_literals;
 Take::Take(
     const rclcpp::Node::SharedPtr&        node,
     const std::shared_ptr<Manipulation>&  manipulation,
-    const std::shared_ptr<Hardware>&      hardware)
+    const std::shared_ptr<Hardware>&      hardware,
+    const std::shared_ptr<Knowledge>&     knowledge)
 : node_(node),
   manipulation_(manipulation),
   hardware_(hardware),
@@ -31,15 +32,6 @@ Result Take::run(
     if (!gh || !gh->is_active())
         return {false, "FAILED", "goal_inactive"};
 
-    if (arm != "right_arm_group" && arm != "left_arm_group")
-    {
-        RCLCPP_ERROR(node_->get_logger(),
-            "[take] Brazo inválido: '%s'. Usa 'right_arm_group' o 'left_arm_group'",
-            arm.c_str());
-        publishFeedback(gh, TakeState::FAILED, "invalid_arm");
-        return {false, "FAILED", "invalid_arm"};
-    }
-
     // ── READY ────────────────────────────────────────────
     publishFeedback(gh, TakeState::READY, argument);
 
@@ -52,7 +44,7 @@ Result Take::run(
     if (!parseArgument(
             argument,
             category_name,
-            objecy_index))
+            object_index))
     {
         publishFeedback(
             gh,
@@ -89,9 +81,9 @@ Result Take::run(
     publishFeedback(gh, TakeState::PLANNING_EXTEND);
 
     std::string msg;
-    PoseStamped target_pose = jsonToPose(target_data, this->get_clock());
+    PoseStamped target_pose = jsonToPose(target_data, node_->get_clock());
 
-    ok = manipulation_->PlanTrajectory(
+    bool ok = manipulation_->PlanTrajectory(
             target_pose, "left_arm_group", joint_names_, waypoints_, msg);
 
     if (!ok)
@@ -126,9 +118,9 @@ Result Take::run(
         return {false, "FAILED", "goal_cancelled"};
 
     // ── PLAN_RETRACT ──────────────────────────────────────────
-    publishFeedback(gh, TakeState::PLAN_RETRACT);
+    publishFeedback(gh, TakeState::PLANNING_RETRACT);
 
-    const auto home = retractPose(arm);
+    const auto home = retractPose("left_arm_group");
 
     ok = manipulation_->PlanTrajectory(
             home, "left_arm_group", joint_names_, waypoints_, msg);
@@ -140,19 +132,17 @@ Result Take::run(
         return {false, "FAILED", "goal_cancelled"};
 
     // ── EXECUTE_RETRACT ───────────────────────────────────────
-    publishFeedback(gh, TakeState::EXECUTE_RETRACT);
+    publishFeedback(gh, TakeState::EXECUTING_RETRACT);
 
-    ok = attempt("EXECUTE_RETRACT", gh, [&](std::string& msg) {
-        return manipulation_->FollowTrajectory(
+    ok = manipulation_->FollowTrajectory(
             "left_arm_group", joint_names_, waypoints_, msg);
-    });
 
     if (!ok)
         return {false, "FAILED", msg};
 
     // ── SUCCESS ───────────────────────────────────────────────
-    publishFeedback(gh, TakeState::SUCCESS, arm);
-    return {true, "SUCCESS", "left_arm_group" + "_take_completed"};
+    publishFeedback(gh, TakeState::SUCCESS, "left_arm_group");
+    return {true, "SUCCESS", std::string("left_arm_group") + "_take_completed"};
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -59,11 +59,11 @@ private:
         std::string& out_name,
         std::string& out_index) const;
 
-    geometry_msgs::msg::PoseStamped jsonToPose(
+    PoseStamped jsonToPose(
     const json& data,
     rclcpp::Clock::SharedPtr clock);
 
-    geometry_msgs::msg::PoseStamped retractPose(
+    PoseStamped retractPose(
         const std::string& arm) const;
 
     void publishFeedback(
