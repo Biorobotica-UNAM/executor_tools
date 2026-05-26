@@ -177,21 +177,23 @@ geometry_msgs::msg::PoseStamped Take::jsonToPose(
     const json& data,
     rclcpp::Clock::SharedPtr clock)
 {
-    PoseStamped pose;
+    geometry_msgs::msg::PoseStamped pose;
 
-    const auto& p = data["manipulation"];
+    if (!data.is_array() || data.size() != 7) {
+        return pose;
+    }
 
     pose.header.stamp = clock->now();
     pose.header.frame_id = "map";
 
-    pose.pose.position.x = p[0];
-    pose.pose.position.y = p[1];
-    pose.pose.position.z = p[2];
+    pose.pose.position.x = data[0].get<double>();
+    pose.pose.position.y = data[1].get<double>();
+    pose.pose.position.z = data[2].get<double>();
 
-    pose.pose.orientation.x = p[3];
-    pose.pose.orientation.y = p[4];
-    pose.pose.orientation.z = p[5];
-    pose.pose.orientation.w = p[6];
+    pose.pose.orientation.x = data[3].get<double>();
+    pose.pose.orientation.y = data[4].get<double>();
+    pose.pose.orientation.z = data[5].get<double>();
+    pose.pose.orientation.w = data[6].get<double>();
 
     return pose;
 }
