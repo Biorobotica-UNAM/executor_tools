@@ -328,31 +328,14 @@ std::string FindObject::stateName(
 {
     switch (s)
     {
-        case FindObjectState::READY:
-            return "READY";
-
-        case FindObjectState::MOVING_HEAD:
-            return "MOVING_HEAD";
-
-        case FindObjectState::STABILIZING:
-            return "STABILIZING";
-
-        case FindObjectState::DETECTING:
-            return "DETECTING";
-
-        case FindObjectState::LOOKING_AT_TARGET:
-            return "LOOKING_AT_TARGET";
-
-        case FindObjectState::UPDATING:
-            return "UPDATING";
-
-        case FindObjectState::SUCCESS:
-            return "SUCCESS";
-
-        case FindObjectState::FAILED:
-            return "FAILED";
-
-        default:
-            return "UNKNOWN";
+        case FindObjectState::READY:			return "READY";
+        case FindObjectState::MOVING_HEAD:		return "MOVING_HEAD";
+        case FindObjectState::STABILIZING:		return "STABILIZING";
+        case FindObjectState::DETECTING:		return "DETECTING";
+        case FindObjectState::LOOKING_AT_TARGET:return "LOOKING_AT_TARGET";
+        case FindObjectState::UPDATING:			return "UPDATING";
+        case FindObjectState::SUCCESS:			return "SUCCESS";
+        case FindObjectState::FAILED:			return "FAILED";
+        default:								return "UNKNOWN";
     }
 }

@@ -2,7 +2,8 @@
 
 #include <chrono>
 #include <thread>
-#include <vector>
+#include <sstream>
+#include <atomic>
 
 using namespace std::chrono_literals;
 
@@ -13,10 +14,12 @@ using namespace std::chrono_literals;
 FindPerson::FindPerson(
     const rclcpp::Node::SharedPtr& node,
     const std::shared_ptr<Hardware>& hardware,
-    const std::shared_ptr<Vision>& vision)
+    const std::shared_ptr<Vision>& vision,
+    const std::shared_ptr<Knowledge>& knowledge)
 : node_(node),
   hardware_(hardware),
-  vision_(vision)
+  vision_(vision),
+  knowledge_(knowledge)
 {}
 
 // ============================================================
@@ -165,14 +168,24 @@ bool FindPerson::scanPosition(
 
         std::string description;
 
-		if (vision_->DescribePerson(found_name, description))
-			RCLCPP_INFO(node_->get_logger(),
-				        "[FindPerson] Description: %s", description.c_str());
-		else
-			RCLCPP_WARN(node_->get_logger(),
-				        "[FindPerson] DescribePerson failed for '%s'",
-				        found_name.c_str());
+		if (vision_->DescribePerson(found_name, description)) {
+			RCLCPP_INFO(node_->get_logger(), "[FindPerson] Description: %s", description.c_str());
+			publishFeedback(gh, FindPersonState::UPDATING, found_name);
 
+			const auto payload = buildPersonPayload(found_name,	target_pose, description);
+
+			const bool stored =	knowledge_->update_world_state(payload);
+
+			if (!stored)
+			{
+				publishFeedback(gh,	FindPersonState::FAILED, "update_world_state_failed");
+				return false;
+			}
+		}	
+		else {
+			RCLCPP_WARN(node_->get_logger(), "[FindPerson] DescribePerson failed for '%s'", found_name.c_str());
+		}
+			
         return true;   // success for both anybody and named target
     }
 
@@ -207,14 +220,23 @@ bool FindPerson::scanPosition(
 
     std::string description;
 
-	if (vision_->DescribePerson(found_name, description))
-		RCLCPP_INFO(node_->get_logger(),
-		            "[FindPerson] Description: %s", description.c_str());
-	else
-		RCLCPP_WARN(node_->get_logger(),
-		            "[FindPerson] DescribePerson failed for '%s'",
-		            found_name.c_str());
+	if (vision_->DescribePerson(found_name, description)) {
+		RCLCPP_INFO(node_->get_logger(), "[FindPerson] Description: %s", description.c_str());
+		publishFeedback(gh, FindPersonState::UPDATING, found_name);
 
+			const auto payload = buildPersonPayload(found_name,	target_pose, description);
+
+			const bool stored =	knowledge_->update_world_state(payload);
+
+			if (!stored)
+			{
+				publishFeedback(gh,	FindPersonState::FAILED, "update_world_state_failed");
+				return false;
+			}
+	}
+	else {
+		RCLCPP_WARN(node_->get_logger(), "[FindPerson] DescribePerson failed for '%s'", found_name.c_str());
+	}
     return true;   // anybody=true: any detected person counts as success
 }
 
@@ -226,6 +248,152 @@ std::string FindPerson::generatePersonName()
 {
     static std::atomic<uint64_t> counter{0};
     return "people_" + std::to_string(++counter);
+}
+
+// ============================================================
+// splitDescription
+// ============================================================
+
+std::vector<std::string> FindPerson::splitDescription(
+    const std::string& description) const
+{
+    std::vector<std::string> result;
+
+    std::stringstream ss(description);
+    std::string item;
+
+    while (std::getline(ss, item, ','))
+    {
+        item.erase(0, item.find_first_not_of(" "));
+        item.erase(item.find_last_not_of(" ") + 1);
+
+        result.push_back(item);
+    }
+
+    return result;
+}
+
+// ============================================================
+// buildPersonPayload
+// ============================================================
+
+nlohmann::json FindPerson::buildPersonPayload(
+    const std::string& name,
+    const geometry_msgs::msg::PoseStamped& pose,
+    const std::string& description) const
+{
+    const auto tokens =
+        splitDescription(description);
+
+    std::string gender      = "unknown";
+    std::string age_group   = "unknown";
+    std::string emotion     = "unknown";
+    std::string hair_color  = "unknown";
+    std::string hair_style  = "unknown";
+    std::string shirt_color = "unknown";
+
+    std::vector<std::string> accessories;
+
+    // ─────────────────────────────────────────────
+    // gender
+    // ─────────────────────────────────────────────
+
+    if (tokens.size() > 0)
+        gender = tokens[0];
+
+    // ─────────────────────────────────────────────
+    // shirt
+    // black t shirt
+    // ─────────────────────────────────────────────
+
+    if (tokens.size() > 1)
+    {
+        const std::string& shirt = tokens[1];
+
+        if (shirt.find("black") != std::string::npos)
+            shirt_color = "black";
+        else if (shirt.find("blue") != std::string::npos)
+            shirt_color = "blue";
+        else if (shirt.find("red") != std::string::npos)
+            shirt_color = "red";
+        else if (shirt.find("white") != std::string::npos)
+            shirt_color = "white";
+    }
+
+    // ─────────────────────────────────────────────
+    // age
+    // ─────────────────────────────────────────────
+
+    if (tokens.size() > 2)
+    {
+        if (tokens[2] == "young")
+            age_group = "adult";
+        else
+            age_group = tokens[2];
+    }
+
+    // ─────────────────────────────────────────────
+    // hair
+    // short black hair
+    // ─────────────────────────────────────────────
+
+    if (tokens.size() > 3)
+    {
+        const std::string& hair = tokens[3];
+
+        if (hair.find("black") != std::string::npos)
+            hair_color = "black";
+
+        if (hair.find("short") != std::string::npos)
+            hair_style = "short";
+
+        if (hair.find("long") != std::string::npos)
+            hair_style = "long";
+    }
+
+    // ─────────────────────────────────────────────
+    // emotion
+    // ─────────────────────────────────────────────
+
+    if (tokens.size() > 4)
+        emotion = tokens[4];
+
+    // ─────────────────────────────────────────────
+    // accessories
+    // ─────────────────────────────────────────────
+
+    for (size_t i = 5; i < tokens.size(); ++i)
+    {
+        accessories.push_back(tokens[i]);
+    }
+
+    const auto& p = pose.pose.position;
+    const auto& q = pose.pose.orientation;
+
+    nlohmann::json person;
+
+    person["name"]         = name;
+    person["gender"]       = gender;
+    person["age_group"]    = age_group;
+    person["emotion"]      = emotion;
+    person["hair_color"]   = hair_color;
+    person["hair_style"]   = hair_style;
+    person["shirt_color"]  = shirt_color;
+    person["accessories"]  = accessories;
+
+    person["navigation"] = {
+        p.x,
+        p.y,
+        p.z,
+        q.x,
+        q.y,
+        q.z,
+        q.w
+    };
+
+    return {
+        {"people", person}
+    };
 }
 
 // ============================================================
@@ -267,6 +435,7 @@ std::string FindPerson::stateName(FindPersonState s)
         case FindPersonState::IDENTIFYING:      return "IDENTIFYING";
         case FindPersonState::REGISTERING:      return "REGISTERING";
         case FindPersonState::DESCRIBING:       return "DESCRIBING";
+		case FindPersonState::UPDATING:			return "UPDATING";
         case FindPersonState::SUCCESS:          return "SUCCESS";
         case FindPersonState::FAILED:           return "FAILED";
         default:                                return "UNKNOWN";
