@@ -152,10 +152,11 @@ Result FindObject::run(
                     detected_name);
 
                 const auto payload =
-                    buildManipulationPayload(
-                        object_index,
-                        detected_name,
-                        object_pose);
+					buildManipulationPayload(
+						query_name,
+						object_index,
+						detected_name,
+						object_pose);
 
                 const bool stored =
                     knowledge_->update_world_state(payload);
@@ -253,23 +254,19 @@ bool FindObject::parseArgument(
 // ─────────────────────────────────────────────────────────────
 
 nlohmann::json FindObject::buildManipulationPayload(
+    const std::string& category,
     const std::string& index,
     const std::string& name,
     const geometry_msgs::msg::PoseStamped& pose) const
 {
-    const auto& p =
-        pose.pose.position;
-
-    const auto& q =
-        pose.pose.orientation;
+    const auto& p = pose.pose.position;
+    const auto& q = pose.pose.orientation;
 
     nlohmann::json object;
 
-    object["number"] =
-        std::stoi(index);
+    object["number"] = std::stoi(index);
 
-    object["name"] =
-        name;
+    object["name"] = name;
 
     object["manipulation"] = {
         p.x,
@@ -282,7 +279,8 @@ nlohmann::json FindObject::buildManipulationPayload(
     };
 
     return {
-        {"cutlery", object}
+        {"category", category},
+        {"object", object}
     };
 }
 
