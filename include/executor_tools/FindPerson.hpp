@@ -59,6 +59,8 @@ private:
 		double tilt,
 		bool anybody,
 		const std::string& target,
+		const std::string& category,
+		const std::string& person_index,
 		std::string& found_name,
 		const std::shared_ptr<GoalHandle>& gh);
 
@@ -71,6 +73,8 @@ private:
     static std::string generatePersonName();
 
 	nlohmann::json buildPersonPayload(
+		const std::string& category,
+		const std::string& index,
 		const std::string& name,
 		const geometry_msgs::msg::PoseStamped& pose,
 		const std::string& description) const;

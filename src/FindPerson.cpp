@@ -35,7 +35,31 @@ Result FindPerson::run(
 
     publishFeedback(gh, FindPersonState::READY, argument);
 
-    const bool anybody = (argument == "anybody");
+    const bool anybody = argument.rfind("anybody", 0) == 0;
+
+	std::string category;
+	std::string person_index;
+
+	if (anybody)
+	{
+		category = "guest";
+		person_index = "1";
+	}
+	else
+	{
+		const std::size_t sep = argument.rfind('_');
+
+		if (sep == std::string::npos)
+		{
+		    category = argument;
+		    person_index = "1";
+		}
+		else
+		{
+		    category     = argument.substr(0, sep);
+		    person_index = argument.substr(sep + 1);
+		}
+	}
 
     // ── Scan positions ───────────────────────────────────────
 
@@ -61,8 +85,7 @@ Result FindPerson::run(
 
         std::string found_name;
 
-		const bool found = scanPosition(
-    		sp.pan, sp.tilt, anybody, argument, found_name, gh);
+		const bool found = scanPosition(sp.pan, sp.tilt, anybody, argument, category, person_index, found_name,	gh);
 
         if (!gh->is_active())
             return {false, "FAILED", "goal_cancelled"};
@@ -100,6 +123,8 @@ bool FindPerson::scanPosition(
     double tilt,
     bool anybody,
     const std::string& target,
+    const std::string& category,
+    const std::string& person_index,
     std::string& found_name,
     const std::shared_ptr<GoalHandle>& gh)
 {
@@ -172,7 +197,7 @@ bool FindPerson::scanPosition(
 			RCLCPP_INFO(node_->get_logger(), "[FindPerson] Description: %s", description.c_str());
 			publishFeedback(gh, FindPersonState::UPDATING, found_name);
 
-			const auto payload = buildPersonPayload(found_name,	target_pose, description);
+			const auto payload = buildPersonPayload(category, person_index, found_name, target_pose, description);
 
 			const bool stored =	knowledge_->update_world_state(payload);
 
@@ -224,7 +249,7 @@ bool FindPerson::scanPosition(
 		RCLCPP_INFO(node_->get_logger(), "[FindPerson] Description: %s", description.c_str());
 		publishFeedback(gh, FindPersonState::UPDATING, found_name);
 
-			const auto payload = buildPersonPayload(found_name,	target_pose, description);
+			const auto payload = buildPersonPayload(category, person_index, found_name, target_pose, description);
 
 			const bool stored =	knowledge_->update_world_state(payload);
 
@@ -247,7 +272,7 @@ bool FindPerson::scanPosition(
 std::string FindPerson::generatePersonName()
 {
     static std::atomic<uint64_t> counter{0};
-    return "people_" + std::to_string(++counter);
+    return "guest_" + std::to_string(++counter);
 }
 
 // ============================================================
@@ -278,6 +303,8 @@ std::vector<std::string> FindPerson::splitDescription(
 // ============================================================
 
 nlohmann::json FindPerson::buildPersonPayload(
+    const std::string& category,
+    const std::string& index,
     const std::string& name,
     const geometry_msgs::msg::PoseStamped& pose,
     const std::string& description) const
@@ -373,6 +400,7 @@ nlohmann::json FindPerson::buildPersonPayload(
     nlohmann::json person;
 
     person["name"]         = name;
+	person["number"] = std::stoi(index);
     person["gender"]       = gender;
     person["age_group"]    = age_group;
     person["emotion"]      = emotion;
@@ -392,8 +420,8 @@ nlohmann::json FindPerson::buildPersonPayload(
     };
 
     return {
-        {"people", person}
-    };
+		{category, person}
+	};
 }
 
 // ============================================================
