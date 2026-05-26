@@ -173,7 +173,7 @@ bool Take::parseArgument(
     return true;
 }
 
-PoseStamped Take::jsonToPose(
+geometry_msgs::msg::PoseStamped Take::jsonToPose(
     const json& data,
     rclcpp::Clock::SharedPtr clock)
 {
