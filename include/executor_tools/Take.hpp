@@ -11,6 +11,7 @@
 #include "executor_interfaces/action/execute_task.hpp"
 #include "executor_tools/Result.hpp"
 #include "manipulation_tools/Manipulation.hpp"
+#include "hardware_tools/Hardware.hpp"
 
 // ─────────────────────────────────────────────────────────────
 //   Take
@@ -35,7 +36,8 @@ public:
 
     Take(
         const rclcpp::Node::SharedPtr&        node,
-        const std::shared_ptr<Manipulation>&  manipulation);
+        const std::shared_ptr<Manipulation>&  manipulation,
+        const std::shared_ptr<Hardware>&      hardware);
 
     Result run(
         const std::string&                  arm,
@@ -64,6 +66,7 @@ private:
 
     rclcpp::Node::SharedPtr       node_;
     std::shared_ptr<Manipulation> manipulation_;
+    std::shared_ptr<Hardware>     hardware_;
 
     static constexpr int MAX_ATTEMPTS = 2;
     std::vector<std::string> joint_names_;

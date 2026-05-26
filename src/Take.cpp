@@ -11,9 +11,11 @@ using namespace std::chrono_literals;
 // ─────────────────────────────────────────────────────────────
 Take::Take(
     const rclcpp::Node::SharedPtr&        node,
-    const std::shared_ptr<Manipulation>&  manipulation)
+    const std::shared_ptr<Manipulation>&  manipulation,
+    const std::shared_ptr<Hardware>&      hardware)
 : node_(node),
-  manipulation_(manipulation)
+  manipulation_(manipulation),
+  hardware_(hardware)
 {}
 
 // ─────────────────────────────────────────────────────────────
@@ -71,7 +73,7 @@ Result Take::run(
 
     ok = hardware_->MoveLeftGripper("close");
 
-    if (!gripper_ok) {
+    if (!ok) {
         publishFeedback(gh, TakeState::FAILED, "gripper_close_failed");
         return {false, "FAILED", "gripper_close_failed"};
     }
