@@ -1,9 +1,20 @@
 /**
  * @brief FSM implementation for the listen pipeline.
  *
- * Each private method is responsible for exactly one FSM transition.
- * run() owns the sequence and early-exits on any failure, keeping
- * cyclomatic complexity low and the happy path readable.
+ * Soporta dos modos de operación determinados automáticamente por el
+ * formato del argumento recibido en run():
+ *
+ *   FULL   — "<category>_<attribute>_<index>"  (ej. "guest_name_1")
+ *            Pasos: READY → LISTENING → PARSING → UPDATING → SUCCESS | FAILED
+ *
+ *   SIMPLE — palabra simple sin '_'  (ej. "follow", "confirm")
+ *            Pasos: READY → LISTENING → PARSING → SUCCESS | FAILED
+ *            El world state no se modifica; la entidad extraída se
+ *            devuelve en el campo detail del Result.
+ *
+ * Cada método privado es responsable de exactamente una transición FSM.
+ * run() posee la secuencia y hace early-exit ante cualquier fallo,
+ * manteniendo baja la complejidad ciclomática y legible el happy path.
  *
  * BioRobotics Laboratory, Facultad de Ingenieria, UNAM
  */
@@ -39,8 +50,10 @@ Result Listen::run(const std::string &argument,
 
   std::string category;
   std::string index;
+  std::string attribute;
+  ListenMode mode;
 
-  if (!parseArgument(argument, category, index)) {
+  if (!parseArgument(argument, category, index, attribute, mode)) {
     publishFeedback(gh, ListenState::FAILED, "invalid_argument: " + argument);
     return {false, "FAILED", "invalid_argument: " + argument};
   }
@@ -60,22 +73,30 @@ Result Listen::run(const std::string &argument,
   // ── PARSING (with retry) ────────────────────────────────
   publishFeedback(gh, ListenState::PARSING, speech);
 
-  const std::string entity = extractEntityWithRetry(speech, category, gh);
+  const std::string entity = extractEntityWithRetry(speech, attribute, gh);
 
   if (entity.empty()) {
     publishFeedback(gh, ListenState::FAILED,
-                    "entity_not_found: category=" + category);
-    return {false, "FAILED", "entity_not_found: category=" + category};
+                    "entity_not_found: category=" + attribute);
+    return {false, "FAILED", "entity_not_found: category=" + attribute};
   }
 
   RCLCPP_INFO(node_->get_logger(), "Extracted entity [%s] = '%s'",
-              category.c_str(), entity.c_str());
+              attribute.c_str(), entity.c_str());
 
-  // ── UPDATING ───────────────────────────────────────────
+  // ── SIMPLE mode: skip UPDATING ─────────────────────────
+  if (mode == ListenMode::SIMPLE) {
+    const std::string summary = argument + "=" + entity;
+    publishFeedback(gh, ListenState::SUCCESS, summary);
+    return {true, "SUCCESS", summary};
+  }
+
+  // ── UPDATING (FULL mode only) ──────────────────────────
   publishFeedback(gh, ListenState::UPDATING,
-                  "people[" + index + "]." + category + "=" + entity);
+                  "people[" + index + "]." + attribute + "=" + entity);
 
-  const nlohmann::json payload = buildUpdatePayload(index, category, entity);
+  const nlohmann::json payload =
+      buildUpdatePayload(index, category, "people", attribute, entity);
 
   const bool stored = knowledge_->update_world_state(payload);
 
@@ -86,7 +107,7 @@ Result Listen::run(const std::string &argument,
 
   // ── SUCCESS ────────────────────────────────────────────
   const std::string summary =
-      "people[" + index + "]." + category + "=" + entity;
+      "people[" + index + "]." + attribute + "=" + entity;
 
   publishFeedback(gh, ListenState::SUCCESS, summary);
   return {true, "SUCCESS", summary};
@@ -128,20 +149,52 @@ Listen::extractEntityWithRetry(const std::string &speech,
 // =========================================================
 
 bool Listen::parseArgument(const std::string &argument,
-                           std::string &out_category,
-                           std::string &out_index) const {
-  const std::size_t sep = argument.rfind('_');
+                           std::string &out_category, std::string &out_index,
+                           std::string &out_attribute,
+                           ListenMode &out_mode) const {
 
-  if (sep == std::string::npos || sep == 0 || sep + 1 == argument.size()) {
-    RCLCPP_ERROR(
-        node_->get_logger(),
-        "Listen: argument '%s' must follow the pattern <category>_<index>.",
-        argument.c_str());
+  // ── Modo SIMPLE: el argumento no contiene '_' ──────────
+  if (argument.find('_') == std::string::npos) {
+    if (argument.empty()) {
+      RCLCPP_ERROR(node_->get_logger(), "Listen: argument is empty.");
+      return false;
+    }
+    out_category = argument;
+    out_attribute = argument; // se usa como categoría en extractEntity
+    out_index = "";
+    out_mode = ListenMode::SIMPLE;
+    return true;
+  }
+
+  // ── Modo FULL: patrón esperado "<category>_<attribute>_<index>" ──
+  const std::size_t last_sep = argument.rfind('_');
+
+  if (last_sep == std::string::npos || last_sep == 0 ||
+      last_sep + 1 == argument.size()) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "Listen: argument '%s' must follow the pattern "
+                 "<category>_<attribute>_<index>.",
+                 argument.c_str());
     return false;
   }
 
-  out_category = argument.substr(0, sep);
-  out_index = argument.substr(sep + 1);
+  const std::string prefix = argument.substr(0, last_sep);
+  const std::size_t second_sep = prefix.rfind('_');
+
+  if (second_sep == std::string::npos || second_sep == 0 ||
+      second_sep + 1 == prefix.size()) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "Listen: argument '%s' must follow the pattern "
+                 "<category>_<attribute>_<index>.",
+                 argument.c_str());
+    return false;
+  }
+
+  out_category = prefix.substr(0, second_sep);
+  out_attribute = prefix.substr(second_sep + 1);
+  out_index = argument.substr(last_sep + 1);
+  out_mode = ListenMode::FULL;
+
   return true;
 }
 
@@ -151,12 +204,19 @@ bool Listen::parseArgument(const std::string &argument,
 
 nlohmann::json Listen::buildUpdatePayload(const std::string &index,
                                           const std::string &category,
-                                          const std::string &value) const {
-  nlohmann::json person;
-  person["number"] = std::stoi(index);
-  person[category] = value;
+                                          const std::string &entity_type,
+                                          const std::string &attribute,
+                                          const nlohmann::json &value) const {
 
-  return {{"person", person}};
+  nlohmann::json entity;
+  entity["number"] = std::stoi(index);
+  entity[attribute] = value;
+
+  nlohmann::json payload;
+  payload["category"] = category;
+  payload[entity_type] = entity;
+
+  return payload;
 }
 
 // =========================================================
