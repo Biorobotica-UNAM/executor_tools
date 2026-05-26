@@ -63,11 +63,6 @@ Result Take::run(
                                 object_index, 
                                 "manipulation");
 
-    RCLCPP_INFO(
-        node_->get_logger(),
-        "Pose JSON: %s",
-        target_data.dump().c_str());
-
     if (target_data.empty())
     {
         publishFeedback(
@@ -82,11 +77,27 @@ Result Take::run(
         };
     }
 
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "Pose JSON: %s",
+        target_data.dump().c_str());
+
     // ── PLAN_REACH ────────────────────────────────────────────
     publishFeedback(gh, TakeState::PLANNING_EXTEND);
 
     std::string msg;
-    PoseStamped target_pose = jsonToPose(target_data, node_->get_clock());
+
+    if (auto pose_opt = jsonToPose(target_data, node_->get_clock()))
+    {
+        const auto target_pose = pose_opt.value();
+    }
+    else
+    {
+        publishFeedback(
+            gh,
+            TakeState::FAILED,
+            "invalid_manipulation_pose");
+    }
 
     RCLCPP_INFO(
         node_->get_logger(),
@@ -193,7 +204,7 @@ bool Take::parseArgument(
     return true;
 }
 
-geometry_msgs::msg::PoseStamped Take::jsonToPose(
+std::optional<geometry_msgs::msg::PoseStamped> Take::jsonToPose(
     const json& data,
     rclcpp::Clock::SharedPtr clock)
 {
@@ -204,7 +215,7 @@ geometry_msgs::msg::PoseStamped Take::jsonToPose(
     }
 
     pose.header.stamp = clock->now();
-    pose.header.frame_id = "map";
+    pose.header.frame_id = "base_link";
 
     pose.pose.position.x = data[0].get<double>();
     pose.pose.position.y = data[1].get<double>();

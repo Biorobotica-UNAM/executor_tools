@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <optional>
 
 #include <nlohmann/json.hpp>
 
@@ -59,9 +60,9 @@ private:
         std::string& out_name,
         std::string& out_index) const;
 
-    PoseStamped jsonToPose(
-    const json& data,
-    rclcpp::Clock::SharedPtr clock);
+    std::optional<geometry_msgs::msg::PoseStamped> jsonToPose(
+        const json& data,
+        rclcpp::Clock::SharedPtr clock);
 
     PoseStamped retractPose(
         const std::string& arm) const;
