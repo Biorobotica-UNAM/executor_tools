@@ -86,18 +86,23 @@ Result Take::run(
     publishFeedback(gh, TakeState::PLANNING_EXTEND);
 
     std::string msg;
+    auto pose_opt = jsonToPose(target_data, node_->get_clock())
 
-    if (auto pose_opt = jsonToPose(target_data, node_->get_clock()))
-    {
-        const auto target_pose = pose_opt.value();
-    }
-    else
+    if (!pose_opt)
     {
         publishFeedback(
             gh,
             TakeState::FAILED,
             "invalid_manipulation_pose");
+
+        return {
+            false,
+            "FAILED",
+            "invalid_manipulation_pose"
+        };
     }
+
+    const auto target_pose = pose_opt.value();
 
     RCLCPP_INFO(
         node_->get_logger(),
