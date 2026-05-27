@@ -302,13 +302,13 @@ std::vector<std::string> FindPerson::splitDescription(
 // buildPersonPayload
 // ============================================================
 
-nlohmann::json buildPersonPayload(
+nlohmann::json FindPerson::buildPersonPayload(
     const std::string& category,
     const std::string& index,
     const std::string& name,
     const geometry_msgs::msg::PoseStamped& pose,
     const std::string& description,
-    bool overwrite_name) const;
+    bool overwrite_name) const
 {
     const auto tokens =
         splitDescription(description);
