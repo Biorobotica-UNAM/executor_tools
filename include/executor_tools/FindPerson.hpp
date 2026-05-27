@@ -77,7 +77,8 @@ private:
 		const std::string& index,
 		const std::string& name,
 		const geometry_msgs::msg::PoseStamped& pose,
-		const std::string& description) const;
+		const std::string& description,
+		bool overwrite_name) const;
 
 	std::vector<std::string> splitDescription(
 		const std::string& description) const;

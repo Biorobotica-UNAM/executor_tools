@@ -197,7 +197,7 @@ bool FindPerson::scanPosition(
 			RCLCPP_INFO(node_->get_logger(), "[FindPerson] Description: %s", description.c_str());
 			publishFeedback(gh, FindPersonState::UPDATING, found_name);
 
-			const auto payload = buildPersonPayload(category, person_index, found_name, target_pose, description);
+			const auto payload = buildPersonPayload(category, person_index, found_name, target_pose, description, anybody);
 
 			const bool stored =	knowledge_->update_world_state(payload);
 
@@ -249,7 +249,7 @@ bool FindPerson::scanPosition(
 		RCLCPP_INFO(node_->get_logger(), "[FindPerson] Description: %s", description.c_str());
 		publishFeedback(gh, FindPersonState::UPDATING, found_name);
 
-			const auto payload = buildPersonPayload(category, person_index, found_name, target_pose, description);
+			const auto payload = buildPersonPayload(category, person_index, found_name, target_pose, description, anybody);
 
 			const bool stored =	knowledge_->update_world_state(payload);
 
@@ -302,12 +302,13 @@ std::vector<std::string> FindPerson::splitDescription(
 // buildPersonPayload
 // ============================================================
 
-nlohmann::json FindPerson::buildPersonPayload(
+nlohmann::json buildPersonPayload(
     const std::string& category,
     const std::string& index,
     const std::string& name,
     const geometry_msgs::msg::PoseStamped& pose,
-    const std::string& description) const
+    const std::string& description,
+    bool overwrite_name) const;
 {
     const auto tokens =
         splitDescription(description);
@@ -329,23 +330,61 @@ nlohmann::json FindPerson::buildPersonPayload(
         gender = tokens[0];
 
     // ─────────────────────────────────────────────
-    // shirt
-    // black t shirt
-    // ─────────────────────────────────────────────
+	// shirt
+	// ─────────────────────────────────────────────
 
-    if (tokens.size() > 1)
-    {
-        const std::string& shirt = tokens[1];
+	if (tokens.size() > 1)
+	{
+		const std::string& shirt = tokens[1];
 
-        if (shirt.find("black") != std::string::npos)
-            shirt_color = "black";
-        else if (shirt.find("blue") != std::string::npos)
-            shirt_color = "blue";
-        else if (shirt.find("red") != std::string::npos)
-            shirt_color = "red";
-        else if (shirt.find("white") != std::string::npos)
-            shirt_color = "white";
-    }
+		if (shirt.find("black") != std::string::npos ||
+		    shirt.find("dark")  != std::string::npos)
+		{
+		    shirt_color = "black";
+		}
+		else if (shirt.find("blue") != std::string::npos)
+		{
+		    shirt_color = "blue";
+		}
+		else if (shirt.find("red") != std::string::npos)
+		{
+		    shirt_color = "red";
+		}
+		else if (shirt.find("white") != std::string::npos ||
+		         shirt.find("light") != std::string::npos)
+		{
+		    shirt_color = "white";
+		}
+		else if (shirt.find("green") != std::string::npos)
+		{
+		    shirt_color = "green";
+		}
+		else if (shirt.find("yellow") != std::string::npos)
+		{
+		    shirt_color = "yellow";
+		}
+		else if (shirt.find("gray") != std::string::npos ||
+		         shirt.find("grey") != std::string::npos)
+		{
+		    shirt_color = "gray";
+		}
+		else if (shirt.find("brown") != std::string::npos)
+		{
+		    shirt_color = "brown";
+		}
+		else if (shirt.find("orange") != std::string::npos)
+		{
+		    shirt_color = "orange";
+		}
+		else if (shirt.find("purple") != std::string::npos)
+		{
+		    shirt_color = "purple";
+		}
+		else if (shirt.find("pink") != std::string::npos)
+		{
+		    shirt_color = "pink";
+		}
+	}
 
     // ─────────────────────────────────────────────
     // age
@@ -360,30 +399,93 @@ nlohmann::json FindPerson::buildPersonPayload(
     }
 
     // ─────────────────────────────────────────────
-    // hair
-    // short black hair
-    // ─────────────────────────────────────────────
+	// hair
+	// ─────────────────────────────────────────────
 
-    if (tokens.size() > 3)
-    {
-        const std::string& hair = tokens[3];
+	if (tokens.size() > 3)
+	{
+		const std::string& hair = tokens[3];
 
-        if (hair.find("black") != std::string::npos)
-            hair_color = "black";
+		// color
+		if (hair.find("black") != std::string::npos ||
+		    hair.find("dark")  != std::string::npos)
+		{
+		    hair_color = "black";
+		}
+		else if (hair.find("blonde") != std::string::npos ||
+		         hair.find("yellow") != std::string::npos)
+		{
+		    hair_color = "blonde";
+		}
+		else if (hair.find("brown") != std::string::npos)
+		{
+		    hair_color = "brown";
+		}
+		else if (hair.find("white") != std::string::npos ||
+		         hair.find("gray")  != std::string::npos ||
+		         hair.find("grey")  != std::string::npos)
+		{
+		    hair_color = "gray";
+		}
+		else if (hair.find("red") != std::string::npos)
+		{
+		    hair_color = "red";
+		}
 
-        if (hair.find("short") != std::string::npos)
-            hair_style = "short";
-
-        if (hair.find("long") != std::string::npos)
-            hair_style = "long";
-    }
+		// style
+		if (hair.find("short") != std::string::npos)
+		{
+		    hair_style = "short";
+		}
+		else if (hair.find("long") != std::string::npos)
+		{
+		    hair_style = "long";
+		}
+		else if (hair.find("curly") != std::string::npos)
+		{
+		    hair_style = "curly";
+		}
+		else if (hair.find("wavy") != std::string::npos)
+		{
+		    hair_style = "wavy";
+		}
+		else if (hair.find("bald") != std::string::npos)
+		{
+		    hair_style = "bald";
+		}
+	}
 
     // ─────────────────────────────────────────────
     // emotion
     // ─────────────────────────────────────────────
 
     if (tokens.size() > 4)
-        emotion = tokens[4];
+	{
+		const std::string& emo = tokens[4];
+
+		if (emo.find("happy") != std::string::npos ||
+		    emo.find("smile") != std::string::npos)
+		{
+		    emotion = "happy";
+		}
+		else if (emo.find("sad") != std::string::npos)
+		{
+		    emotion = "sad";
+		}
+		else if (emo.find("angry") != std::string::npos)
+		{
+		    emotion = "angry";
+		}
+		else if (emo.find("serious") != std::string::npos ||
+		         emo.find("neutral") != std::string::npos)
+		{
+		    emotion = "neutral";
+		}
+		else if (emo.find("surprised") != std::string::npos)
+		{
+		    emotion = "surprised";
+		}
+	}
 
     // ─────────────────────────────────────────────
     // accessories
@@ -399,15 +501,17 @@ nlohmann::json FindPerson::buildPersonPayload(
 
     nlohmann::json person;
 
-    person["name"]         = name;
-	person["number"] = std::stoi(index);
-    person["gender"]       = gender;
-    person["age_group"]    = age_group;
-    person["emotion"]      = emotion;
-    person["hair_color"]   = hair_color;
-    person["hair_style"]   = hair_style;
-    person["shirt_color"]  = shirt_color;
-    person["accessories"]  = accessories;
+	if (overwrite_name)
+		person["name"] = name;
+
+	person["number"]      = std::stoi(index);
+	person["gender"]      = gender;
+	person["age_group"]   = age_group;
+	person["emotion"]     = emotion;
+	person["hair_color"]  = hair_color;
+	person["hair_style"]  = hair_style;
+	person["shirt_color"] = shirt_color;
+	person["accessories"] = accessories;
 
     person["navigation"] = {
         p.x,
@@ -420,7 +524,8 @@ nlohmann::json FindPerson::buildPersonPayload(
     };
 
     return {
-		{category, person}
+		{"category", category},
+		{"person", person}
 	};
 }
 
