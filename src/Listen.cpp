@@ -95,8 +95,15 @@ Result Listen::run(const std::string &argument,
   publishFeedback(gh, ListenState::UPDATING,
                   "people[" + index + "]." + attribute + "=" + entity);
 
+  nlohmann::json value = entity;
+
+  // order debe almacenarse como array de strings
+  if (attribute == "order") {
+    value = nlohmann::json::array({entity});
+  }
+
   const nlohmann::json payload =
-      buildUpdatePayload(index, category, "person", attribute, entity);
+      buildUpdatePayload(index, category, "person", attribute, value);
 
   const bool stored = knowledge_->update_world_state(payload);
 
