@@ -36,6 +36,7 @@ add_library(${PROJECT_NAME}
   src/Take.cpp
   src/Listen.cpp
   src/Approach.cpp
+  src/FindPose
 )
 
 target_include_directories(${PROJECT_NAME}
