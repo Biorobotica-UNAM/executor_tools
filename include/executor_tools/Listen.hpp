@@ -104,7 +104,7 @@ private:
    * retries.
    * @return Extracted entity string, or empty on exhausted retries.
    */
-  std::string
+  std::vector<std::string>
   extractEntityWithRetry(const std::string &speech, const std::string &category,
                          const std::shared_ptr<GoalHandle> &gh) const;
 

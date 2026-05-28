@@ -23,6 +23,7 @@
 
 #include <chrono>
 #include <thread>
+#include <unordered_set>
 
 using namespace std::chrono_literals;
 
@@ -73,33 +74,46 @@ Result Listen::run(const std::string &argument,
   // ── PARSING (with retry) ────────────────────────────────
   publishFeedback(gh, ListenState::PARSING, speech);
 
-  const std::string entity = extractEntityWithRetry(speech, attribute, gh);
+  const std::vector<std::string> entities =
+      extractEntityWithRetry(speech, attribute, gh);
 
-  if (entity.empty()) {
+  if (entities.empty()) {
     publishFeedback(gh, ListenState::FAILED,
                     "entity_not_found: category=" + attribute);
     return {false, "FAILED", "entity_not_found: category=" + attribute};
   }
 
-  RCLCPP_INFO(node_->get_logger(), "Extracted entity [%s] = '%s'",
-              attribute.c_str(), entity.c_str());
+  // Representación legible para logs y feedback: "val1, val2, ..."
+  std::string entities_str;
+  for (std::size_t i = 0; i < entities.size(); ++i) {
+    if (i > 0)
+      entities_str += ", ";
+    entities_str += entities[i];
+  }
+
+  RCLCPP_INFO(node_->get_logger(), "Extracted entity [%s] = '[%s]'",
+              attribute.c_str(), entities_str.c_str());
 
   // ── SIMPLE mode: skip UPDATING ─────────────────────────
   if (mode == ListenMode::SIMPLE) {
-    const std::string summary = argument + "=" + entity;
+    const std::string summary = argument + "=" + entities_str;
     publishFeedback(gh, ListenState::SUCCESS, summary);
     return {true, "SUCCESS", summary};
   }
 
   // ── UPDATING (FULL mode only) ──────────────────────────
   publishFeedback(gh, ListenState::UPDATING,
-                  "people[" + index + "]." + attribute + "=" + entity);
+                  "people[" + index + "]." + attribute + "=" + entities_str);
 
-  nlohmann::json value = entity;
+  // Atributos multi-valor se almacenan como array JSON; el resto como string.
+  // Agrega aquí cualquier otro atributo que deba ser siempre array.
+  static const std::unordered_set<std::string> kArrayAttributes = {"order"};
 
-  // order debe almacenarse como array de strings
-  if (attribute == "order") {
-    value = nlohmann::json::array({entity});
+  nlohmann::json value;
+  if (kArrayAttributes.count(attribute) || entities.size() > 1) {
+    value = entities; // nlohmann convierte vector<string> → JSON array
+  } else {
+    value = entities.front(); // un solo string
   }
 
   const nlohmann::json payload =
@@ -114,7 +128,7 @@ Result Listen::run(const std::string &argument,
 
   // ── SUCCESS ────────────────────────────────────────────
   const std::string summary =
-      "people[" + index + "]." + attribute + "=" + entity;
+      "people[" + index + "]." + attribute + "=" + entities_str;
 
   publishFeedback(gh, ListenState::SUCCESS, summary);
   return {true, "SUCCESS", summary};
@@ -124,7 +138,7 @@ Result Listen::run(const std::string &argument,
 // extractEntityWithRetry
 // =========================================================
 
-std::string
+std::vector<std::string>
 Listen::extractEntityWithRetry(const std::string &speech,
                                const std::string &category,
                                const std::shared_ptr<GoalHandle> &gh) const {
@@ -132,10 +146,11 @@ Listen::extractEntityWithRetry(const std::string &speech,
   constexpr auto kRetryDelay = 500ms;
 
   for (int attempt = 1; attempt <= kMaxRetries; ++attempt) {
-    const std::string entity = planning_->extractEntity(speech, category);
+    const std::vector<std::string> entities =
+        planning_->extractEntity(speech, category);
 
-    if (!entity.empty())
-      return entity;
+    if (!entities.empty())
+      return entities;
 
     if (attempt < kMaxRetries) {
       RCLCPP_WARN(
@@ -148,7 +163,7 @@ Listen::extractEntityWithRetry(const std::string &speech,
     }
   }
 
-  return "";
+  return {};
 }
 
 // =========================================================
