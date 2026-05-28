@@ -43,7 +43,7 @@ Result FindPerson::run(
 	if (anybody)
 	{
 		category = "guest";
-		person_index = "1";
+		person_index = std::to_string(getNextGuestIndex());
 	}
 	else
 	{
@@ -269,10 +269,15 @@ bool FindPerson::scanPosition(
 // generatePersonName
 // ============================================================
 
-std::string FindPerson::generatePersonName()
+uint64_t FindPerson::getNextGuestIndex()
 {
     static std::atomic<uint64_t> counter{0};
-    return "guest_" + std::to_string(++counter);
+    return ++counter;
+}
+
+std::string FindPerson::generatePersonName()
+{
+    return "guest_" + std::to_string(getNextGuestIndex());
 }
 
 // ============================================================
