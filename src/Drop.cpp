@@ -1,5 +1,7 @@
 #include "executor_tools/Drop.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <sstream>
@@ -18,8 +20,11 @@ Drop::Drop(const rclcpp::Node::SharedPtr &node,
     : node_(node), hardware_(hardware) {
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(node_->get_clock());
   tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
-  enable_drop_tf_client_ = node_->create_client<std_srvs::srv::SetBool>(
+  enable_table_drop_tf_client_ = node_->create_client<std_srvs::srv::SetBool>(
       "/vision/table_drop_tf/enable");
+  enable_container_drop_tf_client_ =
+      node_->create_client<std_srvs::srv::SetBool>(
+          "/vision/container_drop_tf/enable");
 }
 
 // =========================================================
@@ -31,37 +36,50 @@ Result Drop::run(const std::string &argument,
     return {false, "FAILED", "goal_handle_inactive"};
   }
 
-  // En esta primera fase Drop no mueve el brazo ni abre el gripper.
-  // Su responsabilidad es preparar la percepcion y verificar que vision ya
-  // publico una TF segura donde mas adelante iniciaremos la maniobra de soltar.
-  const std::string drop_frame =
-      argument.empty() ? "table_drop_start" : argument;
+  // 1) Interpretamos el argumento del plan. En lugar de asumir que el
+  // argumento es una TF, lo traducimos a un modo de percepcion:
+  // mesa -> table_drop_start, contenedor -> container_drop_start.
+  const DropTarget drop_target = resolveDropTarget(argument);
+  const std::string drop_frame = drop_target.frame;
   const std::string target_frame = "base_link";
+  const auto enable_client =
+      drop_target.mode == "container" ? enable_container_drop_tf_client_
+                                      : enable_table_drop_tf_client_;
 
-  publishFeedback(gh, DropState::READY, drop_frame);
+  std::ostringstream ready_detail;
+  ready_detail << "arg=" << (argument.empty() ? "<empty>" : argument)
+               << " mode=" << drop_target.mode
+               << " frame=" << drop_target.frame;
+  publishFeedback(gh, DropState::READY, ready_detail.str());
   RCLCPP_INFO(node_->get_logger(),
-              "[Drop] objetivo: validar TF '%s' respecto a '%s'",
-              drop_frame.c_str(), target_frame.c_str());
+              "[Drop] objetivo: argumento='%s' modo=%s TF '%s' respecto a '%s'",
+              argument.c_str(), drop_target.mode.c_str(), drop_frame.c_str(),
+              target_frame.c_str());
 
   publishFeedback(gh, DropState::PREPARE_SENSOR,
                   "deteniendo base, ajustando torso y cabeza");
   hardware_->MoveBase(0.0, 0.0, 0.0);
 
-  if (!hardware_->MoveTorso(0.3)) {
+  // 2) Preparamos la postura de sensores segun el objetivo. Para mesa la
+  // cabeza mira menos hacia abajo; para contenedores en piso mira mas abajo.
+  if (!hardware_->MoveTorso(drop_target.torso_height)) {
     publishFeedback(gh, DropState::FAILED, "move_torso_failed");
     return {false, "FAILED", "move_torso_failed"};
   }
 
-  // Cabeza ligeramente hacia abajo para que el Kinect vea la superficie.
-  if (!hardware_->MoveHead({0.0, -0.6})) {
+  if (!hardware_->MoveHead({0.0, drop_target.head_pitch})) {
     publishFeedback(gh, DropState::FAILED, "move_head_failed");
     return {false, "FAILED", "move_head_failed"};
   }
 
   const rclcpp::Time request_stamp = node_->now();
-  if (!setDropTfNodeEnabled(true)) {
-    publishFeedback(gh, DropState::FAILED, "enable_table_drop_tf_failed");
-    return {false, "FAILED", "enable_table_drop_tf_failed"};
+  // 3) Activamos solo el nodo de vision necesario. Cada nodo procesa una nube
+  // y publica una TF estatica cuando encuentra un punto seguro.
+  if (!setDropTfNodeEnabled(enable_client, drop_target.service_label, true)) {
+    publishFeedback(gh, DropState::FAILED,
+                    "enable_" + drop_target.mode + "_drop_tf_failed");
+    return {false, "FAILED",
+            "enable_" + drop_target.mode + "_drop_tf_failed"};
   }
 
   publishFeedback(gh, DropState::WAIT_DROP_TF,
@@ -74,21 +92,24 @@ Result Drop::run(const std::string &argument,
   std::string last_error;
   int attempts = 0;
 
-  auto poseInBounds = [](const geometry_msgs::msg::TransformStamped &candidate) {
+  auto poseInBounds = [&drop_target](
+                          const geometry_msgs::msg::TransformStamped &candidate) {
     const double x = candidate.transform.translation.x;
     const double y = candidate.transform.translation.y;
     const double z = candidate.transform.translation.z;
     const double distance_xy = std::hypot(x, y);
-    return x >= 0.15 && x <= 1.20 && std::fabs(y) <= 0.80 &&
-           z >= 0.35 && z <= 1.40 && distance_xy <= 1.40;
+    const auto &b = drop_target.bounds;
+    return x >= b.x_min && x <= b.x_max && std::fabs(y) <= b.abs_y_max &&
+           z >= b.z_min && z <= b.z_max && distance_xy <= b.dist_xy_max;
   };
 
+  // 4) Esperamos la TF fresca publicada por vision. Se ignoran TF viejas
+  // anteriores a esta peticion y candidatos fuera de limites.
   while (gh->is_active() && std::chrono::steady_clock::now() - start_time < max_wait) {
     ++attempts;
     try {
-      // Pedimos la transformacion mas reciente disponible. Si el nodo
-      // table_drop_tf_node esta publicando correctamente, esta TF representa
-      // el punto libre sobre la mesa, expresado aqui respecto a base_link.
+      // Pedimos la transformacion mas reciente disponible. El nodo de vision
+      // activo la publica como punto inicial seguro para soltar.
       tf = tf_buffer_->lookupTransform(target_frame, drop_frame,
                                        tf2::TimePointZero, 500ms);
       const rclcpp::Time tf_stamp(tf.header.stamp);
@@ -133,7 +154,7 @@ Result Drop::run(const std::string &argument,
   }
 
   if (!gh->is_active()) {
-    setDropTfNodeEnabled(false);
+    setDropTfNodeEnabled(enable_client, drop_target.service_label, false);
     publishFeedback(gh, DropState::FAILED, "goal_cancelled");
     return {false, "FAILED", "goal_cancelled"};
   }
@@ -144,7 +165,7 @@ Result Drop::run(const std::string &argument,
                 attempts, last_error.c_str());
     publishFeedback(gh, DropState::FAILED,
                     "drop_tf_not_available: " + last_error);
-    setDropTfNodeEnabled(false);
+    setDropTfNodeEnabled(enable_client, drop_target.service_label, false);
     return {false, "FAILED", "drop_tf_not_available"};
   }
 
@@ -162,54 +183,114 @@ Result Drop::run(const std::string &argument,
               tf.transform.rotation.x, tf.transform.rotation.y,
               tf.transform.rotation.z, tf.transform.rotation.w);
 
-  // Validacion conservadora: esta TF solo debe pasar si esta frente al robot,
-  // a una distancia razonable y con altura compatible con una mesa.
-  if (x < 0.15 || x > 1.20 || std::fabs(y) > 0.80 || z < 0.35 || z > 1.40 ||
-      distance_xy > 1.40) {
+  const auto &bounds = drop_target.bounds;
+  // 5) Validacion final en base_link. Los limites son distintos para mesa y
+  // contenedor porque la altura esperada cambia mucho.
+  if (x < bounds.x_min || x > bounds.x_max ||
+      std::fabs(y) > bounds.abs_y_max || z < bounds.z_min ||
+      z > bounds.z_max || distance_xy > bounds.dist_xy_max) {
     std::ostringstream oss;
     oss << "pose_out_of_bounds x=" << x << " y=" << y << " z=" << z
         << " dist_xy=" << distance_xy
-        << " limites x=[0.15,1.20] abs_y<=0.80 z=[0.35,1.40] dist<=1.40";
+        << " limites x=[" << bounds.x_min << "," << bounds.x_max
+        << "] abs_y<=" << bounds.abs_y_max << " z=[" << bounds.z_min
+        << "," << bounds.z_max << "] dist<=" << bounds.dist_xy_max
+        << " mode=" << drop_target.mode;
     RCLCPP_WARN(node_->get_logger(), "[Drop] %s", oss.str().c_str());
     publishFeedback(gh, DropState::FAILED, oss.str());
-    setDropTfNodeEnabled(false);
+    setDropTfNodeEnabled(enable_client, drop_target.service_label, false);
     return {false, "FAILED", oss.str()};
   }
 
   std::ostringstream ok_msg;
   ok_msg << "drop_start_tf_ready frame=" << drop_frame << " base=(" << x
-         << ", " << y << ", " << z << ")";
+         << ", " << y << ", " << z << ") mode=" << drop_target.mode;
 
   publishFeedback(gh, DropState::SUCCESS, ok_msg.str());
-  setDropTfNodeEnabled(false);
+  setDropTfNodeEnabled(enable_client, drop_target.service_label, false);
   return {true, "SUCCESS", ok_msg.str()};
 }
 
 // =========================================================
 // setDropTfNodeEnabled
 // =========================================================
-bool Drop::setDropTfNodeEnabled(bool enabled) {
-  if (!enable_drop_tf_client_->wait_for_service(1s)) {
+bool Drop::setDropTfNodeEnabled(
+    const rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr &client,
+    const std::string &service_label, bool enabled) {
+  if (!client->wait_for_service(1s)) {
     RCLCPP_ERROR(node_->get_logger(),
-                 "[Drop] servicio /vision/table_drop_tf/enable no disponible");
+                 "[Drop] servicio %s no disponible", service_label.c_str());
     return false;
   }
 
   auto request = std::make_shared<std_srvs::srv::SetBool::Request>();
   request->data = enabled;
 
-  auto future = enable_drop_tf_client_->async_send_request(request);
+  auto future = client->async_send_request(request);
   if (future.wait_for(2s) != std::future_status::ready) {
     RCLCPP_ERROR(node_->get_logger(),
-                 "[Drop] timeout al %s table_drop_tf_node",
-                 enabled ? "activar" : "desactivar");
+                 "[Drop] timeout al %s %s", enabled ? "activar" : "desactivar",
+                 service_label.c_str());
     return false;
   }
 
   const auto response = future.get();
-  RCLCPP_INFO(node_->get_logger(), "[Drop] table_drop_tf_node %s: %s",
-              enabled ? "enable" : "disable", response->message.c_str());
+  RCLCPP_INFO(node_->get_logger(), "[Drop] %s %s: %s",
+              service_label.c_str(), enabled ? "enable" : "disable",
+              response->message.c_str());
   return response->success;
+}
+
+Drop::DropTarget Drop::resolveDropTarget(const std::string &argument) {
+  // Mapeo conservador:
+  // - left_table/table/mesa siguen usando la logica de mesa.
+  // - trash/bin/box/container/bote/basura/caja usan la logica de contenedor.
+  // - si no se reconoce nada, el default sigue siendo mesa para compatibilidad.
+  std::string lower = argument;
+  std::transform(lower.begin(), lower.end(), lower.begin(),
+                 [](unsigned char c) {
+                   return static_cast<char>(std::tolower(c));
+                 });
+
+  const auto contains = [&lower](const std::string &needle) {
+    return lower.find(needle) != std::string::npos;
+  };
+
+  DropTarget target;
+  target.mode = "table";
+  target.frame = "table_drop_start";
+  target.service_label = "/vision/table_drop_tf/enable";
+  target.torso_height = 0.3;
+  target.head_pitch = -0.6;
+  target.bounds = {0.15, 1.20, 0.80, 0.35, 1.40, 1.40};
+
+  const bool explicit_container = contains("container_drop_start");
+  const bool explicit_table = contains("table_drop_start");
+  const bool looks_like_container =
+      contains("trash") || contains("bin") || contains("box") ||
+      contains("container") || contains("bote") || contains("basura") ||
+      contains("caja");
+  const bool looks_like_table = contains("table") || contains("mesa");
+
+  if (explicit_container || (looks_like_container && !looks_like_table)) {
+    target.mode = "container";
+    target.frame = "container_drop_start";
+    target.service_label = "/vision/container_drop_tf/enable";
+    target.torso_height = 0.2;
+    target.head_pitch = -0.85;
+    target.bounds = {0.15, 1.35, 0.85, 0.08, 1.10, 1.50};
+  }
+
+  if (explicit_table) {
+    target.mode = "table";
+    target.frame = "table_drop_start";
+    target.service_label = "/vision/table_drop_tf/enable";
+    target.torso_height = 0.3;
+    target.head_pitch = -0.6;
+    target.bounds = {0.15, 1.20, 0.80, 0.35, 1.40, 1.40};
+  }
+
+  return target;
 }
 
 // =========================================================
