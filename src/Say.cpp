@@ -16,6 +16,7 @@
  */
 
 #include "executor_tools/Say.hpp"
+#include <algorithm> 
 
 // =========================================================
 // Constructor
@@ -27,7 +28,7 @@ Say::Say(const rclcpp::Node::SharedPtr&    node,
 {}
 
 // =========================================================
-// run
+// run — Con Fallback y Limpieza de Guiones Bajos
 // =========================================================
 Result Say::run(const std::string&                 phrase_key,
                 const std::shared_ptr<GoalHandle>& gh)
@@ -44,7 +45,7 @@ Result Say::run(const std::string&                 phrase_key,
     // contra el world state. Devuelve la cadena lista para TTS.
     publishFeedback(gh, SayState::LOADING);
 
-    const std::string utterance = knowledge_->get_phrase(phrase_key, "");
+    std::string utterance = knowledge_->get_phrase(phrase_key, "");
 
     // --- EFECTO FALLBACK ---
     if (utterance.empty()) {
@@ -56,6 +57,11 @@ Result Say::run(const std::string&                 phrase_key,
         utterance = phrase_key; 
     }
 
+    // --- LIMPIEZA DE GUIONES BAJOS ---
+    // Reemplaza cada '_' por un espacio ' ' directamente sobre la cadena final
+    std::replace(utterance.begin(), utterance.end(), '_', ' ');
+
+    // Se dejó un solo log limpio con la cadena final procesada
     RCLCPP_INFO(node_->get_logger(), "Say: '%s'", utterance.c_str());
 
     // ── SPEAKING ──────────────────────────────────────────
