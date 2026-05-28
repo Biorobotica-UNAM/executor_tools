@@ -68,11 +68,11 @@ Result FindPerson::run(
 
     if (anybody) {
         // Tilt-only sweep: look straight ahead at multiple heights
-        for (double tilt : {0.45, 0.25, 0.0, -0.2})
+        for (double tilt : {0.0, -0.2})
             scan_points.push_back({0.0, tilt});
     } else {
         // Pan sweep at neutral tilt to find a specific person
-        for (double pan : {-1.2, -0.8, -0.4, 0.0, 0.4, 0.8, 1.2})
+        for (double pan : {0.0, -0.6, 0.6, 0.0})
             scan_points.push_back({pan, 0.0});
     }
 
