@@ -226,7 +226,7 @@ bool FindPerson::scanPosition(
 
     // anybody=true: register the unknown person, then describe
     publishFeedback(gh, FindPersonState::REGISTERING);
-    const std::string new_name = generatePersonName();
+	const std::string new_name = generatePersonName(std::stoull(person_index));
 
     if (vision_->RegisterPerson(new_name)) {
         found_name = new_name;
@@ -279,9 +279,9 @@ uint64_t FindPerson::getNextGuestIndex()
 // generatePersonName
 // ============================================================
 
-std::string FindPerson::generatePersonName()
+std::string FindPerson::generatePersonName(uint64_t index)
 {
-    return "guest_" + std::to_string(getNextGuestIndex());
+    return "guest_" + std::to_string(index);
 }
 
 // ============================================================
