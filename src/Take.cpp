@@ -83,6 +83,31 @@ Result Take::run(
         target_data.dump().c_str());
 
     // ── PLAN_REACH ────────────────────────────────────────────
+    publishFeedback(gh, TakeState::PREPARING_EXTEND);
+
+    bool left_ok = hardware_->MoveLeftArm(
+        {LEFT_TAKE[0], LEFT_TAKE[1], LEFT_TAKE[2],
+         LEFT_TAKE[3], LEFT_TAKE[4], LEFT_TAKE[5]});
+
+    bool right_ok = hardware_->MoveRightArm(
+        {RIGHT_TAKE[0], RIGHT_TAKE[1], RIGHT_TAKE[2],
+         RIGHT_TAKE[3], RIGHT_TAKE[4], RIGHT_TAKE[5]});    
+
+    if (!left_ok || !right_ok)
+    {
+        publishFeedback(
+            gh,
+            TakeState::FAILED,
+            "invalid_preparation_pose");
+
+        return {
+            false,
+            "FAILED",
+            "invalid_preparation_pose"
+        };
+    }
+
+    // ── PLAN_REACH ────────────────────────────────────────────
     publishFeedback(gh, TakeState::PLANNING_EXTEND);
 
     std::string msg;

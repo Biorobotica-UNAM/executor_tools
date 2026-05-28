@@ -24,6 +24,7 @@ enum class TakeState
 {
     READY,
     GETTING_TARGET,
+    PREPARING_EXTEND,
     PLANNING_EXTEND,
     EXECUTING_EXTEND,
     CLOSING_GRIPPER,
@@ -74,6 +75,12 @@ private:
 
     static std::string stateName(TakeState s);
 
+    // Constantes cinemáticas del brazo izquierdo (6 DOF)
+    // TODO: Set the correct poses
+    static constexpr std::array<double, 6> RIGHT_TAKE = {0.6, 0.1, 0.3, 1.2, 0.0, 0.0};
+    
+    // Constantes cinemáticas del brazo derecho (6 DOF)
+    static constexpr std::array<double, 6> LEFT_TAKE  = {0.0, 0.0, 0.3, 1.5, 0.0, 1.2};
 
     rclcpp::Node::SharedPtr       node_;
     std::shared_ptr<Manipulation> manipulation_;
