@@ -266,7 +266,7 @@ bool FindPerson::scanPosition(
 }
 
 // ============================================================
-// generatePersonName
+// getNextGuestIndex
 // ============================================================
 
 uint64_t FindPerson::getNextGuestIndex()
@@ -274,6 +274,10 @@ uint64_t FindPerson::getNextGuestIndex()
     static std::atomic<uint64_t> counter{0};
     return ++counter;
 }
+
+// ============================================================
+// generatePersonName
+// ============================================================
 
 std::string FindPerson::generatePersonName()
 {

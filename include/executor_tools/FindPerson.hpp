@@ -70,6 +70,7 @@ private:
         const std::string& detail = "");
 
     static std::string stateName(FindPersonState s);
+	uint64_t FindPerson::getNextGuestIndex();
     static std::string generatePersonName();
 
 	nlohmann::json buildPersonPayload(
