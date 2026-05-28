@@ -106,8 +106,13 @@ Result FindObject::run(
                 publishFeedback(
                     gh,
                     FindObjectState::LOOKING_AT_TARGET);
-
-                hardware_->LookAt(seat_point);
+                
+                for (int i = 0; i < 5; ++i) {
+                    hardware_->LookAt(seat_point);
+                    std::this_thread::sleep_for(20ms);
+                }
+                
+                std::this_thread::sleep_for(1500ms);
 
                 publishFeedback(
                     gh,
@@ -142,7 +147,15 @@ Result FindObject::run(
                     FindObjectState::LOOKING_AT_TARGET,
                     detected_name);
 
-                hardware_->LookAt(object_pose);
+                for (int i =0; i < 6; ++i) {
+                    hardware_->LookAt(object_pose);
+                    std::this_thread::sleep_for(20ms);
+
+                }
+
+                std::this_thread::sleep_for(1500ms);
+
+                
 
                 // ── UPDATING ─────────────────────────────
 
