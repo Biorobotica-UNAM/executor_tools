@@ -46,12 +46,14 @@ Result Say::run(const std::string&                 phrase_key,
 
     const std::string utterance = knowledge_->get_phrase(phrase_key, "");
 
+    // --- EFECTO FALLBACK ---
     if (utterance.empty()) {
-        RCLCPP_WARN(node_->get_logger(),
-                    "Say: get_phrase('%s') returned empty.",
+        // Si el Knowledge no encontró la llave, asumimos que 'phrase_key' 
+        // es el texto directo que se quiere mandar a reproducir.
+        RCLCPP_INFO(node_->get_logger(), 
+                    "Say: Key '%s' not found in YAML. Using raw argument as fallback.", 
                     phrase_key.c_str());
-        publishFeedback(gh, SayState::FAILED, "phrase_not_found: " + phrase_key);
-        return {false, "FAILED", "phrase_not_found: " + phrase_key};
+        utterance = phrase_key; 
     }
 
     RCLCPP_INFO(node_->get_logger(), "Say: '%s'", utterance.c_str());
