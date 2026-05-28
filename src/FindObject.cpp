@@ -97,7 +97,7 @@ Result FindObject::run(
 
         // ── EMPTY CHAIR ────────────────────────────────────
 
-        if (query_name == "empty_chair")
+        if (query_name == "seat")
         {
             geometry_msgs::msg::PointStamped seat_point;
 
