@@ -71,7 +71,7 @@ private:
 
     static std::string stateName(FindPersonState s);
 	uint64_t getNextGuestIndex();
-    static std::string generatePersonName();
+    static std::string generatePersonName(uint64_t index);
 
 	nlohmann::json buildPersonPayload(
 		const std::string& category,
