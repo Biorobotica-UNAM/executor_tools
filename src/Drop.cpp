@@ -22,9 +22,10 @@ Drop::Drop(const rclcpp::Node::SharedPtr &node,
   tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
   enable_table_drop_tf_client_ = node_->create_client<std_srvs::srv::SetBool>(
       "/vision/table_drop_tf/enable");
-  enable_container_drop_tf_client_ =
-      node_->create_client<std_srvs::srv::SetBool>(
+  enable_container_drop_tf_client_ = node_->create_client<std_srvs::srv::SetBool>(
           "/vision/container_drop_tf/enable");
+  enable_shelf_drop_tf_client_ = node_->create_client<std_srvs::srv::SetBool>(
+      "/vision/shelf_drop_tf/enable");
 }
 
 // =========================================================
@@ -39,12 +40,16 @@ Result Drop::run(const std::string &argument,
   // 1) Interpretamos el argumento del plan. En lugar de asumir que el
   // argumento es una TF, lo traducimos a un modo de percepcion:
   // mesa -> table_drop_start, contenedor -> container_drop_start.
+  // estante/armario -> shelf_drop_start.
   const DropTarget drop_target = resolveDropTarget(argument);
   const std::string drop_frame = drop_target.frame;
   const std::string target_frame = "base_link";
-  const auto enable_client =
-      drop_target.mode == "container" ? enable_container_drop_tf_client_
-                                      : enable_table_drop_tf_client_;
+  auto enable_client = enable_table_drop_tf_client_;
+  if (drop_target.mode == "container") {
+    enable_client = enable_container_drop_tf_client_;
+  } else if (drop_target.mode == "shelf") {
+    enable_client = enable_shelf_drop_tf_client_;
+  }
 
   std::ostringstream ready_detail;
   ready_detail << "arg=" << (argument.empty() ? "<empty>" : argument)
@@ -245,6 +250,7 @@ Drop::DropTarget Drop::resolveDropTarget(const std::string &argument) {
   // Mapeo conservador:
   // - left_table/table/mesa siguen usando la logica de mesa.
   // - trash/bin/box/container/bote/basura/caja usan la logica de contenedor.
+  // - shelf/rack/cabinet/estante/armario/repisa usan la logica de estante.
   // - si no se reconoce nada, el default sigue siendo mesa para compatibilidad.
   std::string lower = argument;
   std::transform(lower.begin(), lower.end(), lower.begin(),
@@ -269,8 +275,12 @@ Drop::DropTarget Drop::resolveDropTarget(const std::string &argument) {
   const bool looks_like_container =
       contains("trash") || contains("bin") || contains("box") ||
       contains("container") || contains("bote") || contains("basura") ||
-      contains("caja");
+      contains("caja") || contains("contenedor") || contains("cubeta");
   const bool looks_like_table = contains("table") || contains("mesa");
+  const bool looks_like_shelf =
+      contains("shelf") || contains("rack") || contains("cabinet") ||
+      contains("bookcase") || contains("estante") || contains("armario") ||
+      contains("repisa");
 
   if (explicit_container || (looks_like_container && !looks_like_table)) {
     target.mode = "container";
@@ -279,6 +289,15 @@ Drop::DropTarget Drop::resolveDropTarget(const std::string &argument) {
     target.torso_height = 0.2;
     target.head_pitch = -0.85;
     target.bounds = {0.15, 1.35, 0.45, 0.08, 1.10, 1.50};
+  }
+
+  if (explicit_shelf || (looks_like_shelf && !looks_like_container)) {
+    target.mode = "shelf";
+    target.frame = "shelf_drop_start";
+    target.service_label = "/vision/shelf_drop_tf/enable";
+    target.torso_height = 0.3;
+    target.head_pitch = -0.45;
+    target.bounds = {0.15, 1.35, 0.85, 0.30, 1.70, 1.55};
   }
 
   if (explicit_table) {

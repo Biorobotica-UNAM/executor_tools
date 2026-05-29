@@ -68,6 +68,8 @@ private:
       enable_table_drop_tf_client_;
   rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr
       enable_container_drop_tf_client_;
+  rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr
+      enable_shelf_drop_tf_client_;
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
 };
