@@ -86,7 +86,7 @@ Result Drop::run(const std::string &argument,
                   target_frame + " <- " + drop_frame);
 
   const auto start_time = std::chrono::steady_clock::now();
-  const auto max_wait = 8s;
+  const auto max_wait = drop_target.mode == "container" ? 32s : 8s;
   geometry_msgs::msg::TransformStamped tf;
   bool found = false;
   std::string last_error;
@@ -278,7 +278,7 @@ Drop::DropTarget Drop::resolveDropTarget(const std::string &argument) {
     target.service_label = "/vision/container_drop_tf/enable";
     target.torso_height = 0.2;
     target.head_pitch = -0.85;
-    target.bounds = {0.15, 1.35, 0.85, 0.08, 1.10, 1.50};
+    target.bounds = {0.15, 1.35, 0.45, 0.08, 1.10, 1.50};
   }
 
   if (explicit_table) {
