@@ -2,15 +2,21 @@
 
 #include "executor_interfaces/action/execute_task.hpp"
 #include "executor_tools/Result.hpp"
+#include "geometry_msgs/msg/vector3.hpp"
+#include "geometry_msgs/msg/twist.hpp"
 #include "hardware_tools/Hardware.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
+#include "std_msgs/msg/bool.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
 #include "vision_tools/Vision.hpp"
 
 #include <memory>
+#include <mutex>
 #include <string>
+
+#include "rcl_interfaces/srv/set_parameters.hpp"
 
 enum class ApproachState {
   READY,
@@ -39,10 +45,22 @@ private:
 
   static std::string stateName(ApproachState s);
 
+  void pfForceCallback(const geometry_msgs::msg::Vector3::SharedPtr msg);
+  void moveRobot(double vx, double vy, double wz);
+
   rclcpp::Node::SharedPtr node_;
   std::shared_ptr<Hardware> hardware_;
   std::shared_ptr<Vision> vision_;
 
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pf_enable_pub_;
+  rclcpp::Subscription<geometry_msgs::msg::Vector3>::SharedPtr pf_force_sub_;
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr pf_cmd_vel_pub_;
+  rclcpp::Client<rcl_interfaces::srv::SetParameters>::SharedPtr set_params_client_;
+
+  std::mutex force_mutex_;
+  double pf_force_x_ = 0.0;
+  double pf_force_y_ = 0.0;
 };

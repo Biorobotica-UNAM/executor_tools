@@ -16,6 +16,43 @@ Approach::Approach(const rclcpp::Node::SharedPtr &node,
     : node_(node), hardware_(hardware), vision_(vision) {
   tf_buffer_ = std::make_shared<tf2_ros::Buffer>(node_->get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
+  pf_enable_pub_ = node_->create_publisher<std_msgs::msg::Bool>(
+      "/navigation/navigation/potential_fields/enable", 10);
+
+  pf_force_sub_ = node_->create_subscription<geometry_msgs::msg::Vector3>(
+      "/navigation/navigation/potential_fields/pf_rejection_force",
+      rclcpp::QoS(10).transient_local(),
+      std::bind(&Approach::pfForceCallback, this, std::placeholders::_1));
+
+  pf_cmd_vel_pub_ = node_->create_publisher<geometry_msgs::msg::Twist>(
+      "/hardware/base/cmd_vel", rclcpp::SensorDataQoS());
+
+  set_params_client_ = node_->create_client<rcl_interfaces::srv::SetParameters>(
+      "/navigation/potential_fields/set_parameters");
+}
+
+// =========================================================
+// pfForceCallback
+// =========================================================
+void Approach::pfForceCallback(
+    const geometry_msgs::msg::Vector3::SharedPtr msg) {
+  std::lock_guard<std::mutex> lock(force_mutex_);
+  pf_force_x_ = msg->x;
+  pf_force_y_ = msg->y;
+}
+
+// =========================================================
+// moveRobot
+// =========================================================
+void Approach::moveRobot(double vx, double vy, double wz) {
+  hardware_->MoveBase(vx, vy, wz);
+
+  geometry_msgs::msg::Twist cmd;
+  cmd.linear.x = vx;
+  cmd.linear.y = vy;
+  cmd.angular.z = wz;
+  pf_cmd_vel_pub_->publish(cmd);
 }
 
 // =========================================================
@@ -80,6 +117,54 @@ Result Approach::run(const std::string &argument,
   // =====================================================
   publishFeedback(gh, ApproachState::APPROACHING);
 
+  // Helper lambda to disable potential fields when we exit
+  auto disable_pf = [this, is_person]() {
+    if (is_person) {
+      auto disable_msg = std::make_shared<std_msgs::msg::Bool>();
+      disable_msg->data = false;
+      pf_enable_pub_->publish(*disable_msg);
+      RCLCPP_INFO(node_->get_logger(), "Approach: Disabled potential fields");
+    }
+  };
+
+  // Enable potential fields if target is a person
+  if (is_person) {
+    auto enable_msg = std::make_shared<std_msgs::msg::Bool>();
+    enable_msg->data = true;
+    pf_enable_pub_->publish(*enable_msg);
+    RCLCPP_INFO(node_->get_logger(),
+                "Approach: Enabled potential fields for person approach");
+
+    // Dynamically set use_pot_fields and debug parameters to true
+    if (set_params_client_->wait_for_service(std::chrono::milliseconds(500))) {
+      auto req =
+          std::make_shared<rcl_interfaces::srv::SetParameters::Request>();
+
+      rcl_interfaces::msg::Parameter param_use_pot;
+      param_use_pot.name = "use_pot_fields";
+      param_use_pot.value.type =
+          rcl_interfaces::msg::ParameterType::PARAMETER_BOOL;
+      param_use_pot.value.bool_value = true;
+      req->parameters.push_back(param_use_pot);
+
+      rcl_interfaces::msg::Parameter param_debug;
+      param_debug.name = "debug";
+      param_debug.value.type =
+          rcl_interfaces::msg::ParameterType::PARAMETER_BOOL;
+      param_debug.value.bool_value = true;
+      req->parameters.push_back(param_debug);
+
+      set_params_client_->async_send_request(req);
+      RCLCPP_INFO(node_->get_logger(),
+                  "Approach: Dynamically requested potential_fields parameters "
+                  "(use_pot_fields=true, debug=true)");
+    } else {
+      RCLCPP_WARN(node_->get_logger(),
+                  "Approach: set_parameters service not available. Obstacle "
+                  "avoidance might not activate if launched disabled.");
+    }
+  }
+
   const double kTargetDist = 0.8; // 80 cm target distance
   const double kDistTol = 0.05;   // 5 cm distance tolerance
   const double kAngleTol = 0.1;   // ~5.7 degrees angular tolerance
@@ -121,36 +206,71 @@ Result Approach::run(const std::string &argument,
 
       // Arrived check
       if (std::abs(dist_err) <= kDistTol && std::abs(angle) <= kAngleTol) {
-        hardware_->MoveBase(0.0, 0.0, 0.0);
+        moveRobot(0.0, 0.0, 0.0);
         publishFeedback(gh, ApproachState::SUCCESS);
+        disable_pf();
         return {true, "SUCCESS", "approached_person"};
       }
 
-      // Project errors on local base_link axes
+      // Retrieve latest repulsive force
+      double rep_x = 0.0;
+      double rep_y = 0.0;
+      {
+        std::lock_guard<std::mutex> lock(force_mutex_);
+        rep_x = pf_force_x_;
+        rep_y = pf_force_y_;
+      }
+
+      // Compute attractive force components on base_link axes
       double ux = tx / dist;
       double uy = ty / dist;
-      double err_x = dist_err * ux;
-      double err_y = dist_err * uy;
+      double att_mag = dist_err;
+      if (att_mag > 0.3) {
+        att_mag = 0.3;
+      }
+      double att_x = att_mag * ux;
+      double att_y = att_mag * uy;
 
-      double vx = kKpX * err_x;
-      double vy = kKpY * err_y;
-      double wz = kKpTheta * angle;
+      // Compute net force vector (attraction + repulsion)
+      double total_x = att_x + rep_x;
+      double total_y = att_y + rep_y;
+
+      // Calculate heading error to align with the net force vector
+      double net_angle = std::atan2(total_y, total_x);
+
+      RCLCPP_INFO(node_->get_logger(),
+                  "Approach: dist_err=%.3f, att=[%.3f, %.3f], rep=[%.3f, "
+                  "%.3f], net=[%.3f, %.3f], net_angle=%.3f",
+                  dist_err, att_x, att_y, rep_x, rep_y, total_x, total_y,
+                  net_angle);
+
+      // Proportional control on net force
+      double vx = 0.0;
+      double vy = 0.0; // Enforce non-holonomic navigation (looking forward
+                       // where the laser is)
+      double wz = 0.0;
+
+      // Always turn in place first to align with the net force vector (safe
+      // direction) before moving forward
+      if (std::abs(net_angle) <= 0.25) {
+        vx = kKpX * total_x;
+        wz = kKpTheta * net_angle;
+      } else {
+        vx = 0.0; // Turn in place to face the safe direction
+        wz = kKpTheta * net_angle;
+      }
 
       // Clamping velocities
       if (vx > kMaxLinVel)
         vx = kMaxLinVel;
-      if (vx < -kMaxLinVel)
-        vx = -kMaxLinVel;
-      if (vy > kMaxLinVel)
-        vy = kMaxLinVel;
-      if (vy < -kMaxLinVel)
-        vy = -kMaxLinVel;
+      if (vx < 0.0)
+        vx = 0.0;
       if (wz > kMaxAngVel)
         wz = kMaxAngVel;
       if (wz < -kMaxAngVel)
         wz = -kMaxAngVel;
 
-      hardware_->MoveBase(vx, vy, wz);
+      moveRobot(vx, vy, wz);
     }
     // --- Object Target (Sideways Lateral Centering) ---
     else {
@@ -158,8 +278,9 @@ Result Approach::run(const std::string &argument,
 
       // Sideways aligned check
       if (std::abs(y_err) <= kYAlignTol) {
-        hardware_->MoveBase(0.0, 0.0, 0.0);
+        moveRobot(0.0, 0.0, 0.0);
         publishFeedback(gh, ApproachState::SUCCESS);
+        disable_pf();
         return {true, "SUCCESS", "aligned_object"};
       }
 
@@ -170,13 +291,14 @@ Result Approach::run(const std::string &argument,
       if (vy < -kMaxLinVel)
         vy = -kMaxLinVel;
 
-      hardware_->MoveBase(0.0, vy, 0.0);
+      moveRobot(0.0, vy, 0.0);
     }
 
     // Timeout check
     if (std::chrono::steady_clock::now() - start_time > kMaxDuration) {
-      hardware_->MoveBase(0.0, 0.0, 0.0);
+      moveRobot(0.0, 0.0, 0.0);
       publishFeedback(gh, ApproachState::FAILED, "timeout");
+      disable_pf();
       return {false, "FAILED", "timeout"};
     }
 
@@ -184,8 +306,9 @@ Result Approach::run(const std::string &argument,
   }
 
   // Cancelled goal
-  hardware_->MoveBase(0.0, 0.0, 0.0);
+  moveRobot(0.0, 0.0, 0.0);
   publishFeedback(gh, ApproachState::FAILED, "goal_cancelled");
+  disable_pf();
   return {false, "FAILED", "goal_cancelled"};
 }
 
