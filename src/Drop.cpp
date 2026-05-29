@@ -272,6 +272,7 @@ Drop::DropTarget Drop::resolveDropTarget(const std::string &argument) {
 
   const bool explicit_container = contains("container_drop_start");
   const bool explicit_table = contains("table_drop_start");
+  const bool explicit_shelf = contains("shelf_drop_start");
   const bool looks_like_container =
       contains("trash") || contains("bin") || contains("box") ||
       contains("container") || contains("bote") || contains("basura") ||
