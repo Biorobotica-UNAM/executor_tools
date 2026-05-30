@@ -48,7 +48,7 @@ public:
         const std::shared_ptr<Manipulation>&  manipulation,
         const std::shared_ptr<Hardware>&      hardware,
         const std::shared_ptr<Knowledge>&     knowledge,
-        const std::shared_ptr<HRI>&           hri)
+        const std::shared_ptr<HRI>&           hri);
 
     Result run(
         const std::string&                 argument,
