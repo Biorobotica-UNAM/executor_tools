@@ -22,6 +22,8 @@
 #include "executor_tools/Listen.hpp"
 
 #include <chrono>
+#include <iostream>
+#include <string>
 #include <thread>
 #include <unordered_set>
 
@@ -109,17 +111,17 @@ Result Listen::run(const std::string &argument,
   // Agrega aquí cualquier otro atributo que deba ser siempre array.
   static const std::unordered_set<std::string> kArrayAttributes = {"order"};
 
-  nlohmann::json value;
+  std::string value_str;
   if (kArrayAttributes.count(attribute) || entities.size() > 1) {
-    value = entities; // nlohmann convierte vector<string> → JSON array
+    // Serializar como JSON array: ["val1","val2"]
+    nlohmann::json arr = entities;
+    value_str = arr.dump();
   } else {
-    value = entities.front(); // un solo string
+    value_str = entities.front();
   }
 
-  const nlohmann::json payload =
-      buildUpdatePayload(index, category, "person", attribute, value);
-
-  const bool stored = knowledge_->update_world_state(payload);
+  const bool stored =
+      knowledge_->update_world_state(category, index, attribute, value_str);
 
   if (!stored) {
     publishFeedback(gh, ListenState::FAILED, "update_world_state_failed");
@@ -218,27 +220,6 @@ bool Listen::parseArgument(const std::string &argument,
   out_mode = ListenMode::FULL;
 
   return true;
-}
-
-// =========================================================
-// buildUpdatePayload
-// =========================================================
-
-nlohmann::json Listen::buildUpdatePayload(const std::string &index,
-                                          const std::string &category,
-                                          const std::string &entity_type,
-                                          const std::string &attribute,
-                                          const nlohmann::json &value) const {
-
-  nlohmann::json entity;
-  entity["number"] = std::stoi(index);
-  entity[attribute] = value;
-
-  nlohmann::json payload;
-  payload["category"] = category;
-  payload[entity_type] = entity;
-
-  return payload;
 }
 
 // =========================================================

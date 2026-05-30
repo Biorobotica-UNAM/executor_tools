@@ -130,24 +130,6 @@ private:
                      std::string &out_index, std::string &out_attribute,
                      ListenMode &out_mode) const;
 
-  /**
-   * Build the JSON payload expected by Knowledge::update_world_state().
-   *
-   * Schema:
-   * {
-   *   "category": "<category>",
-   *   "people": {
-   *     "number": <index as int>,
-   *     "<attribute>": "<value>"
-   *   }
-   * }
-   */
-  nlohmann::json buildUpdatePayload(const std::string &index,
-                                    const std::string &category,
-                                    const std::string &entity_type,
-                                    const std::string &attribute,
-                                    const nlohmann::json &value) const;
-
   void publishFeedback(const std::shared_ptr<GoalHandle> &gh, ListenState state,
                        const std::string &detail = "");
 
