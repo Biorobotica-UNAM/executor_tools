@@ -40,7 +40,7 @@ public:
     using ExecuteTask = executor_interfaces::action::ExecuteTask;
     using GoalHandle  = rclcpp_action::ServerGoalHandle<ExecuteTask>;
     using PoseStamped = geometry_msgs::msg::PoseStamped;
-    using json = nlohmann::json;
+    using json        = nlohmann::json;
 
     Take(
         const rclcpp::Node::SharedPtr&        node,
@@ -49,13 +49,10 @@ public:
         const std::shared_ptr<Knowledge>&     knowledge);
 
     Result run(
-        const std::string&                     argument,
-        const std::shared_ptr<GoalHandle>&     gh);
+        const std::string&                 argument,
+        const std::shared_ptr<GoalHandle>& gh);
 
 private:
-
-    // ── helpers ──────────────────────────────────────────────
-
     bool parseArgument(
         const std::string& argument,
         std::string& out_name,
@@ -65,28 +62,23 @@ private:
         const json& data,
         rclcpp::Clock::SharedPtr clock);
 
-    PoseStamped retractPose(
-        const std::string& arm) const;
+    PoseStamped retractPose(const std::string& arm) const;
 
     void publishFeedback(
         const std::shared_ptr<GoalHandle>& gh,
-        TakeState state,
-        const std::string& detail = "");
+        TakeState                          state,
+        const std::string&                 detail = "");
 
     static std::string stateName(TakeState s);
 
-    // Constantes cinemáticas del brazo izquierdo (6 DOF)
-    // TODO: Set the correct poses
-    static constexpr std::array<double, 6> RIGHT_TAKE = {0.6, 0.1, 0.3, 1.2, 0.0, 0.0};
-    
-    // Constantes cinemáticas del brazo derecho (6 DOF)
-    static constexpr std::array<double, 6> LEFT_TAKE  = {0.0, 0.0, 0.3, 1.5, 0.0, 1.2};
+    static constexpr std::array<double, 6> PREPARE_POSE = {0.0, 0.0, 0.0, 1.5, 0.0, 0.9};
 
     rclcpp::Node::SharedPtr       node_;
     std::shared_ptr<Manipulation> manipulation_;
     std::shared_ptr<Hardware>     hardware_;
     std::shared_ptr<Knowledge>    knowledge_;
 
+    std::string              arm_group_;
     std::vector<std::string> joint_names_;
     std::vector<double>      waypoints_;
 };

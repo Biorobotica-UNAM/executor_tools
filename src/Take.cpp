@@ -6,8 +6,6 @@
 
 using namespace std::chrono_literals;
 
-// TODO: Choose which arm to use. Currently, left arm hardcoded.
-
 // ─────────────────────────────────────────────────────────────
 //  Constructor
 // ─────────────────────────────────────────────────────────────
@@ -26,55 +24,34 @@ Take::Take(
 //  run
 // ─────────────────────────────────────────────────────────────
 Result Take::run(
-    const std::string&                     argument,
-    const std::shared_ptr<GoalHandle>&     gh)
+    const std::string&                 argument,
+    const std::shared_ptr<GoalHandle>& gh)
 {
     if (!gh || !gh->is_active())
         return {false, "FAILED", "goal_inactive"};
 
-    // ── READY ────────────────────────────────────────────
+    // ── READY ─────────────────────────────────────────────────
     publishFeedback(gh, TakeState::READY, argument);
 
-    // ── GETTING_TARGET ────────────────────────────────────────────
+    // ── GETTING_TARGET ────────────────────────────────────────
     publishFeedback(gh, TakeState::GETTING_TARGET);
 
     std::string category_name;
     std::string object_index;
 
-    if (!parseArgument(
-            argument,
-            category_name,
-            object_index))
+    if (!parseArgument(argument, category_name, object_index))
     {
-        publishFeedback(
-            gh,
-            TakeState::FAILED,
-            "invalid_argument");
-
-        return {
-            false,
-            "FAILED",
-            "invalid_argument"
-        };
+        publishFeedback(gh, TakeState::FAILED, "invalid_argument");
+        return {false, "FAILED", "invalid_argument"};
     }
 
     json target_data = knowledge_->get_world_state(
-                                category_name,
-                                object_index, 
-                                "manipulation");
+                            category_name, object_index, "manipulation");
 
     if (target_data.empty())
     {
-        publishFeedback(
-            gh,
-            TakeState::FAILED,
-            "invalid_manipulation_data");
-
-        return {
-            false,
-            "FAILED",
-            "invalid_manipulation_data"
-        };
+        publishFeedback(gh, TakeState::FAILED, "invalid_manipulation_data");
+        return {false, "FAILED", "invalid_manipulation_data"};
     }
 
     RCLCPP_INFO(
@@ -82,32 +59,34 @@ Result Take::run(
         "Pose JSON: %s",
         target_data.dump().c_str());
 
-    // ── PLAN_REACH ────────────────────────────────────────────
-    publishFeedback(gh, TakeState::PREPARING_EXTEND);
+    // ── PREPARING_EXTEND ──────────────────────────────────────────
+	publishFeedback(gh, TakeState::PREPARING_EXTEND);
 
-    bool left_ok = hardware_->MoveLeftArm(
-        {LEFT_TAKE[0], LEFT_TAKE[1], LEFT_TAKE[2],
-         LEFT_TAKE[3], LEFT_TAKE[4], LEFT_TAKE[5]});
+	arm_group_ = (target_data[1].get<double>() >= 0.0)
+		         ? "left_arm_group"
+		         : "right_arm_group";
 
-    bool right_ok = hardware_->MoveRightArm(
-        {RIGHT_TAKE[0], RIGHT_TAKE[1], RIGHT_TAKE[2],
-         RIGHT_TAKE[3], RIGHT_TAKE[4], RIGHT_TAKE[5]});    
+	RCLCPP_INFO(
+		node_->get_logger(),
+		"Selected arm: %s (target Y = %.3f)",
+		arm_group_.c_str(),
+		target_data[1].get<double>());
 
-    if (!left_ok || !right_ok)
-    {
-        publishFeedback(
-            gh,
-            TakeState::FAILED,
-            "invalid_preparation_pose");
+	bool prepare_ok = (arm_group_ == "left_arm_group")
+		? hardware_->MoveLeftArm(
+		    {PREPARE_POSE[0], PREPARE_POSE[1], PREPARE_POSE[2],
+		     PREPARE_POSE[3], PREPARE_POSE[4], PREPARE_POSE[5]})
+		: hardware_->MoveRightArm(
+		    {PREPARE_POSE[0], PREPARE_POSE[1], PREPARE_POSE[2],
+		     PREPARE_POSE[3], PREPARE_POSE[4], PREPARE_POSE[5]});
 
-        return {
-            false,
-            "FAILED",
-            "invalid_preparation_pose"
-        };
-    }
+	if (!prepare_ok)
+	{
+		publishFeedback(gh, TakeState::FAILED, "invalid_preparation_pose");
+		return {false, "FAILED", "invalid_preparation_pose"};
+	}
 
-    // ── PLAN_REACH ────────────────────────────────────────────
+    // ── PLANNING_EXTEND ───────────────────────────────────────
     publishFeedback(gh, TakeState::PLANNING_EXTEND);
 
     std::string msg;
@@ -115,16 +94,8 @@ Result Take::run(
 
     if (!pose_opt)
     {
-        publishFeedback(
-            gh,
-            TakeState::FAILED,
-            "invalid_manipulation_pose");
-
-        return {
-            false,
-            "FAILED",
-            "invalid_manipulation_pose"
-        };
+        publishFeedback(gh, TakeState::FAILED, "invalid_manipulation_pose");
+        return {false, "FAILED", "invalid_manipulation_pose"};
     }
 
     const auto target_pose = pose_opt.value();
@@ -145,7 +116,7 @@ Result Take::run(
         target_pose.pose.orientation.w);
 
     bool ok = manipulation_->PlanTrajectory(
-            target_pose, "left_arm_group", joint_names_, waypoints_, msg);
+                    target_pose, arm_group_, joint_names_, waypoints_, msg);
 
     if (!ok)
         return {false, "FAILED", msg};
@@ -153,11 +124,11 @@ Result Take::run(
     if (!gh->is_active())
         return {false, "FAILED", "goal_cancelled"};
 
-    // ── EXECUTE_REACH ─────────────────────────────────────────
+    // ── EXECUTING_EXTEND ──────────────────────────────────────
     publishFeedback(gh, TakeState::EXECUTING_EXTEND);
 
     ok = manipulation_->FollowTrajectory(
-            "left_arm_group", joint_names_, waypoints_, msg);
+                arm_group_, joint_names_, waypoints_, msg);
 
     if (!ok)
         return {false, "FAILED", msg};
@@ -165,12 +136,15 @@ Result Take::run(
     if (!gh->is_active())
         return {false, "FAILED", "goal_cancelled"};
 
-    // ── CLOSE_GRIPPER ─────────────────────────────────────────
+    // ── CLOSING_GRIPPER ───────────────────────────────────────
     publishFeedback(gh, TakeState::CLOSING_GRIPPER);
 
-    ok = hardware_->MoveLeftGripper("close");
+    ok = (arm_group_ == "left_arm_group")
+         ? hardware_->MoveLeftGripper("close")
+         : hardware_->MoveRightGripper("close");
 
-    if (!ok) {
+    if (!ok)
+    {
         publishFeedback(gh, TakeState::FAILED, "gripper_close_failed");
         return {false, "FAILED", "gripper_close_failed"};
     }
@@ -178,13 +152,13 @@ Result Take::run(
     if (!gh->is_active())
         return {false, "FAILED", "goal_cancelled"};
 
-    // ── PLAN_RETRACT ──────────────────────────────────────────
+    // ── PLANNING_RETRACT ──────────────────────────────────────
     publishFeedback(gh, TakeState::PLANNING_RETRACT);
 
-    const auto home = retractPose("left_arm_group");
+    const auto home = retractPose(arm_group_);
 
     ok = manipulation_->PlanTrajectory(
-            home, "left_arm_group", joint_names_, waypoints_, msg);
+                home, arm_group_, joint_names_, waypoints_, msg);
 
     if (!ok)
         return {false, "FAILED", msg};
@@ -192,31 +166,29 @@ Result Take::run(
     if (!gh->is_active())
         return {false, "FAILED", "goal_cancelled"};
 
-    // ── EXECUTE_RETRACT ───────────────────────────────────────
+    // ── EXECUTING_RETRACT ─────────────────────────────────────
     publishFeedback(gh, TakeState::EXECUTING_RETRACT);
 
     ok = manipulation_->FollowTrajectory(
-            "left_arm_group", joint_names_, waypoints_, msg);
+                arm_group_, joint_names_, waypoints_, msg);
 
     if (!ok)
         return {false, "FAILED", msg};
 
     // ── SUCCESS ───────────────────────────────────────────────
-    publishFeedback(gh, TakeState::SUCCESS, "left_arm_group");
-    return {true, "SUCCESS", std::string("left_arm_group") + "_take_completed"};
+    publishFeedback(gh, TakeState::SUCCESS, arm_group_);
+    return {true, "SUCCESS", arm_group_ + "_take_completed"};
 }
 
 // ─────────────────────────────────────────────────────────────
 //  parseArgument
 // ─────────────────────────────────────────────────────────────
-
 bool Take::parseArgument(
     const std::string& argument,
     std::string& out_name,
     std::string& out_index) const
 {
-    const std::size_t sep =
-        argument.rfind('_');
+    const std::size_t sep = argument.rfind('_');
 
     if (sep == std::string::npos ||
         sep == 0 ||
@@ -225,26 +197,25 @@ bool Take::parseArgument(
         return false;
     }
 
-    out_name =
-        argument.substr(0, sep);
-
-    out_index =
-        argument.substr(sep + 1);
+    out_name  = argument.substr(0, sep);
+    out_index = argument.substr(sep + 1);
 
     return true;
 }
 
+// ─────────────────────────────────────────────────────────────
+//  jsonToPose
+// ─────────────────────────────────────────────────────────────
 std::optional<geometry_msgs::msg::PoseStamped> Take::jsonToPose(
     const json& data,
     rclcpp::Clock::SharedPtr clock)
 {
     geometry_msgs::msg::PoseStamped pose;
 
-    if (!data.is_array() || data.size() != 7) {
-        return pose;
-    }
+    if (!data.is_array() || data.size() != 7)
+        return std::nullopt;
 
-    pose.header.stamp = clock->now();
+    pose.header.stamp    = clock->now();
     pose.header.frame_id = "base_link";
 
     pose.pose.position.x = data[0].get<double>();
@@ -309,6 +280,7 @@ std::string Take::stateName(TakeState s)
     {
         case TakeState::READY:             return "READY";
         case TakeState::GETTING_TARGET:    return "GETTING_TARGET";
+        case TakeState::PREPARING_EXTEND:  return "PREPARING_EXTEND";
         case TakeState::PLANNING_EXTEND:   return "PLANNING_EXTEND";
         case TakeState::EXECUTING_EXTEND:  return "EXECUTING_EXTEND";
         case TakeState::CLOSING_GRIPPER:   return "CLOSING_GRIPPER";
