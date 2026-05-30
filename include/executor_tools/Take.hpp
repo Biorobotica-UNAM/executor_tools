@@ -16,6 +16,7 @@
 #include "manipulation_tools/Manipulation.hpp"
 #include "knowledge_tools/Knowledge.hpp"
 #include "hardware_tools/Hardware.hpp"
+#include "hri_tools/HRI.hpp"
 
 // ─────────────────────────────────────────────────────────────
 //   Take
@@ -46,7 +47,8 @@ public:
         const rclcpp::Node::SharedPtr&        node,
         const std::shared_ptr<Manipulation>&  manipulation,
         const std::shared_ptr<Hardware>&      hardware,
-        const std::shared_ptr<Knowledge>&     knowledge);
+        const std::shared_ptr<Knowledge>&     knowledge,
+        const std::shared_ptr<HRI>&           hri)
 
     Result run(
         const std::string&                 argument,
@@ -77,6 +79,7 @@ private:
     std::shared_ptr<Manipulation> manipulation_;
     std::shared_ptr<Hardware>     hardware_;
     std::shared_ptr<Knowledge>    knowledge_;
+    std::shared_ptr<HRI>          hri_;
 
     std::string              arm_group_;
     std::vector<std::string> joint_names_;

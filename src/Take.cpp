@@ -13,11 +13,13 @@ Take::Take(
     const rclcpp::Node::SharedPtr&        node,
     const std::shared_ptr<Manipulation>&  manipulation,
     const std::shared_ptr<Hardware>&      hardware,
-    const std::shared_ptr<Knowledge>&     knowledge)
+    const std::shared_ptr<Knowledge>&     knowledge,
+    const std::shared_ptr<HRI>&           hri)
 : node_(node),
   manipulation_(manipulation),
   hardware_(hardware),
-  knowledge_(knowledge)
+  knowledge_(knowledge),
+  hri_(hri)
 {}
 
 // ─────────────────────────────────────────────────────────────
