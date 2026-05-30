@@ -8,8 +8,6 @@
 	<include file="$(find-pkg-share executor_manager)/launch/executor_manager.launch.xml"/>
 	
     <include file="$(find-pkg-share executor_worker)/launch/executor_worker.launch.xml"/>
-
-    <include file="$(find-pkg-share tasks)/launch/tasks.launch.xml"/>
     
   </group>
 

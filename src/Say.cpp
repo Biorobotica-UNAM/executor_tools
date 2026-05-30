@@ -1,107 +1,114 @@
+/**
+ * @brief FSM that retrieves a phrase from the knowledge bank and speaks it.
+ *
+ * Flow: READY → LOADING → SPEAKING → SUCCESS | FAILED
+ *
+ * Design patterns applied:
+ *   Facade          (GoF Structural) — delegates to Knowledge and HRI.
+ *   Template Method (GoF Behavioral) — run() defines the invariant FSM
+ *                                      sequence; each private step supplies
+ *                                      only what varies.
+ * Principles applied:
+ *   SRP  — one class, one responsibility: orchestrate the say pipeline.
+ *   DIP  — depends on HRI / Knowledge abstractions, not on rclcpp internals.
+ *
+ * BioRobotics Laboratory, Facultad de Ingenieria, UNAM
+ */
+
 #include "executor_tools/Say.hpp"
+#include <algorithm> 
 
 // =========================================================
 // Constructor
 // =========================================================
-Say::Say(const rclcpp::Node::SharedPtr& node,
-         const std::shared_ptr<HRI>& hri,
+Say::Say(const rclcpp::Node::SharedPtr&    node,
+         const std::shared_ptr<HRI>&       hri,
          const std::shared_ptr<Knowledge>& knowledge)
-: node(node),
-  hri(hri),
-  knowledge(knowledge), // Guardamos la instancia compartida
-  executor(node)
+: node_(node), hri_(hri), knowledge_(knowledge)
+{}
+
+// =========================================================
+// run — Con Fallback y Limpieza de Guiones Bajos
+// =========================================================
+Result Say::run(const std::string&                 phrase_key,
+                const std::shared_ptr<GoalHandle>& gh)
 {
+    if (!gh || !gh->is_active())
+        return {false, "FAILED", "goal_handle_inactive"};
+
+    // ── READY ─────────────────────────────────────────────
+    publishFeedback(gh, SayState::READY, phrase_key);
+
+    // ── LOADING ───────────────────────────────────────────
+    // Knowledge::get_phrase() busca la key en phrases/,
+    // selecciona una frase aleatoria y resuelve {placeholders}
+    // contra el world state. Devuelve la cadena lista para TTS.
+    publishFeedback(gh, SayState::LOADING);
+
+    std::string utterance = knowledge_->get_phrase(phrase_key, "");
+
+    // --- EFECTO FALLBACK ---
+    if (utterance.empty()) {
+        // Si el Knowledge no encontró la llave, asumimos que 'phrase_key' 
+        // es el texto directo que se quiere mandar a reproducir.
+        RCLCPP_INFO(node_->get_logger(), 
+                    "Say: Key '%s' not found in YAML. Using raw argument as fallback.", 
+                    phrase_key.c_str());
+        utterance = phrase_key; 
+    }
+
+    // --- LIMPIEZA DE GUIONES BAJOS ---
+    // Reemplaza cada '_' por un espacio ' ' directamente sobre la cadena final
+    std::replace(utterance.begin(), utterance.end(), '_', ' ');
+
+    // Se dejó un solo log limpio con la cadena final procesada
+    RCLCPP_INFO(node_->get_logger(), "Say: '%s'", utterance.c_str());
+
+    // ── SPEAKING ──────────────────────────────────────────
+    publishFeedback(gh, SayState::SPEAKING, utterance);
+
+    const bool ok = hri_->Say(utterance);
+
+    // ── SUCCESS / FAILED ──────────────────────────────────
+    if (ok) {
+        publishFeedback(gh, SayState::SUCCESS, utterance);
+        return {true, "SUCCESS", "uttered: " + utterance};
+    }
+
+    publishFeedback(gh, SayState::FAILED, "tts_failed");
+    return {false, "FAILED", "tts_failed: " + utterance};
 }
 
 // =========================================================
-// Lee valor guardado       interest_words.yaml -> labels
+// publishFeedback
 // =========================================================
-std::string Say::readSavedValue(const std::string& key)
+void Say::publishFeedback(const std::shared_ptr<GoalHandle>& gh,
+                          SayState                           state,
+                          const std::string&                 detail)
 {
-    std::string value = knowledge->getNameFromLabel(key);
+    if (!gh->is_active()) return;
 
-    if (value == key) {
-        RCLCPP_WARN(node->get_logger(), "Say: Key '{%s}' not found in Knowledge RAM", key.c_str());
-    }
+    std::string msg = "[say] " + stateName(state);
+    if (!detail.empty()) msg += ": " + detail;
 
-    return value;
+    auto fb = std::make_shared<ExecuteTask::Feedback>();
+    fb->feedback.message = msg;
+    gh->publish_feedback(fb);
+
+    RCLCPP_INFO(node_->get_logger(), "%s", msg.c_str());
 }
 
 // =========================================================
-// Reemplaza {key} por el valor en labels 
+// stateName
 // =========================================================
-std::string Say::replacePlaceholdersWithSaved(const std::string& text)
+std::string Say::stateName(SayState s)
 {
-    std::string result;
-    std::regex re("\\{([^}]+)\\}");
-    std::sregex_iterator begin(text.begin(), text.end(), re);
-    std::sregex_iterator end;
-
-    size_t last_pos = 0;
-    for (auto it = begin; it != end; ++it)
-    {
-        std::smatch match = *it;
-        result += text.substr(last_pos, match.position() - last_pos);
-
-        std::string key = match[1].str();
-        result += readSavedValue(key);
-
-        last_pos = match.position() + match.length();
+    switch (s) {
+        case SayState::READY:    return "READY";
+        case SayState::LOADING:  return "LOADING";
+        case SayState::SPEAKING: return "SPEAKING";
+        case SayState::SUCCESS:  return "SUCCESS";
+        case SayState::FAILED:   return "FAILED";
+        default:                 return "UNKNOWN";
     }
-
-    result += text.substr(last_pos);
-    return result;
-}
-
-// =========================================================
-// Selecciona frase aleatoria 
-// =========================================================
-std::string Say::getRandomPhrase(const std::string& action_name)
-{
-    try
-    {
-        std::string package_path = ament_index_cpp::get_package_share_directory("knowledge_bank");
-        std::string file_path = package_path + "/say/phrases.yaml";
-
-        YAML::Node config = YAML::LoadFile(file_path);
-
-        if (!config[action_name] || !config[action_name].IsSequence() || config[action_name].size() == 0)
-        {
-            RCLCPP_WARN(node->get_logger(), "Category '%s' not found in phrases.yaml", action_name.c_str());
-            return action_name; 
-        }
-
-        auto phrases = config[action_name];
-        static std::random_device rd;
-        static std::mt19937 gen(rd());
-        std::uniform_int_distribution<> dist(0, phrases.size() - 1);
-
-        return phrases[dist(gen)].as<std::string>();
-    }
-    catch (const std::exception& e)
-    {
-        RCLCPP_ERROR(node->get_logger(), "Error in getRandomPhrase: %s", e.what());
-        return action_name;
-    }
-}
-
-// =========================================================
-// Ejecuta say 
-// =========================================================
-bool Say::run(const std::string& action_name,
-              const std::shared_ptr<GoalHandle>& goalHandle)
-{
-    std::string utterance = getRandomPhrase(action_name);
-
-    utterance = replacePlaceholdersWithSaved(utterance);
-
-    auto feedback = std::make_shared<ExecuteTask::Feedback>();
-    feedback->feedback.message = "Diciendo: " + utterance;
-    goalHandle->publish_feedback(feedback);
-
-    bool success = hri->Say(utterance);
-
-    return executor.authorize("say", action_name, 
-                             success ? "uttered: " + utterance : "tts_failed",
-                             success ? "TTS ejecutado" : "TTS fallido");
 }

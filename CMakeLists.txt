@@ -2,58 +2,41 @@ cmake_minimum_required(VERSION 3.8)
 project(executor_tools)
 
 # -----------------------------
-# Compiler options
-# -----------------------------
-if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-Wall -Wextra -Wpedantic)
-endif()
-
-# -----------------------------
-# Find dependencies
+# Dependencies
 # -----------------------------
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
-find_package(std_srvs REQUIRED)
-find_package(ament_index_cpp REQUIRED)
-find_package(yaml-cpp REQUIRED)
 find_package(executor_interfaces REQUIRED)
-find_package(supervisor_executor_interfaces REQUIRED)
-find_package(talker_interfaces REQUIRED)
-find_package(listener_interfaces REQUIRED)
-find_package(known_locations_interfaces REQUIRED)
+
 find_package(hri_tools REQUIRED)
 find_package(navigation_tools REQUIRED)
 find_package(hardware_tools REQUIRED)
 find_package(vision_tools REQUIRED)
-find_package(take_interfaces REQUIRED)
-find_package(tasks_tools REQUIRED)
-find_package(vision_interfaces REQUIRED)
-find_package(faces_interfaces REQUIRED)
+find_package(manipulation_tools REQUIRED)
+find_package(planning_tools REQUIRED)
+find_package(knowledge_tools REQUIRED)
 
 # -----------------------------
 # Library
 # -----------------------------
 add_library(${PROJECT_NAME}
-  src/Align.cpp
-  src/Executor.cpp
   src/Say.cpp
-  src/Listen.cpp
   src/GoTo.cpp
   src/Check.cpp
-  src/Save.cpp
-  src/Follow.cpp
-  src/MemorizeFace.cpp
   src/Point.cpp
-  src/Focus.cpp
-  src/Unfocus.cpp
-  src/FindObject.cpp
+  src/Align.cpp
+  src/Drop.cpp
+  src/Give.cpp
   src/FindPerson.cpp
-  src/FindWaving.cpp
-  src/FindSeat.cpp
-  src/Describe.cpp
-  src/Saveloc.cpp
+  src/FindObject.cpp
+  src/Focus.cpp
+  src/Receive.cpp
+  src/Follow.cpp
   src/Take.cpp
+  src/Listen.cpp
+  src/Approach.cpp
+  src/FindPose
 )
 
 target_include_directories(${PROJECT_NAME}
@@ -65,26 +48,14 @@ target_include_directories(${PROJECT_NAME}
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   rclcpp_action
-  std_srvs
-  ament_index_cpp
   executor_interfaces
-  supervisor_executor_interfaces
-  talker_interfaces
-  listener_interfaces
-  known_locations_interfaces
   hri_tools
   navigation_tools
   hardware_tools
   vision_tools
-  take_interfaces
-  tasks_tools
-  vision_interfaces 
-  faces_interfaces
-)
-
-target_link_libraries(${PROJECT_NAME}
-  yaml-cpp
-  ${rclcpp_LIBRARIES}
+  manipulation_tools
+  planning_tools
+  knowledge_tools
 )
 
 # -----------------------------
@@ -116,24 +87,14 @@ ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_dependencies(
   rclcpp
   rclcpp_action
-  std_srvs
   executor_interfaces
-  supervisor_executor_interfaces
-  talker_interfaces
-  listener_interfaces
-  known_locations_interfaces
   hri_tools
   navigation_tools
   hardware_tools
   vision_tools
-  tasks_tools
-  take_interfaces
-  vision_interfaces
-  faces_interfaces
-  ament_index_cpp
+  manipulation_tools
+  planning_tools
+  knowledge_tools
 )
 
-ament_python_install_package(${PROJECT_NAME})
-
 ament_package()
-

@@ -1,80 +1,85 @@
 #include "executor_tools/Focus.hpp"
-#include "std_srvs/srv/set_bool.hpp"
-#include <chrono>
-
-using namespace std::chrono_literals;
 
 // =========================================================
 // Constructor
 // =========================================================
-Focus::Focus(const rclcpp::Node::SharedPtr& node)
-: node(node),
-  executor(node)
+Focus::Focus(const rclcpp::Node::SharedPtr& node,
+            const std::shared_ptr<Vision>& vision)
+: node_(node), vision_(vision)
+{}
+
+// =========================================================
+// run
+// =========================================================
+Result Focus::run(const std::string& argument,
+                  const std::shared_ptr<GoalHandle>& gh)
 {
+    if (!gh || !gh->is_active())
+        return {false, "FAILED", "goal_handle_inactive"};
+
+    publishFeedback(gh, FocusState::READY, argument);
+
+    bool focus_value = parseArgument(argument);
+
+    publishFeedback(gh, FocusState::FOCUSING, argument);
+
+    bool ok = vision_->Focus(focus_value);
+
+    if (ok) {
+        publishFeedback(gh, FocusState::SUCCESS, argument);
+        return {true, "SUCCESS", "focus_updated"};
+    } else {
+        publishFeedback(gh, FocusState::FAILED, argument);
+        return {false, "FAILED", "focus_failed"};
+    }
 }
 
 // =========================================================
-// Ejecuta focus (llama a /vision/focus con data = true)
+// parseArgument
 // =========================================================
-bool Focus::run(const std::string& args,
-                const std::shared_ptr<GoalHandle>& goalHandle)
+bool Focus::parseArgument(const std::string& argument)
 {
-    // -------------------- FEEDBACK --------------------
-    auto feedback = std::make_shared<ExecuteTask::Feedback>();
-    feedback->feedback.step_id = 1;
-    feedback->feedback.progress = 0.5f;
-    feedback->feedback.message  = "Activando focus de visión";
-    goalHandle->publish_feedback(feedback);
-
-    // -------------------- SERVICE CALL --------------------
-    // Nodo auxiliar con su propio executor, completamente independiente
-    // del nodo principal que ya está siendo spinneado en main()
-    auto aux_node = rclcpp::Node::make_shared("focus_aux_node");
-    auto client   = aux_node->create_client<std_srvs::srv::SetBool>("/vision/focus");
-
-    rclcpp::executors::SingleThreadedExecutor aux_exec;
-    aux_exec.add_node(aux_node);
-
-    // Esperar servicio
-    while (!client->wait_for_service(1s))
+    if (argument == "true"  ||
+        argument == "on"    ||
+        argument == "1"     ||
+        argument == "start" ||
+        argument == "enable")
     {
-        if (!rclcpp::ok())
-        {
-            RCLCPP_ERROR(node->get_logger(), "Focus: rclcpp interrupted while waiting for service");
-            return executor.authorize("focus", args, "error: interrupted", "Focus fallido");
-        }
-        RCLCPP_WARN(node->get_logger(), "Focus: waiting for /vision/focus...");
+        return true;
     }
 
-    auto request  = std::make_shared<std_srvs::srv::SetBool::Request>();
-    request->data = true;
+    return false;
+}
 
-    auto future = client->async_send_request(request);
+// =========================================================
+// publishFeedback
+// =========================================================
+void Focus::publishFeedback(const std::shared_ptr<GoalHandle>& gh,
+                            FocusState state,
+                            const std::string& detail)
+{
+    if (!gh->is_active()) return;
 
-    // Spin el aux_executor hasta que el future esté listo
-    auto status = aux_exec.spin_until_future_complete(future, 5s);
+    std::string msg = "[focus] " + stateName(state);
+    if (!detail.empty()) msg += ": " + detail;
 
-    bool        success = false;
-    std::string result;
+    auto fb = std::make_shared<ExecuteTask::Feedback>();
+    fb->feedback.message = msg;
+    gh->publish_feedback(fb);
 
-    if (status == rclcpp::FutureReturnCode::SUCCESS)
-    {
-        success = future.get()->success;
-        result  = success
-            ? "focus: activated"
-            : "focus: rejected — " + future.get()->message;
+    RCLCPP_INFO(node_->get_logger(), "%s", msg.c_str());
+}
+
+// =========================================================
+// stateName
+// =========================================================
+std::string Focus::stateName(FocusState s)
+{
+    switch (s) {
+        case FocusState::READY:            return "READY";
+        case FocusState::FOCUSING:         return "FOCUSING";
+        case FocusState::SUCCESS:          return "SUCCESS";
+        case FocusState::FAILED:           return "FAILED";
+        default:                           return "UNKNOWN";
     }
-    else
-    {
-        RCLCPP_ERROR(node->get_logger(), "Focus: service call timed out or interrupted");
-        result = "error: service call timed out";
-    }
-
-    // -------------------- AUTHORIZE --------------------
-    return executor.authorize(
-        "focus",
-        args,
-        result,
-        success ? "Focus activado" : "Focus fallido"
-    );
 }

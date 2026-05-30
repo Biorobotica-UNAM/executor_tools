@@ -1,67 +1,266 @@
+/**
+ * @brief FSM implementation for the listen pipeline.
+ *
+ * Soporta dos modos de operación determinados automáticamente por el
+ * formato del argumento recibido en run():
+ *
+ *   FULL   — "<category>_<attribute>_<index>"  (ej. "guest_name_1")
+ *            Pasos: READY → LISTENING → PARSING → UPDATING → SUCCESS | FAILED
+ *
+ *   SIMPLE — palabra simple sin '_'  (ej. "follow", "confirm")
+ *            Pasos: READY → LISTENING → PARSING → SUCCESS | FAILED
+ *            El world state no se modifica; la entidad extraída se
+ *            devuelve en el campo detail del Result.
+ *
+ * Cada método privado es responsable de exactamente una transición FSM.
+ * run() posee la secuencia y hace early-exit ante cualquier fallo,
+ * manteniendo baja la complejidad ciclomática y legible el happy path.
+ *
+ * BioRobotics Laboratory, Facultad de Ingenieria, UNAM
+ */
+
 #include "executor_tools/Listen.hpp"
 
-Listen::Listen(const rclcpp::Node::SharedPtr& node,
-               const std::shared_ptr<HRI>& hri,
-               const std::shared_ptr<Knowledge>& knowledge)
-: knowledge(knowledge),
-  node(node),
-  hri(hri), 
-  executor(node)
-{
+#include <chrono>
+#include <iostream>
+#include <string>
+#include <thread>
+#include <unordered_set>
+
+using namespace std::chrono_literals;
+
+// =========================================================
+// Constructor
+// =========================================================
+
+Listen::Listen(const rclcpp::Node::SharedPtr &node,
+               const std::shared_ptr<HRI> &hri,
+               const std::shared_ptr<Planning> &planning,
+               const std::shared_ptr<Knowledge> &knowledge)
+    : node_(node), hri_(hri), planning_(planning), knowledge_(knowledge) {}
+
+// =========================================================
+// run
+// =========================================================
+
+Result Listen::run(const std::string &argument,
+                   const std::shared_ptr<GoalHandle> &gh) {
+  if (!gh || !gh->is_active())
+    return {false, "FAILED", "goal_handle_inactive"};
+
+  // ── READY ──────────────────────────────────────────────
+  publishFeedback(gh, ListenState::READY, argument);
+
+  std::string category;
+  std::string index;
+  std::string attribute;
+  ListenMode mode;
+
+  if (!parseArgument(argument, category, index, attribute, mode)) {
+    publishFeedback(gh, ListenState::FAILED, "invalid_argument: " + argument);
+    return {false, "FAILED", "invalid_argument: " + argument};
+  }
+
+  // ── LISTENING ──────────────────────────────────────────
+  publishFeedback(gh, ListenState::LISTENING);
+
+  const std::string speech = hri_->Listen("", 20s);
+
+  if (speech.empty()) {
+    publishFeedback(gh, ListenState::FAILED, "listen_failed");
+    return {false, "FAILED", "listen_failed"};
+  }
+
+  RCLCPP_INFO(node_->get_logger(), "Heard: %s", speech.c_str());
+
+  // ── PARSING (with retry) ────────────────────────────────
+  publishFeedback(gh, ListenState::PARSING, speech);
+
+  const std::vector<std::string> entities =
+      extractEntityWithRetry(speech, attribute, gh);
+
+  if (entities.empty()) {
+    publishFeedback(gh, ListenState::FAILED,
+                    "entity_not_found: category=" + attribute);
+    return {false, "FAILED", "entity_not_found: category=" + attribute};
+  }
+
+  // Representación legible para logs y feedback: "val1, val2, ..."
+  std::string entities_str;
+  for (std::size_t i = 0; i < entities.size(); ++i) {
+    if (i > 0)
+      entities_str += ", ";
+    entities_str += entities[i];
+  }
+
+  RCLCPP_INFO(node_->get_logger(), "Extracted entity [%s] = '[%s]'",
+              attribute.c_str(), entities_str.c_str());
+
+  // ── SIMPLE mode: skip UPDATING ─────────────────────────
+  if (mode == ListenMode::SIMPLE) {
+    const std::string summary = argument + "=" + entities_str;
+    publishFeedback(gh, ListenState::SUCCESS, summary);
+    return {true, "SUCCESS", summary};
+  }
+
+  // ── UPDATING (FULL mode only) ──────────────────────────
+  publishFeedback(gh, ListenState::UPDATING,
+                  "people[" + index + "]." + attribute + "=" + entities_str);
+
+  // Atributos multi-valor se almacenan como array JSON; el resto como string.
+  // Agrega aquí cualquier otro atributo que deba ser siempre array.
+  static const std::unordered_set<std::string> kArrayAttributes = {"order"};
+
+  std::string value_str;
+  if (kArrayAttributes.count(attribute) || entities.size() > 1) {
+    // Serializar como JSON array: ["val1","val2"]
+    nlohmann::json arr = entities;
+    value_str = arr.dump();
+  } else {
+    value_str = entities.front();
+  }
+
+  const bool stored =
+      knowledge_->update_world_state(category, index, attribute, value_str);
+
+  if (!stored) {
+    publishFeedback(gh, ListenState::FAILED, "update_world_state_failed");
+    return {false, "FAILED", "update_world_state_failed"};
+  }
+
+  // ── SUCCESS ────────────────────────────────────────────
+  const std::string summary =
+      "people[" + index + "]." + attribute + "=" + entities_str;
+
+  publishFeedback(gh, ListenState::SUCCESS, summary);
+  return {true, "SUCCESS", summary};
 }
 
-bool Listen::run(
-  const std::string& grammar,
-  const std::shared_ptr<GoalHandle>& goalHandle)
-{
-  // 1. Verificación de seguridad: ¿Sigue vivo el cliente?
-  if (!goalHandle || !goalHandle->is_active()) {
-    RCLCPP_WARN(node->get_logger(), "Listen Action: GoalHandle is null or inactive.");
+// =========================================================
+// extractEntityWithRetry
+// =========================================================
+
+std::vector<std::string>
+Listen::extractEntityWithRetry(const std::string &speech,
+                               const std::string &category,
+                               const std::shared_ptr<GoalHandle> &gh) const {
+  constexpr int kMaxRetries = 3;
+  constexpr auto kRetryDelay = 500ms;
+
+  for (int attempt = 1; attempt <= kMaxRetries; ++attempt) {
+    const std::vector<std::string> entities =
+        planning_->extractEntity(speech, category);
+
+    if (!entities.empty())
+      return entities;
+
+    if (attempt < kMaxRetries) {
+      RCLCPP_WARN(
+          node_->get_logger(),
+          "extractEntity attempt %d/%d returned empty — retrying in %ld ms.",
+          attempt, kMaxRetries,
+          std::chrono::duration_cast<std::chrono::milliseconds>(kRetryDelay)
+              .count());
+      std::this_thread::sleep_for(kRetryDelay);
+    }
+  }
+
+  return {};
+}
+
+// =========================================================
+// parseArgument
+// =========================================================
+
+bool Listen::parseArgument(const std::string &argument,
+                           std::string &out_category, std::string &out_index,
+                           std::string &out_attribute,
+                           ListenMode &out_mode) const {
+
+  // ── Modo SIMPLE: el argumento no contiene '_' ──────────
+  if (argument.find('_') == std::string::npos) {
+    if (argument.empty()) {
+      RCLCPP_ERROR(node_->get_logger(), "Listen: argument is empty.");
+      return false;
+    }
+    out_category = argument;
+    out_attribute = argument; // se usa como categoría en extractEntity
+    out_index = "";
+    out_mode = ListenMode::SIMPLE;
+    return true;
+  }
+
+  // ── Modo FULL: patrón esperado "<category>_<attribute>_<index>" ──
+  const std::size_t last_sep = argument.rfind('_');
+
+  if (last_sep == std::string::npos || last_sep == 0 ||
+      last_sep + 1 == argument.size()) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "Listen: argument '%s' must follow the pattern "
+                 "<category>_<attribute>_<index>.",
+                 argument.c_str());
     return false;
   }
 
-  std::string grammar_file = grammar + ".json";
+  const std::string prefix = argument.substr(0, last_sep);
+  const std::size_t second_sep = prefix.rfind('_');
 
-  try {
-    // 2. Feedback con verificación
-    auto feedback = std::make_shared<ExecuteTask::Feedback>();
-    feedback->feedback.message = "Listening with grammar: " + grammar_file;
-    
-    if (goalHandle->is_active()) {
-        goalHandle->publish_feedback(feedback);
-    }
+  if (second_sep == std::string::npos || second_sep == 0 ||
+      second_sep + 1 == prefix.size()) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "Listen: argument '%s' must follow the pattern "
+                 "<category>_<attribute>_<index>.",
+                 argument.c_str());
+    return false;
+  }
 
-    // 3. Llamada al HRI con validación de nulidad
-    if (!hri) {
-        RCLCPP_ERROR(node->get_logger(), "HRI pointer is null in Listen Tool!");
-        return false;
-    }
+  out_category = prefix.substr(0, second_sep);
+  out_attribute = prefix.substr(second_sep + 1);
+  out_index = argument.substr(last_sep + 1);
+  out_mode = ListenMode::FULL;
 
-    std::string recognized = hri->Listen(grammar_file);
+  return true;
+}
 
-    // Si hri->Listen truena internamente, el try-catch del Worker lo atrapará,
-    // pero aquí manejamos el caso de respuesta vacía o error lógico.
-    if (recognized.empty() || recognized == "error") 
-    {
-      RCLCPP_WARN(node->get_logger(), "HRI recognized nothing or returned error.");
-      recognized = "no_input";
-    }
+// =========================================================
+// publishFeedback
+// =========================================================
 
-    // 4. Guardar en Knowledge (Verificando que exista el objeto)
-    if (knowledge) {
-        knowledge->setLastRecognized(recognized);
-    }
+void Listen::publishFeedback(const std::shared_ptr<GoalHandle> &gh,
+                             ListenState state, const std::string &detail) {
+  if (!gh->is_active())
+    return;
 
-    // 5. Authorize (El último paso)
-    return executor.authorize(
-      "listen",
-      grammar,
-      recognized,
-      "Recognized: " + recognized
-    );
+  std::string msg = "[listen] " + stateName(state);
+  if (!detail.empty())
+    msg += ": " + detail;
 
-  } catch (const std::exception &e) {
-      RCLCPP_ERROR(node->get_logger(), "Exception in Listen::run: %s", e.what());
-      return false;
+  auto fb = std::make_shared<ExecuteTask::Feedback>();
+  fb->feedback.message = msg;
+  gh->publish_feedback(fb);
+
+  RCLCPP_INFO(node_->get_logger(), "%s", msg.c_str());
+}
+
+// =========================================================
+// stateName
+// =========================================================
+
+std::string Listen::stateName(ListenState s) {
+  switch (s) {
+  case ListenState::READY:
+    return "READY";
+  case ListenState::LISTENING:
+    return "LISTENING";
+  case ListenState::PARSING:
+    return "PARSING";
+  case ListenState::UPDATING:
+    return "UPDATING";
+  case ListenState::SUCCESS:
+    return "SUCCESS";
+  case ListenState::FAILED:
+    return "FAILED";
+  default:
+    return "UNKNOWN";
   }
 }
