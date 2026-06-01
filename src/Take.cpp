@@ -83,32 +83,36 @@ Result Take::run(
     // if (right_object.get<std::string>() == category_name + "_" + object_index)
 
     // ── PREPARING_EXTEND ──────────────────────────────────────────
-	// TODO: Verify the chosen arm is available
     publishFeedback(gh, TakeState::PREPARING_EXTEND);
 
-	arm_group_ = (target_data[1].get<double>() >= 0.0)
-		         ? "left_arm_group"
-		         : "right_arm_group";
+    double y_coord = target_data[1].get<double>();
 
-	RCLCPP_INFO(
-		node_->get_logger(),
-		"Selected arm: %s (target Y = %.3f)",
-		arm_group_.c_str(),
-		target_data[1].get<double>());
+    if (!selectArm(arm_group_, hand,
+                    right_object.get<std::string>(),
+                    left_object.get<std::string>(),
+                    y_coord)){
+        publishFeedback(gh, TakeState::FAILED, "arm_not_available");
+        return {false, "FAILED", "arm_not_available"};
+    }
 
-	bool prepare_ok = (arm_group_ == "left_arm_group")
-		? hardware_->MoveLeftArm(
-		    {PREPARE_POSE[0], PREPARE_POSE[1], PREPARE_POSE[2],
-		     PREPARE_POSE[3], PREPARE_POSE[4], PREPARE_POSE[5]})
-		: hardware_->MoveRightArm(
-		    {PREPARE_POSE[0], PREPARE_POSE[1], PREPARE_POSE[2],
-		     PREPARE_POSE[3], PREPARE_POSE[4], PREPARE_POSE[5]});
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "Selected arm: %s (target Y = %.3f)",
+        arm_group_.c_str(),
+        y_coord);
 
-	if (!prepare_ok)
-	{
-		publishFeedback(gh, TakeState::FAILED, "invalid_preparation_pose");
-		return {false, "FAILED", "invalid_preparation_pose"};
-	}
+    bool prepare_ok = (arm_group_ == "left_arm_group")
+        ? hardware_->MoveLeftArm(
+            {PREPARE_POSE[0], PREPARE_POSE[1], PREPARE_POSE[2],
+             PREPARE_POSE[3], PREPARE_POSE[4], PREPARE_POSE[5]})
+        : hardware_->MoveRightArm(
+            {PREPARE_POSE[0], PREPARE_POSE[1], PREPARE_POSE[2],
+             PREPARE_POSE[3], PREPARE_POSE[4], PREPARE_POSE[5]});
+
+    if (!prepare_ok){
+        publishFeedback(gh, TakeState::FAILED, "invalid_preparation_pose");
+        return {false, "FAILED", "invalid_preparation_pose"};
+    }
 
     // ── OPENNING_GRIPPER ───────────────────────────────────────
     publishFeedback(gh, TakeState::OPENNING_GRIPPER);
@@ -275,6 +279,26 @@ std::optional<geometry_msgs::msg::PoseStamped> Take::jsonToPose(
     pose.pose.orientation.w = data[6].get<double>();
 
     return pose;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  selectArm
+// ─────────────────────────────────────────────────────────────
+bool Take::selectArm(const std::string& arm_group,
+                        const std::string& hand,
+                        const std::string& right_obj,
+                        const std::string& left_obj,
+                        const double y_coord) const
+{
+    arm_group = (y_coord >= 0.0) ? "left_arm_group" : "right_arm_group";
+    
+    if (arm_group == "left_arm_group") {
+        hand = "left_hand";
+        (left_obj == "nothing") ? return true : return false;
+    } else {        
+        hand = "right_hand";
+        (right_obj == "nothing") ? return true : return false;
+    }
 }
 
 // ─────────────────────────────────────────────────────────────
