@@ -358,16 +358,19 @@ std::string Take::stateName(TakeState s)
 {
     switch (s)
     {
-        case TakeState::READY:             return "READY";
-        case TakeState::GETTING_TARGET:    return "GETTING_TARGET";
-        case TakeState::PREPARING_EXTEND:  return "PREPARING_EXTEND";
-        case TakeState::PLANNING_EXTEND:   return "PLANNING_EXTEND";
-        case TakeState::EXECUTING_EXTEND:  return "EXECUTING_EXTEND";
-        case TakeState::CLOSING_GRIPPER:   return "CLOSING_GRIPPER";
-        case TakeState::PLANNING_RETRACT:  return "PLANNING_RETRACT";
-        case TakeState::EXECUTING_RETRACT: return "EXECUTING_RETRACT";
-        case TakeState::SUCCESS:           return "SUCCESS";
-        case TakeState::FAILED:            return "FAILED";
-        default:                           return "UNKNOWN";
+        case TakeState::READY:               return "READY";
+        case TakeState::GETTING_TARGET:      return "GETTING_TARGET";
+        case TakeState::VERIFYING_VACANCY:   return "VERIFYING_VACANCY";
+        case TakeState::PREPARING_EXTEND:    return "PREPARING_EXTEND";
+        case TakeState::OPENNING_GRIPPER:    return "OPENNING_GRIPPER";
+        case TakeState::PLANNING_EXTEND:     return "PLANNING_EXTEND";
+        case TakeState::EXECUTING_EXTEND:    return "EXECUTING_EXTEND";
+        case TakeState::CLOSING_GRIPPER:     return "CLOSING_GRIPPER";
+        case TakeState::REPORTING_OCCUPANCY: return "REPORTING_OCCUPANCY";
+        case TakeState::PLANNING_RETRACT:    return "PLANNING_RETRACT";
+        case TakeState::EXECUTING_RETRACT:   return "EXECUTING_RETRACT";
+        case TakeState::SUCCESS:             return "SUCCESS";
+        case TakeState::FAILED:              return "FAILED";
+        default:                             return "UNKNOWN";
     }
 }
