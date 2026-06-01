@@ -101,6 +101,9 @@ Result Take::run(
         arm_group_.c_str(),
         y_coord);
 
+    if (!hri_->Say("Preparing take"))
+        publishFeedback(gh, TakeState::PREPARING_EXTEND, "say_failed");
+
     bool prepare_ok = (arm_group_ == "left_arm_group")
         ? hardware_->MoveLeftArm(
             {PREPARE_POSE[0], PREPARE_POSE[1], PREPARE_POSE[2],
@@ -155,6 +158,9 @@ Result Take::run(
         target_pose.pose.orientation.z,
         target_pose.pose.orientation.w);
 
+    if (!hri_->Say("Planning trajectory"))
+        publishFeedback(gh, TakeState::PLANNING_EXTEND, "say_failed");
+
     bool ok = manipulation_->PlanTrajectory(
                     target_pose, arm_group_, joint_names_, waypoints_, msg);
 
@@ -207,6 +213,9 @@ Result Take::run(
     publishFeedback(gh, TakeState::PLANNING_RETRACT);
 
     const auto home = retractPose(arm_group_);
+
+    if (!hri_->Say("Planning retract"))
+        publishFeedback(gh, TakeState::PLANNING_RETRACT, "say_failed");
 
     ok = manipulation_->PlanTrajectory(
                 home, arm_group_, joint_names_, waypoints_, msg);
