@@ -72,18 +72,19 @@ Result Take::run(
                                     "robot", "", "right_hand");
 
     // Verify is not an empty field
-    if (left_object.empty() || right_object.empy()) {
+    if (left_object.empty() || right_object.empty()) {
         publishFeedback(gh, TakeState::FAILED, "invalid_vacancy_data");
         return {false, "FAILED", "invalid_vacancy_data"};
     }
 
     // The robot already has the object
-    if (std::to_string(left_object) == category_name + "_" + object_index)
+    if (left_object.get<std::string>() == category_name + "_" + object_index)
         goto planning_retract;
 
-    if (std::to_string(right_object) == category_name + "_" + object_index)
+    if (right_object.get<std::string>() == category_name + "_" + object_index)
         goto planning_retract;
 
+    {
     // ── PREPARING_EXTEND ──────────────────────────────────────────
 	// TODO: Verify the chosen arm is available
     publishFeedback(gh, TakeState::PREPARING_EXTEND);
@@ -198,9 +199,9 @@ Result Take::run(
 
     if (!report_ok) {
         publishFeedback(gh, TakeState::FAILED, "report_object_failed");
-        return {false, "FAILED", "report_object_failed"}
+        return {false, "FAILED", "report_object_failed"};
     }
-
+    }
     // ── PLANNING_RETRACT ──────────────────────────────────────
     planning_retract:
     publishFeedback(gh, TakeState::PLANNING_RETRACT);
