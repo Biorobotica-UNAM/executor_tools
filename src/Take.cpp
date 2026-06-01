@@ -40,6 +40,7 @@ Result Take::run(
 
     std::string category_name;
     std::string object_index;
+    std::string hand;
 
     if (!parseArgument(argument, category_name, object_index))
     {
@@ -61,22 +62,31 @@ Result Take::run(
         "Pose JSON: %s",
         target_data.dump().c_str());
 
-    // ── VERIFYIN_VACANCY ─────────────────────────────────────────
+    // ── VERIFYING_VACANCY ─────────────────────────────────────────
     publishFeedback(gh, TakeState::VERIFYING_VACANCY);
 
     json left_object = knowledge_->get_world_state(
-                                    "robot", "left_hand");
+                                    "robot", "", "left_hand");
 
     json right_object = knowledge_->get_world_state(
-                                    "robot", "left_hand");
+                                    "robot", "", "right_hand");
 
+    // Verify is not an empty field
     if (left_object.empty() || right_object.empy()) {
         publishFeedback(gh, TakeState::FAILED, "invalid_vacancy_data");
         return {false, "FAILED", "invalid_vacancy_data"};
     }
 
+    // The robot already has the object
+    if (std::to_string(left_object) == category_name + "_" + object_index)
+        goto planning_retract;
+
+    if (std::to_string(right_object) == category_name + "_" + object_index)
+        goto planning_retract;
+
     // ── PREPARING_EXTEND ──────────────────────────────────────────
-	publishFeedback(gh, TakeState::PREPARING_EXTEND);
+	// TODO: Verify the chosen arm is available
+    publishFeedback(gh, TakeState::PREPARING_EXTEND);
 
 	arm_group_ = (target_data[1].get<double>() >= 0.0)
 		         ? "left_arm_group"
@@ -101,6 +111,18 @@ Result Take::run(
 		publishFeedback(gh, TakeState::FAILED, "invalid_preparation_pose");
 		return {false, "FAILED", "invalid_preparation_pose"};
 	}
+
+    // ── OPENNING_GRIPPER ───────────────────────────────────────
+    publishFeedback(gh, TakeState::OPENNING_GRIPPER);
+    
+    bool gripper_ok = (arm_group_ == "left_arm_group")
+        ? hardware_->MoveLeftGripper("open") : hardware_->MoveRightGripper("open");
+
+    if (!gripper_ok)
+    {
+        publishFeedback(gh, TakeState::OPENNING_GRIPPER, "gripper_open_failed");
+        return {false, "FAILED", "gripper_open_failed"};
+    }
 
     // ── PLANNING_EXTEND ───────────────────────────────────────
     publishFeedback(gh, TakeState::PLANNING_EXTEND);
@@ -155,11 +177,10 @@ Result Take::run(
     // ── CLOSING_GRIPPER ───────────────────────────────────────
     publishFeedback(gh, TakeState::CLOSING_GRIPPER);
 
-    ok = (arm_group_ == "left_arm_group")
-         ? hardware_->MoveLeftGripper("close")
-         : hardware_->MoveRightGripper("close");
+    gripper_ok = (arm_group_ == "left_arm_group")
+         ? hardware_->MoveLeftGripper("close") : hardware_->MoveRightGripper("close");
 
-    if (!ok)
+    if (!gripper_ok)
     {
         publishFeedback(gh, TakeState::FAILED, "gripper_close_failed");
         return {false, "FAILED", "gripper_close_failed"};
@@ -168,7 +189,20 @@ Result Take::run(
     if (!gh->is_active())
         return {false, "FAILED", "goal_cancelled"};
 
+    // ── REPORTING_OCCUPANCY ──────────────────────────────────────
+    publishFeedback(gh, TakeState::REPORTING_OCCUPANCY);
+
+    bool report_ok = knowledge_->update_world_state(
+                        "robot", "",
+                        hand, category_name+"_"+object_index);
+
+    if (!report_ok) {
+        publishFeedback(gh, TakeState::FAILED, "report_object_failed");
+        return {false, "FAILED", "report_object_failed"}
+    }
+
     // ── PLANNING_RETRACT ──────────────────────────────────────
+    planning_retract:
     publishFeedback(gh, TakeState::PLANNING_RETRACT);
 
     const auto home = retractPose(arm_group_);
