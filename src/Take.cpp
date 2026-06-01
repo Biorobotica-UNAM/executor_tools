@@ -104,7 +104,9 @@ Result Take::run(
     if (!hri_->Say("Preparing take"))
         publishFeedback(gh, TakeState::PREPARING_EXTEND, "say_failed");
 
-    bool prepare_ok = (arm_group_ == "left_arm_group")
+    bool prepare_torso_ok = hardware_->MoveTorso(0.3);
+    
+    bool prepare_arm_ok = (arm_group_ == "left_arm_group")
         ? hardware_->MoveLeftArm(
             {PREPARE_POSE[0], PREPARE_POSE[1], PREPARE_POSE[2],
              PREPARE_POSE[3], PREPARE_POSE[4], PREPARE_POSE[5]})
@@ -112,7 +114,7 @@ Result Take::run(
             {PREPARE_POSE[0], PREPARE_POSE[1], PREPARE_POSE[2],
              PREPARE_POSE[3], PREPARE_POSE[4], PREPARE_POSE[5]});
 
-    if (!prepare_ok){
+    if (!prepare_arm_ok || !prepare_torso_ok){
         publishFeedback(gh, TakeState::FAILED, "invalid_preparation_pose");
         return {false, "FAILED", "invalid_preparation_pose"};
     }
