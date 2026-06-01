@@ -77,10 +77,42 @@ Result Take::run(
         return {false, "FAILED", "invalid_vacancy_data"};
     }
 
-    // TODO: The robot already has the object
-    // if (left_object.get<std::string>() == category_name + "_" + object_index)
+    const std::string target_id = category_name + "_" + object_index;
+    const std::string left_val  = left_object.get<std::string>();
+    const std::string right_val = right_object.get<std::string>();
 
-    // if (right_object.get<std::string>() == category_name + "_" + object_index)
+    if (left_val == target_id || right_val == target_id)
+    {
+        arm_group_ = (left_val == target_id) ? "left_arm_group" : "right_arm_group";
+
+        publishFeedback(gh, TakeState::VERIFYING_VACANCY, "already_holding_object");
+
+        // ── PLANNING_RETRACT (early jump) ─────────────────────────
+        publishFeedback(gh, TakeState::PLANNING_RETRACT);
+
+        const auto home = retractPose(arm_group_);
+
+        if (!hri_->Say("Already holding, retracting"))
+            publishFeedback(gh, TakeState::PLANNING_RETRACT, "say_failed");
+
+        std::string msg;
+        bool ok = manipulation_->PlanTrajectory(
+                        home, arm_group_, joint_names_, waypoints_, msg);
+        if (!ok)
+            return {false, "FAILED", msg};
+
+        // ── EXECUTING_RETRACT (early jump) ────────────────────────
+        publishFeedback(gh, TakeState::EXECUTING_RETRACT);
+
+        ok = manipulation_->FollowTrajectory(
+                    arm_group_, joint_names_, waypoints_, msg);
+        if (!ok)
+            return {false, "FAILED", msg};
+
+        // ── SUCCESS (early jump) ────────────────────────────────────
+        publishFeedback(gh, TakeState::SUCCESS, arm_group_);
+        return {true, "SUCCESS", arm_group_ + "_already_holding"};
+    }
 
     // ── PREPARING_EXTEND ──────────────────────────────────────────
     publishFeedback(gh, TakeState::PREPARING_EXTEND);
@@ -105,7 +137,7 @@ Result Take::run(
         publishFeedback(gh, TakeState::PREPARING_EXTEND, "say_failed");
 
     bool prepare_torso_ok = hardware_->MoveTorso(0.3);
-    
+
     bool prepare_arm_ok = (arm_group_ == "left_arm_group")
         ? hardware_->MoveLeftArm(
             {PREPARE_POSE[0], PREPARE_POSE[1], PREPARE_POSE[2],
