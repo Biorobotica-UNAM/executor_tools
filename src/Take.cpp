@@ -77,14 +77,11 @@ Result Take::run(
         return {false, "FAILED", "invalid_vacancy_data"};
     }
 
-    // The robot already has the object
-    if (left_object.get<std::string>() == category_name + "_" + object_index)
-        goto planning_retract;
+    // TODO: The robot already has the object
+    // if (left_object.get<std::string>() == category_name + "_" + object_index)
 
-    if (right_object.get<std::string>() == category_name + "_" + object_index)
-        goto planning_retract;
+    // if (right_object.get<std::string>() == category_name + "_" + object_index)
 
-    {
     // ── PREPARING_EXTEND ──────────────────────────────────────────
 	// TODO: Verify the chosen arm is available
     publishFeedback(gh, TakeState::PREPARING_EXTEND);
@@ -201,9 +198,8 @@ Result Take::run(
         publishFeedback(gh, TakeState::FAILED, "report_object_failed");
         return {false, "FAILED", "report_object_failed"};
     }
-    }
+    
     // ── PLANNING_RETRACT ──────────────────────────────────────
-    planning_retract:
     publishFeedback(gh, TakeState::PLANNING_RETRACT);
 
     const auto home = retractPose(arm_group_);
