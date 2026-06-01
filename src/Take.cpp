@@ -61,6 +61,20 @@ Result Take::run(
         "Pose JSON: %s",
         target_data.dump().c_str());
 
+    // ── VERIFYIN_VACANCY ─────────────────────────────────────────
+    publishFeedback(gh, TakeState::VERIFYING_VACANCY);
+
+    json left_object = knowledge_->get_world_state(
+                                    "robot", "left_hand");
+
+    json right_object = knowledge_->get_world_state(
+                                    "robot", "left_hand");
+
+    if (left_object.empty() || right_object.empy()) {
+        publishFeedback(gh, TakeState::FAILED, "invalid_vacancy_data");
+        return {false, "FAILED", "invalid_vacancy_data"};
+    }
+
     // ── PREPARING_EXTEND ──────────────────────────────────────────
 	publishFeedback(gh, TakeState::PREPARING_EXTEND);
 
