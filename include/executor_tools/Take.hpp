@@ -67,8 +67,8 @@ private:
         const json& data,
         rclcpp::Clock::SharedPtr clock);
 
-    bool selectArm(const std::string& arm_group,
-                    const std::string& hand,
+    bool selectArm(std::string& arm_group,
+                    std::string& hand,
                     const std::string& right_obj,
                     const std::string& left_obj,
                     const double y_coord) const;

@@ -284,20 +284,20 @@ std::optional<geometry_msgs::msg::PoseStamped> Take::jsonToPose(
 // ─────────────────────────────────────────────────────────────
 //  selectArm
 // ─────────────────────────────────────────────────────────────
-bool Take::selectArm(const std::string& arm_group,
-                        const std::string& hand,
-                        const std::string& right_obj,
-                        const std::string& left_obj,
-                        const double y_coord) const
+bool Take::selectArm(std::string& arm_group,
+                     std::string& hand,
+                     const std::string& right_obj,
+                     const std::string& left_obj,
+                     const double y_coord) const
 {
     arm_group = (y_coord >= 0.0) ? "left_arm_group" : "right_arm_group";
     
     if (arm_group == "left_arm_group") {
         hand = "left_hand";
-        (left_obj == "nothing") ? return true : return false;
+        return (left_obj == "nothing");
     } else {        
         hand = "right_hand";
-        (right_obj == "nothing") ? return true : return false;
+        return (right_obj == "nothing");
     }
 }
 
