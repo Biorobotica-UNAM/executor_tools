@@ -6,6 +6,7 @@
 #include "executor_tools/Result.hpp"
 #include "hardware_tools/Hardware.hpp"
 #include "hri_tools/HRI.hpp"
+#include "knowledge_tools/Knowledge.hpp"
 
 #include <nlohmann/json.hpp>
 #include <string>

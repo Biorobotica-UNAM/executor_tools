@@ -52,7 +52,7 @@ Result Receive::run(const std::string& object_name,
         hand = "right_hand";
 
     // 2. Extender el brazo inmediatamente 
-    publishFeedback(gh, ReceiveState::MOVING_ARM, "Extending " + arm + " to receive " + item);
+    publishFeedback(gh, ReceiveState::MOVING_ARM, "Extending " + hand + " to receive " + item);
     bool arm_ok = (hand == "left_hand") ? hardware_->MoveLeftArm(
         {ARM_POINTING[0], ARM_POINTING[1], ARM_POINTING[2],
          ARM_POINTING[3], ARM_POINTING[4], ARM_POINTING[5]})
