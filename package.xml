@@ -21,6 +21,8 @@
   <depend>manipulation_tools</depend>
   <depend>planning_tools</depend>
   <depend>knowledge_tools</depend>
+  <depend>known_locations_interfaces</depend>
+  <depend>std_msgs</depend>  
 
   <!-- Interfaces -->
   <depend>executor_interfaces</depend>

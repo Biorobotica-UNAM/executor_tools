@@ -16,6 +16,8 @@ find_package(vision_tools REQUIRED)
 find_package(manipulation_tools REQUIRED)
 find_package(planning_tools REQUIRED)
 find_package(knowledge_tools REQUIRED)
+find_package(known_locations_interfaces REQUIRED)  
+find_package(std_msgs REQUIRED) 
 
 # -----------------------------
 # Library
@@ -37,6 +39,8 @@ add_library(${PROJECT_NAME}
   src/Listen.cpp
   src/Approach.cpp
   src/FindPose
+  src/Saveloc.cpp
+  src/GoToMapless.cpp
 )
 
 target_include_directories(${PROJECT_NAME}
@@ -56,7 +60,9 @@ ament_target_dependencies(${PROJECT_NAME}
   manipulation_tools
   planning_tools
   knowledge_tools
-)
+  known_locations_interfaces
+  std_msgs  
+)   
 
 # -----------------------------
 # Install
@@ -95,6 +101,8 @@ ament_export_dependencies(
   manipulation_tools
   planning_tools
   knowledge_tools
+  known_locations_interfaces
+  std_msgs
 )
 
 ament_package()
