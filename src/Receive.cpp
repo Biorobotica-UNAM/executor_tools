@@ -54,11 +54,11 @@ Result Receive::run(const std::string& object_name,
     // 2. Extender el brazo inmediatamente 
     publishFeedback(gh, ReceiveState::MOVING_ARM, "Extending " + hand + " to receive " + item);
     bool arm_ok = (hand == "left_hand") ? hardware_->MoveLeftArm(
-        {ARM_POINTING[0], ARM_POINTING[1], ARM_POINTING[2],
-         ARM_POINTING[3], ARM_POINTING[4], ARM_POINTING[5]})
+        {LEFT_ARM_POINTING[0], LEFT_ARM_POINTING[1], LEFT_ARM_POINTING[2],
+         LEFT_ARM_POINTING[3], LEFT_ARM_POINTING[4], LEFT_ARM_POINTING[5]})
         : hardware_->MoveRightArm(
-        {ARM_POINTING[0], ARM_POINTING[1], ARM_POINTING[2],
-         ARM_POINTING[3], ARM_POINTING[4], ARM_POINTING[5]});
+        {RIGHT_ARM_POINTING[0], RIGHT_ARM_POINTING[1], RIGHT_ARM_POINTING[2],
+         RIGHT_ARM_POINTING[3], RIGHT_ARM_POINTING[4], RIGHT_ARM_POINTING[5]});
 
     if (!arm_ok) {
         publishFeedback(gh, ReceiveState::FAILED, "arm_failed_extension");
@@ -106,10 +106,10 @@ Result Receive::run(const std::string& object_name,
     }
 
     // 7. Regresar el brazo a la posición de reposo
-    publishFeedback(gh, ReceiveState::MOVING_ARM, "Resetting arm to resting position");
+    publishFeedback(gh, ReceiveState::MOVING_ARM, "Sending arm to transport position");
     bool reset_ok = hardware_->MoveLeftArm(
-        {ARM_RESTING[0], ARM_RESTING[1], ARM_RESTING[2],
-         ARM_RESTING[3], ARM_RESTING[4], ARM_RESTING[5]});
+        {ARM_TRANSPORT[0], ARM_TRANSPORT[1], ARM_TRANSPORT[2],
+         ARM_TRANSPORT[3], ARM_TRANSPORT[4], ARM_TRANSPORT[5]});
 
     if (reset_ok) {
         publishFeedback(gh, ReceiveState::SUCCESS, "receive_completed_for_" + item);

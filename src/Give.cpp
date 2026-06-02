@@ -47,11 +47,11 @@ Result Give::run(const std::string& object_name,
     
     // TODO: Verify pose works for both arms
     bool arm_ok = (hand == "left_hand") ? hardware_->MoveLeftArm(
-                                            {ARM_POINTING[0], ARM_POINTING[1], ARM_POINTING[2],
-                                             ARM_POINTING[3], ARM_POINTING[4], ARM_POINTING[5]})
+                                            {LEFT_ARM_POINTING[0], LEFT_ARM_POINTING[1], LEFT_ARM_POINTING[2],
+                                             LEFT_ARM_POINTING[3], LEFT_ARM_POINTING[4], LEFT_ARM_POINTING[5]})
                                         : hardware_->MoveRightArm(
-                                            {ARM_POINTING[0], ARM_POINTING[1], ARM_POINTING[2],
-                                             ARM_POINTING[3], ARM_POINTING[4], ARM_POINTING[5]});
+                                            {RIGHT_ARM_POINTING[0], RIGHT_ARM_POINTING[1], RIGHT_ARM_POINTING[2],
+                                             RIGHT_ARM_POINTING[3], RIGHT_ARM_POINTING[4], RIGHT_ARM_POINTING[5]});
 
     if (!arm_ok) {
         publishFeedback(gh, GiveState::FAILED, "arm_failed_extension");
