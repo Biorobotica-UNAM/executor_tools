@@ -8,6 +8,7 @@
 #include "knowledge_tools/Knowledge.hpp"
 #include "hri_tools/HRI.hpp"
 
+#include <nlohmann/json.hpp>
 #include <string>
 #include <array>
 
@@ -16,6 +17,7 @@
 // =========================================================
 enum class GiveState {
     READY,
+    SELECTING_HAND,
     MOVING_ARM,
     SPEAKING,
     MOVING_GRIPPER,
@@ -30,6 +32,7 @@ class Give
 public:
     using ExecuteTask = executor_interfaces::action::ExecuteTask;
     using GoalHandle  = rclcpp_action::ServerGoalHandle<ExecuteTask>;
+    using json        = nlohmann::json;
 
     Give(const rclcpp::Node::SharedPtr& node,
          const std::shared_ptr<Hardware>& hardware,
@@ -40,10 +43,22 @@ public:
                const std::shared_ptr<GoalHandle>& gh);
 
 private:
+    // =========================================================
+    // selectHand - Search the object in both hands and returns 
+    //              the one with it
+    // =========================================================
+    std::string selectHand(const std::string& obj);
+
+    // =========================================================
+    // publishFeedback — Formato anidado fb->feedback.message
+    // =========================================================
     void publishFeedback(const std::shared_ptr<GoalHandle>& gh,
                          GiveState state,
                          const std::string& detail = "");
 
+    // =========================================================
+    // stateName - Converts state number to string
+    // =========================================================
     static std::string stateName(GiveState s);
 
     // Constantes cinemáticas del brazo izquierdo (6 DOF)
