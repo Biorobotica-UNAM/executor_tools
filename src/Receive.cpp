@@ -104,12 +104,15 @@ void Receive::publishFeedback(const std::shared_ptr<GoalHandle>& gh,
 std::string Receive::stateName(ReceiveState s)
 {
     switch (s) {
-        case ReceiveState::READY:          return "READY";
-        case ReceiveState::MOVING_ARM:     return "MOVING_ARM";
-        case ReceiveState::MOVING_GRIPPER: return "MOVING_GRIPPER";
-        case ReceiveState::SPEAKING:       return "SPEAKING";
-        case ReceiveState::SUCCESS:        return "SUCCESS";
-        case ReceiveState::FAILED:         return "FAILED";
-        default:                           return "UNKNOWN";
+        case ReceiveState::READY:               return "READY";
+        case ReceiveState::VERIFYING_VACANCY:   return "VERIFYING_VACANCY";
+        case ReceiveState::MOVING_ARM:          return "MOVING_ARM";
+        case ReceiveState::OPENING_GRIPPER:     return "CLOSING_GRIPPER";
+        case ReceiveState::SPEAKING:            return "SPEAKING";
+        case ReceiveState::CLOSING_GRIPPER:     return "CLOSING_GRIPPER";
+        case ReceiveState::REPORTING_OCCUPANCY: return "REPORTING_OCCUPANCY"
+        case ReceiveState::SUCCESS:             return "SUCCESS";
+        case ReceiveState::FAILED:              return "FAILED";
+        default:                                return "UNKNOWN";
     }
 }
