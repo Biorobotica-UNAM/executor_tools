@@ -51,7 +51,7 @@ Result Give::run(const std::string& object_name,
                                              ARM_POINTING[3], ARM_POINTING[4], ARM_POINTING[5]})
                                         : hardware_->MoveRightArm(
                                             {ARM_POINTING[0], ARM_POINTING[1], ARM_POINTING[2],
-                                             ARM_POINTING[3], ARM_POINTING[4], ARM_POINTING[5]})
+                                             ARM_POINTING[3], ARM_POINTING[4], ARM_POINTING[5]});
 
     if (!arm_ok) {
         publishFeedback(gh, GiveState::FAILED, "arm_failed_extension");
