@@ -50,7 +50,8 @@ private:
     static constexpr std::array<double, 6> ARM_POINTING = {0.6, 0.1, 0.3, 1.2, 0.0, 0.0};
     static constexpr std::array<double, 6> ARM_RESTING  = {0.0, 0.0, 0.3, 1.5, 0.0, 1.2};
 
-    rclcpp::Node::SharedPtr   node_;
-    std::shared_ptr<Hardware> hardware_;
-    std::shared_ptr<HRI>      hri_;
+    rclcpp::Node::SharedPtr    node_;
+    std::shared_ptr<Hardware>  hardware_;
+	std::shared_ptr<Knowledge> knowledge_;
+    std::shared_ptr<HRI>       hri_;
 };
