@@ -124,11 +124,61 @@ Result Approach::run(const std::string &argument,
       disable_msg->data = false;
       pf_enable_pub_->publish(*disable_msg);
       RCLCPP_INFO(node_->get_logger(), "Approach: Disabled potential fields");
+
+      // Restore head position to look straight ahead
+      hardware_->MoveHead({0.0, 0.0});
+      RCLCPP_INFO(node_->get_logger(),
+                  "Approach: Restored head position to (0.0, 0.0)");
+
+      // Restore potential_fields parameters to their defaults
+      if (set_params_client_->wait_for_service(
+              std::chrono::milliseconds(500))) {
+        auto req =
+            std::make_shared<rcl_interfaces::srv::SetParameters::Request>();
+
+        rcl_interfaces::msg::Parameter param_use_pot;
+        param_use_pot.name = "use_pot_fields";
+        param_use_pot.value.type =
+            rcl_interfaces::msg::ParameterType::PARAMETER_BOOL;
+        param_use_pot.value.bool_value = false;
+        req->parameters.push_back(param_use_pot);
+
+        rcl_interfaces::msg::Parameter param_use_cloud;
+        param_use_cloud.name = "use_point_cloud";
+        param_use_cloud.value.type =
+            rcl_interfaces::msg::ParameterType::PARAMETER_BOOL;
+        param_use_cloud.value.bool_value = false;
+        req->parameters.push_back(param_use_cloud);
+
+        rcl_interfaces::msg::Parameter param_laser_d0;
+        param_laser_d0.name = "laser_pot_fields_d0";
+        param_laser_d0.value.type =
+            rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
+        param_laser_d0.value.double_value = 1.0;
+        req->parameters.push_back(param_laser_d0);
+
+        rcl_interfaces::msg::Parameter param_cloud_d0;
+        param_cloud_d0.name = "cloud_pot_fields_d0";
+        param_cloud_d0.value.type =
+            rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
+        param_cloud_d0.value.double_value = 1.0;
+        req->parameters.push_back(param_cloud_d0);
+
+        set_params_client_->async_send_request(req);
+        RCLCPP_INFO(node_->get_logger(),
+                    "Approach: Restored potential_fields default parameters "
+                    "(use_pot_fields=false, use_point_cloud=false, d0=1.0)");
+      }
     }
   };
 
   // Enable potential fields if target is a person
   if (is_person) {
+    // Lower head to see close obstacles in front of the robot
+    hardware_->MoveHead({0.0, -0.4});
+    RCLCPP_INFO(node_->get_logger(),
+                "Approach: Lowered head to see close obstacles (-0.4 rad)");
+
     auto enable_msg = std::make_shared<std_msgs::msg::Bool>();
     enable_msg->data = true;
     pf_enable_pub_->publish(*enable_msg);
@@ -154,10 +204,32 @@ Result Approach::run(const std::string &argument,
       param_debug.value.bool_value = true;
       req->parameters.push_back(param_debug);
 
+      rcl_interfaces::msg::Parameter param_use_cloud;
+      param_use_cloud.name = "use_point_cloud";
+      param_use_cloud.value.type =
+          rcl_interfaces::msg::ParameterType::PARAMETER_BOOL;
+      param_use_cloud.value.bool_value = true;
+      req->parameters.push_back(param_use_cloud);
+
+      rcl_interfaces::msg::Parameter param_laser_d0;
+      param_laser_d0.name = "laser_pot_fields_d0";
+      param_laser_d0.value.type =
+          rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
+      param_laser_d0.value.double_value = 0.35;
+      req->parameters.push_back(param_laser_d0);
+
+      rcl_interfaces::msg::Parameter param_cloud_d0;
+      param_cloud_d0.name = "cloud_pot_fields_d0";
+      param_cloud_d0.value.type =
+          rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
+      param_cloud_d0.value.double_value = 0.35;
+      req->parameters.push_back(param_cloud_d0);
+
       set_params_client_->async_send_request(req);
-      RCLCPP_INFO(node_->get_logger(),
-                  "Approach: Dynamically requested potential_fields parameters "
-                  "(use_pot_fields=true, debug=true)");
+      RCLCPP_INFO(
+          node_->get_logger(),
+          "Approach: Dynamically requested potential_fields parameters "
+          "(use_pot_fields=true, debug=true, use_point_cloud=true, d0=0.35)");
     } else {
       RCLCPP_WARN(node_->get_logger(),
                   "Approach: set_parameters service not available. Obstacle "
@@ -165,7 +237,7 @@ Result Approach::run(const std::string &argument,
     }
   }
 
-  const double kTargetDist = 0.8; // 80 cm target distance
+  const double kTargetDist = 0.3; // 80 cm target distance
   const double kDistTol = 0.05;   // 5 cm distance tolerance
   const double kAngleTol = 0.1;   // ~5.7 degrees angular tolerance
   const double kYAlignTol = 0.03; // 3 cm sideways tolerance for objects
@@ -176,11 +248,11 @@ Result Approach::run(const std::string &argument,
   const double kKpTheta = 0.8;
 
   // Safety Velocity Limits
-  const double kMaxLinVel = 0.25; // m/s
-  const double kMaxAngVel = 0.5;  // rad/s
+  const double kMaxLinVel = 0.4; // m/s
+  const double kMaxAngVel = 0.5; // rad/s
 
   auto start_time = std::chrono::steady_clock::now();
-  const auto kMaxDuration = 20s;
+  const auto kMaxDuration = 120s;
 
   while (gh->is_active()) {
     double tx = 0.0;
