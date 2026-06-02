@@ -25,10 +25,13 @@ enum class TakeState
 {
     READY,
     GETTING_TARGET,
+    VERIFYING_VACANCY,
     PREPARING_EXTEND,
+    OPENNING_GRIPPER,
     PLANNING_EXTEND,
     EXECUTING_EXTEND,
     CLOSING_GRIPPER,
+    REPORTING_OCCUPANCY,
     PLANNING_RETRACT,
     EXECUTING_RETRACT,
     SUCCESS,
@@ -63,6 +66,12 @@ private:
     std::optional<geometry_msgs::msg::PoseStamped> jsonToPose(
         const json& data,
         rclcpp::Clock::SharedPtr clock);
+
+    bool selectArm(std::string& arm_group,
+                    std::string& hand,
+                    const std::string& right_obj,
+                    const std::string& left_obj,
+                    const double y_coord) const;
 
     PoseStamped retractPose(const std::string& arm) const;
 

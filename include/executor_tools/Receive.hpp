@@ -15,9 +15,12 @@
 // =========================================================
 enum class ReceiveState {
     READY,
+    VERIFYING_VACANCY,
     MOVING_ARM,
-    MOVING_GRIPPER,
+    OPENING_GRIPPER,
     SPEAKING,
+    CLOSING_GRIPPER,
+    REPORTING_OCCUPANCY,
     SUCCESS,
     FAILED
 };

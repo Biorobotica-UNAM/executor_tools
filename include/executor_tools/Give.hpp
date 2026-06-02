@@ -5,6 +5,7 @@
 #include "executor_interfaces/action/execute_task.hpp"
 #include "executor_tools/Result.hpp"
 #include "hardware_tools/Hardware.hpp"
+#include "knowledge_tools/Knowledge.hpp"
 #include "hri_tools/HRI.hpp"
 
 #include <string>
@@ -18,6 +19,7 @@ enum class GiveState {
     MOVING_ARM,
     SPEAKING,
     MOVING_GRIPPER,
+    REPORTING_OCCUPANCY,
     WAITING,
     SUCCESS,
     FAILED
@@ -31,6 +33,7 @@ public:
 
     Give(const rclcpp::Node::SharedPtr& node,
          const std::shared_ptr<Hardware>& hardware,
+		 const std::shared_ptr<Knowledge>& knowledge,
          const std::shared_ptr<HRI>& hri);
 
     Result run(const std::string& object_name,
@@ -47,7 +50,8 @@ private:
     static constexpr std::array<double, 6> ARM_POINTING = {0.6, 0.1, 0.3, 1.2, 0.0, 0.0};
     static constexpr std::array<double, 6> ARM_RESTING  = {0.0, 0.0, 0.3, 1.5, 0.0, 1.2};
 
-    rclcpp::Node::SharedPtr   node_;
-    std::shared_ptr<Hardware> hardware_;
-    std::shared_ptr<HRI>      hri_;
+    rclcpp::Node::SharedPtr    node_;
+    std::shared_ptr<Hardware>  hardware_;
+	std::shared_ptr<Knowledge> knowledge_;
+    std::shared_ptr<HRI>       hri_;
 };

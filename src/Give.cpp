@@ -9,8 +9,9 @@ using namespace std::chrono_literals;
 // =========================================================
 Give::Give(const rclcpp::Node::SharedPtr& node,
            const std::shared_ptr<Hardware>& hardware,
+		   const std::shared_ptr<Knowledge>& knowledge,
            const std::shared_ptr<HRI>& hri)
-: node_(node), hardware_(hardware), hri_(hri)
+: node_(node), hardware_(hardware), knowledge_(knowledge), hri_(hri)
 {}
 
 // =========================================================
@@ -53,11 +54,22 @@ Result Give::run(const std::string& object_name,
         return {false, "FAILED", "gripper_open_failed"};
     }
 
-    // 4. Esperar 2 segundos mientras la persona retira el objeto
+    // 4. Actualizar la disponibilidad de la mano en el estado del mundo 
+    publishFeedback(gh, GiveState::REPORTING_OCCUPANCY, "Opening gripper");
+    bool report_ok = knowledge_->update_world_state(
+                        "robot", "",
+                        "left_hand", "gift");
+
+    if (!report_ok) {
+        publishFeedback(gh, GiveState::FAILED, "report_object_failed");
+        return {false, "FAILED", "report_object_failed"};
+    }
+
+    // 5. Esperar 2 segundos mientras la persona retira el objeto
     publishFeedback(gh, GiveState::WAITING, "Waiting 2 seconds");
     std::this_thread::sleep_for(2s);
 
-    // 5. Regresar el brazo a la posición de reposo
+    // 6. Regresar el brazo a la posición de reposo
     publishFeedback(gh, GiveState::MOVING_ARM, "Resetting arm to resting position");
     std::this_thread::sleep_for(500ms);
 
@@ -99,13 +111,14 @@ void Give::publishFeedback(const std::shared_ptr<GoalHandle>& gh,
 std::string Give::stateName(GiveState s)
 {
     switch (s) {
-        case GiveState::READY:             return "READY";
-        case GiveState::MOVING_ARM:        return "MOVING_ARM";
-        case GiveState::SPEAKING:          return "SPEAKING";
-        case GiveState::MOVING_GRIPPER:    return "MOVING_GRIPPER";
-        case GiveState::WAITING:           return "WAITING";
-        case GiveState::SUCCESS:           return "SUCCESS";
-        case GiveState::FAILED:            return "FAILED";
-        default:                           return "UNKNOWN";
+        case GiveState::READY:                  return "READY";
+        case GiveState::MOVING_ARM:             return "MOVING_ARM";
+        case GiveState::SPEAKING:               return "SPEAKING";
+        case GiveState::MOVING_GRIPPER:         return "MOVING_GRIPPER";
+        case GiveState::REPORTING_OCCUPANCY:    return "REPORTING_OCCUPANCY";
+        case GiveState::WAITING:                return "WAITING";
+        case GiveState::SUCCESS:                return "SUCCESS";
+        case GiveState::FAILED:                 return "FAILED";
+        default:                                return "UNKNOWN";
     }
 }

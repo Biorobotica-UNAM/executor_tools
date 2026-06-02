@@ -40,6 +40,7 @@ Result Take::run(
 
     std::string category_name;
     std::string object_index;
+    std::string hand;
 
     if (!parseArgument(argument, category_name, object_index))
     {
@@ -61,32 +62,106 @@ Result Take::run(
         "Pose JSON: %s",
         target_data.dump().c_str());
 
+    // ── VERIFYING_VACANCY ─────────────────────────────────────────
+    publishFeedback(gh, TakeState::VERIFYING_VACANCY);
+
+    json left_object = knowledge_->get_world_state(
+                                    "robot", "", "left_hand");
+
+    json right_object = knowledge_->get_world_state(
+                                    "robot", "", "right_hand");
+
+    // Verify is not an empty field
+    if (left_object.empty() || right_object.empty()) {
+        publishFeedback(gh, TakeState::FAILED, "invalid_vacancy_data");
+        return {false, "FAILED", "invalid_vacancy_data"};
+    }
+
+    const std::string target_id = category_name + "_" + object_index;
+    const std::string left_val  = left_object.get<std::string>();
+    const std::string right_val = right_object.get<std::string>();
+
+    if (left_val == target_id || right_val == target_id)
+    {
+        arm_group_ = (left_val == target_id) ? "left_arm_group" : "right_arm_group";
+
+        publishFeedback(gh, TakeState::VERIFYING_VACANCY, "already_holding_object");
+
+        // ── PLANNING_RETRACT (early jump) ─────────────────────────
+        publishFeedback(gh, TakeState::PLANNING_RETRACT);
+
+        const auto home = retractPose(arm_group_);
+
+        if (!hri_->Say("Already holding, retracting"))
+            publishFeedback(gh, TakeState::PLANNING_RETRACT, "say_failed");
+
+        std::string msg;
+        bool ok = manipulation_->PlanTrajectory(
+                        home, arm_group_, joint_names_, waypoints_, msg);
+        if (!ok)
+            return {false, "FAILED", msg};
+
+        // ── EXECUTING_RETRACT (early jump) ────────────────────────
+        publishFeedback(gh, TakeState::EXECUTING_RETRACT);
+
+        ok = manipulation_->FollowTrajectory(
+                    arm_group_, joint_names_, waypoints_, msg);
+        if (!ok)
+            return {false, "FAILED", msg};
+
+        // ── SUCCESS (early jump) ────────────────────────────────────
+        publishFeedback(gh, TakeState::SUCCESS, arm_group_);
+        return {true, "SUCCESS", arm_group_ + "_already_holding"};
+    }
+
     // ── PREPARING_EXTEND ──────────────────────────────────────────
-	publishFeedback(gh, TakeState::PREPARING_EXTEND);
+    publishFeedback(gh, TakeState::PREPARING_EXTEND);
 
-	arm_group_ = (target_data[1].get<double>() >= 0.0)
-		         ? "left_arm_group"
-		         : "right_arm_group";
+    double y_coord = target_data[1].get<double>();
 
-	RCLCPP_INFO(
-		node_->get_logger(),
-		"Selected arm: %s (target Y = %.3f)",
-		arm_group_.c_str(),
-		target_data[1].get<double>());
+    if (!selectArm(arm_group_, hand,
+                    right_object.get<std::string>(),
+                    left_object.get<std::string>(),
+                    y_coord)){
+        publishFeedback(gh, TakeState::FAILED, "arm_not_available");
+        return {false, "FAILED", "arm_not_available"};
+    }
 
-	bool prepare_ok = (arm_group_ == "left_arm_group")
-		? hardware_->MoveLeftArm(
-		    {PREPARE_POSE[0], PREPARE_POSE[1], PREPARE_POSE[2],
-		     PREPARE_POSE[3], PREPARE_POSE[4], PREPARE_POSE[5]})
-		: hardware_->MoveRightArm(
-		    {PREPARE_POSE[0], PREPARE_POSE[1], PREPARE_POSE[2],
-		     PREPARE_POSE[3], PREPARE_POSE[4], PREPARE_POSE[5]});
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "Selected arm: %s (target Y = %.3f)",
+        arm_group_.c_str(),
+        y_coord);
 
-	if (!prepare_ok)
-	{
-		publishFeedback(gh, TakeState::FAILED, "invalid_preparation_pose");
-		return {false, "FAILED", "invalid_preparation_pose"};
-	}
+    if (!hri_->Say("Preparing take"))
+        publishFeedback(gh, TakeState::PREPARING_EXTEND, "say_failed");
+
+    bool prepare_torso_ok = hardware_->MoveTorso(0.3);
+
+    bool prepare_arm_ok = (arm_group_ == "left_arm_group")
+        ? hardware_->MoveLeftArm(
+            {PREPARE_POSE[0], PREPARE_POSE[1], PREPARE_POSE[2],
+             PREPARE_POSE[3], PREPARE_POSE[4], PREPARE_POSE[5]})
+        : hardware_->MoveRightArm(
+            {PREPARE_POSE[0], PREPARE_POSE[1], PREPARE_POSE[2],
+             PREPARE_POSE[3], PREPARE_POSE[4], PREPARE_POSE[5]});
+
+    if (!prepare_arm_ok || !prepare_torso_ok){
+        publishFeedback(gh, TakeState::FAILED, "invalid_preparation_pose");
+        return {false, "FAILED", "invalid_preparation_pose"};
+    }
+
+    // ── OPENNING_GRIPPER ───────────────────────────────────────
+    publishFeedback(gh, TakeState::OPENNING_GRIPPER);
+    
+    bool gripper_ok = (arm_group_ == "left_arm_group")
+        ? hardware_->MoveLeftGripper("open") : hardware_->MoveRightGripper("open");
+
+    if (!gripper_ok)
+    {
+        publishFeedback(gh, TakeState::OPENNING_GRIPPER, "gripper_open_failed");
+        return {false, "FAILED", "gripper_open_failed"};
+    }
 
     // ── PLANNING_EXTEND ───────────────────────────────────────
     publishFeedback(gh, TakeState::PLANNING_EXTEND);
@@ -117,6 +192,9 @@ Result Take::run(
         target_pose.pose.orientation.z,
         target_pose.pose.orientation.w);
 
+    if (!hri_->Say("Planning trajectory"))
+        publishFeedback(gh, TakeState::PLANNING_EXTEND, "say_failed");
+
     bool ok = manipulation_->PlanTrajectory(
                     target_pose, arm_group_, joint_names_, waypoints_, msg);
 
@@ -141,11 +219,10 @@ Result Take::run(
     // ── CLOSING_GRIPPER ───────────────────────────────────────
     publishFeedback(gh, TakeState::CLOSING_GRIPPER);
 
-    ok = (arm_group_ == "left_arm_group")
-         ? hardware_->MoveLeftGripper("close")
-         : hardware_->MoveRightGripper("close");
+    gripper_ok = (arm_group_ == "left_arm_group")
+         ? hardware_->MoveLeftGripper("close") : hardware_->MoveRightGripper("close");
 
-    if (!ok)
+    if (!gripper_ok)
     {
         publishFeedback(gh, TakeState::FAILED, "gripper_close_failed");
         return {false, "FAILED", "gripper_close_failed"};
@@ -154,10 +231,25 @@ Result Take::run(
     if (!gh->is_active())
         return {false, "FAILED", "goal_cancelled"};
 
+    // ── REPORTING_OCCUPANCY ──────────────────────────────────────
+    publishFeedback(gh, TakeState::REPORTING_OCCUPANCY);
+
+    bool report_ok = knowledge_->update_world_state(
+                        "robot", "",
+                        hand, category_name+"_"+object_index);
+
+    if (!report_ok) {
+        publishFeedback(gh, TakeState::FAILED, "report_object_failed");
+        return {false, "FAILED", "report_object_failed"};
+    }
+    
     // ── PLANNING_RETRACT ──────────────────────────────────────
     publishFeedback(gh, TakeState::PLANNING_RETRACT);
 
     const auto home = retractPose(arm_group_);
+
+    if (!hri_->Say("Planning retract"))
+        publishFeedback(gh, TakeState::PLANNING_RETRACT, "say_failed");
 
     ok = manipulation_->PlanTrajectory(
                 home, arm_group_, joint_names_, waypoints_, msg);
@@ -233,6 +325,26 @@ std::optional<geometry_msgs::msg::PoseStamped> Take::jsonToPose(
 }
 
 // ─────────────────────────────────────────────────────────────
+//  selectArm
+// ─────────────────────────────────────────────────────────────
+bool Take::selectArm(std::string& arm_group,
+                     std::string& hand,
+                     const std::string& right_obj,
+                     const std::string& left_obj,
+                     const double y_coord) const
+{
+    arm_group = (y_coord >= 0.0) ? "left_arm_group" : "right_arm_group";
+    
+    if (arm_group == "left_arm_group") {
+        hand = "left_hand";
+        return (left_obj == "nothing");
+    } else {        
+        hand = "right_hand";
+        return (right_obj == "nothing");
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
 //  retractPose
 // ─────────────────────────────────────────────────────────────
 geometry_msgs::msg::PoseStamped Take::retractPose(
@@ -280,16 +392,19 @@ std::string Take::stateName(TakeState s)
 {
     switch (s)
     {
-        case TakeState::READY:             return "READY";
-        case TakeState::GETTING_TARGET:    return "GETTING_TARGET";
-        case TakeState::PREPARING_EXTEND:  return "PREPARING_EXTEND";
-        case TakeState::PLANNING_EXTEND:   return "PLANNING_EXTEND";
-        case TakeState::EXECUTING_EXTEND:  return "EXECUTING_EXTEND";
-        case TakeState::CLOSING_GRIPPER:   return "CLOSING_GRIPPER";
-        case TakeState::PLANNING_RETRACT:  return "PLANNING_RETRACT";
-        case TakeState::EXECUTING_RETRACT: return "EXECUTING_RETRACT";
-        case TakeState::SUCCESS:           return "SUCCESS";
-        case TakeState::FAILED:            return "FAILED";
-        default:                           return "UNKNOWN";
+        case TakeState::READY:               return "READY";
+        case TakeState::GETTING_TARGET:      return "GETTING_TARGET";
+        case TakeState::VERIFYING_VACANCY:   return "VERIFYING_VACANCY";
+        case TakeState::PREPARING_EXTEND:    return "PREPARING_EXTEND";
+        case TakeState::OPENNING_GRIPPER:    return "OPENNING_GRIPPER";
+        case TakeState::PLANNING_EXTEND:     return "PLANNING_EXTEND";
+        case TakeState::EXECUTING_EXTEND:    return "EXECUTING_EXTEND";
+        case TakeState::CLOSING_GRIPPER:     return "CLOSING_GRIPPER";
+        case TakeState::REPORTING_OCCUPANCY: return "REPORTING_OCCUPANCY";
+        case TakeState::PLANNING_RETRACT:    return "PLANNING_RETRACT";
+        case TakeState::EXECUTING_RETRACT:   return "EXECUTING_RETRACT";
+        case TakeState::SUCCESS:             return "SUCCESS";
+        case TakeState::FAILED:              return "FAILED";
+        default:                             return "UNKNOWN";
     }
 }
