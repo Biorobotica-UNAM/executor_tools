@@ -107,7 +107,7 @@ std::string Receive::stateName(ReceiveState s)
         case ReceiveState::READY:               return "READY";
         case ReceiveState::VERIFYING_VACANCY:   return "VERIFYING_VACANCY";
         case ReceiveState::MOVING_ARM:          return "MOVING_ARM";
-        case ReceiveState::OPENING_GRIPPER:     return "CLOSING_GRIPPER";
+        case ReceiveState::OPENING_GRIPPER:     return "OPENING_GRIPPER";
         case ReceiveState::SPEAKING:            return "SPEAKING";
         case ReceiveState::CLOSING_GRIPPER:     return "CLOSING_GRIPPER";
         case ReceiveState::REPORTING_OCCUPANCY: return "REPORTING_OCCUPANCY";
