@@ -109,6 +109,24 @@ Result Take::run(
         if (!ok)
             return {false, "FAILED", msg};
 
+        // ── PREPARING_TRANSPORT (early jump) ──────────────────────────────────────
+        publishFeedback(gh, TakeState::PREPARING_TRANSPORT);
+
+        bool torso_ok = hardware_->MoveTorso(0.3);
+
+        bool arm_ok = (arm_group_ == "left_arm_group") ? hardware_->MoveLeftArm(
+                                                {TRANSPORT_POSE[0], TRANSPORT_POSE[1], TRANSPORT_POSE[2],
+                                                 TRANSPORT_POSE[3], TRANSPORT_POSE[4], TRANSPORT_POSE[5]})
+                                            : hardware_->MoveRightArm(
+                                                {TRANSPORT_POSE[0], TRANSPORT_POSE[1], TRANSPORT_POSE[2],
+                                                 TRANSPORT_POSE[3], TRANSPORT_POSE[4], TRANSPORT_POSE[5]});
+
+        if (!arm_ok || !torso_ok)
+            return {false, "FAILED", msg};
+
+        if (!gh->is_active())
+            return {false, "FAILED", "goal_cancelled"};
+
         // ── SUCCESS (early jump) ────────────────────────────────────
         publishFeedback(gh, TakeState::SUCCESS, arm_group_);
         return {true, "SUCCESS", arm_group_ + "_already_holding"};
@@ -269,6 +287,33 @@ Result Take::run(
     if (!ok)
         return {false, "FAILED", msg};
 
+    // ── PREPARING_TRANSPORT ──────────────────────────────────────
+    publishFeedback(gh, TakeState::PREPARING_TRANSPORT);
+
+    bool torso_ok = hardware_->MoveTorso(0.3);
+
+    bool arm_ok = (arm_group_ == "left_arm_group") ? hardware_->MoveLeftArm(
+                                            {TRANSPORT_POSE[0], TRANSPORT_POSE[1], TRANSPORT_POSE[2],
+                                             TRANSPORT_POSE[3], TRANSPORT_POSE[4], TRANSPORT_POSE[5]})
+                                        : hardware_->MoveRightArm(
+                                            {TRANSPORT_POSE[0], TRANSPORT_POSE[1], TRANSPORT_POSE[2],
+                                             TRANSPORT_POSE[3], TRANSPORT_POSE[4], TRANSPORT_POSE[5]});
+
+    if (!torso_ok || !arm_ok)
+        return {false, "FAILED", msg};
+
+    if (!gh->is_active())
+        return {false, "FAILED", "goal_cancelled"};
+
+    // ── EXECUTING_RETRACT ─────────────────────────────────────
+    publishFeedback(gh, TakeState::EXECUTING_RETRACT);
+
+    ok = manipulation_->FollowTrajectory(
+                arm_group_, joint_names_, waypoints_, msg);
+
+    if (!ok)
+        return {false, "FAILED", msg};
+
     // ── SUCCESS ───────────────────────────────────────────────
     publishFeedback(gh, TakeState::SUCCESS, arm_group_);
     return {true, "SUCCESS", arm_group_ + "_take_completed"};
@@ -403,6 +448,7 @@ std::string Take::stateName(TakeState s)
         case TakeState::REPORTING_OCCUPANCY: return "REPORTING_OCCUPANCY";
         case TakeState::PLANNING_RETRACT:    return "PLANNING_RETRACT";
         case TakeState::EXECUTING_RETRACT:   return "EXECUTING_RETRACT";
+        case TakeState::PREPARING_TRANSPORT: return "PREPARING_TRANSPORT";
         case TakeState::SUCCESS:             return "SUCCESS";
         case TakeState::FAILED:              return "FAILED";
         default:                             return "UNKNOWN";
