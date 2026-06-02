@@ -39,7 +39,7 @@ Result Receive::run(const std::string& object_name,
     }
 
     // 2. Abrir el Gripper 
-    publishFeedback(gh, ReceiveState::MOVING_GRIPPER, "Opening gripper to receive " + item);
+    publishFeedback(gh, ReceiveState::OPENING_GRIPPER, "Opening gripper to receive " + item);
     bool gripper_ok = hardware_->MoveLeftGripper("open");
 
     if (!gripper_ok) {
@@ -55,7 +55,7 @@ Result Receive::run(const std::string& object_name,
     hri_->Say(phrase);
 
     // 4. Cerrar la mano 
-    publishFeedback(gh, ReceiveState::MOVING_GRIPPER, "Closing gripper on " + item);
+    publishFeedback(gh, ReceiveState::CLOSING_GRIPPER, "Closing gripper on " + item);
     gripper_ok = hardware_->MoveLeftGripper("close");
 
     if (!gripper_ok) {
@@ -110,7 +110,7 @@ std::string Receive::stateName(ReceiveState s)
         case ReceiveState::OPENING_GRIPPER:     return "CLOSING_GRIPPER";
         case ReceiveState::SPEAKING:            return "SPEAKING";
         case ReceiveState::CLOSING_GRIPPER:     return "CLOSING_GRIPPER";
-        case ReceiveState::REPORTING_OCCUPANCY: return "REPORTING_OCCUPANCY"
+        case ReceiveState::REPORTING_OCCUPANCY: return "REPORTING_OCCUPANCY";
         case ReceiveState::SUCCESS:             return "SUCCESS";
         case ReceiveState::FAILED:              return "FAILED";
         default:                                return "UNKNOWN";
