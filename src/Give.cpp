@@ -9,6 +9,7 @@ using namespace std::chrono_literals;
 // =========================================================
 Give::Give(const rclcpp::Node::SharedPtr& node,
            const std::shared_ptr<Hardware>& hardware,
+		   const std::shared_ptr<Knowledge>& knowledge,
            const std::shared_ptr<HRI>& hri)
 : node_(node), hardware_(hardware), hri_(hri)
 {}
@@ -60,7 +61,7 @@ Result Give::run(const std::string& object_name,
                         "left_hand", "gift");
 
     if (!report_ok) {
-        publishFeedback(gh, TakeState::FAILED, "report_object_failed");
+        publishFeedback(gh, GiveState::FAILED, "report_object_failed");
         return {false, "FAILED", "report_object_failed"};
     }
 

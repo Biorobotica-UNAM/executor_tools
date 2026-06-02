@@ -5,6 +5,7 @@
 #include "executor_interfaces/action/execute_task.hpp"
 #include "executor_tools/Result.hpp"
 #include "hardware_tools/Hardware.hpp"
+#include "knowledge_tools/Knowledge.hpp"
 #include "hri_tools/HRI.hpp"
 
 #include <string>
@@ -32,6 +33,7 @@ public:
 
     Give(const rclcpp::Node::SharedPtr& node,
          const std::shared_ptr<Hardware>& hardware,
+		 const std::shared_ptr<Knowledge>& knowledge,
          const std::shared_ptr<HRI>& hri);
 
     Result run(const std::string& object_name,
