@@ -23,6 +23,27 @@ Take::Take(
 {}
 
 // ─────────────────────────────────────────────────────────────
+//  selectTip
+//
+//  Returns the appropriate kinematic tip link based on the
+//  object name and the currently selected arm_group_.
+//
+//  Decision rule:
+//    - Object in PINCH_OBJECTS  → use *_pinch_object_link
+//    - Everything else          → use *_grab_object_link
+//      (grab is the safer default for unknown objects)
+// ─────────────────────────────────────────────────────────────
+std::string Take::selectTip(const std::string& object_name) const
+{
+    const bool is_pinch = PINCH_OBJECTS.count(object_name) > 0;
+
+    if (arm_group_ == "left_arm_group")
+        return is_pinch ? "left_pinch_object_link" : "left_grab_object_link";
+    else
+        return is_pinch ? "right_pinch_object_link" : "right_grab_object_link";
+}
+
+// ─────────────────────────────────────────────────────────────
 //  run
 // ─────────────────────────────────────────────────────────────
 Result Take::run(
@@ -57,22 +78,33 @@ Result Take::run(
         return {false, "FAILED", "invalid_manipulation_data"};
     }
 
-    RCLCPP_INFO(
-        node_->get_logger(),
-        "Pose JSON: %s",
-        target_data.dump().c_str());
+    // Fetch object name for grasp-type selection
+    json object_name_json = knowledge_->get_world_state(
+                                category_name, object_index, "name");
 
-    // ── VERIFYING_VACANCY ─────────────────────────────────────────
+    const std::string object_name = object_name_json.is_string()
+                                        ? object_name_json.get<std::string>()
+                                        : "";
+
+    if (object_name.empty())
+        RCLCPP_WARN(node_->get_logger(),
+            "Object name not found for '%s_%s' — defaulting to grab tip.",
+            category_name.c_str(), object_index.c_str());
+    else
+        RCLCPP_INFO(node_->get_logger(),
+            "Object name: '%s'", object_name.c_str());
+
+    RCLCPP_INFO(node_->get_logger(),
+        "Pose JSON: %s", target_data.dump().c_str());
+
+    // ── VERIFYING_VACANCY ─────────────────────────────────────
     publishFeedback(gh, TakeState::VERIFYING_VACANCY);
 
-    json left_object = knowledge_->get_world_state(
-                                    "robot", "", "left_hand");
+    json left_object  = knowledge_->get_world_state("robot", "", "left_hand");
+    json right_object = knowledge_->get_world_state("robot", "", "right_hand");
 
-    json right_object = knowledge_->get_world_state(
-                                    "robot", "", "right_hand");
-
-    // Verify is not an empty field
-    if (left_object.empty() || right_object.empty()) {
+    if (left_object.empty() || right_object.empty())
+    {
         publishFeedback(gh, TakeState::FAILED, "invalid_vacancy_data");
         return {false, "FAILED", "invalid_vacancy_data"};
     }
@@ -87,7 +119,7 @@ Result Take::run(
 
         publishFeedback(gh, TakeState::VERIFYING_VACANCY, "already_holding_object");
 
-        // ── PLANNING_RETRACT (early jump) ─────────────────────────
+        // ── PLANNING_RETRACT (early path) ─────────────────────
         publishFeedback(gh, TakeState::PLANNING_RETRACT);
 
         const auto home = retractPose(arm_group_);
@@ -97,11 +129,12 @@ Result Take::run(
 
         std::string msg;
         bool ok = manipulation_->PlanTrajectory(
-                        home, arm_group_, joint_names_, waypoints_, msg);
+                        home, arm_group_, selectTip(object_name),
+                        joint_names_, waypoints_, msg);
         if (!ok)
             return {false, "FAILED", msg};
 
-        // ── EXECUTING_RETRACT (early jump) ────────────────────────
+        // ── EXECUTING_RETRACT (early path) ────────────────────
         publishFeedback(gh, TakeState::EXECUTING_RETRACT);
 
         ok = manipulation_->FollowTrajectory(
@@ -109,71 +142,74 @@ Result Take::run(
         if (!ok)
             return {false, "FAILED", msg};
 
-        // ── PREPARING_TRANSPORT (early jump) ──────────────────────────────────────
+        // ── PREPARING_TRANSPORT (early path) ──────────────────
         publishFeedback(gh, TakeState::PREPARING_TRANSPORT);
 
         bool torso_ok = hardware_->MoveTorso(0.3);
-
-        bool arm_ok = (arm_group_ == "left_arm_group") ? hardware_->MoveLeftArm(
-                                                {TRANSPORT_POSE[0], TRANSPORT_POSE[1], TRANSPORT_POSE[2],
-                                                 TRANSPORT_POSE[3], TRANSPORT_POSE[4], TRANSPORT_POSE[5]})
-                                            : hardware_->MoveRightArm(
-                                                {TRANSPORT_POSE[0], TRANSPORT_POSE[1], TRANSPORT_POSE[2],
-                                                 TRANSPORT_POSE[3], TRANSPORT_POSE[4], TRANSPORT_POSE[5]});
+        bool arm_ok   = (arm_group_ == "left_arm_group")
+            ? hardware_->MoveLeftArm({
+                TRANSPORT_POSE[0], TRANSPORT_POSE[1], TRANSPORT_POSE[2],
+                TRANSPORT_POSE[3], TRANSPORT_POSE[4], TRANSPORT_POSE[5]})
+            : hardware_->MoveRightArm({
+                TRANSPORT_POSE[0], TRANSPORT_POSE[1], TRANSPORT_POSE[2],
+                TRANSPORT_POSE[3], TRANSPORT_POSE[4], TRANSPORT_POSE[5]});
 
         if (!arm_ok || !torso_ok)
-            return {false, "FAILED", msg};
+            return {false, "FAILED", "transport_pose_failed"};
 
         if (!gh->is_active())
             return {false, "FAILED", "goal_cancelled"};
 
-        // ── SUCCESS (early jump) ────────────────────────────────────
+        // ── SUCCESS (early path) ──────────────────────────────
         publishFeedback(gh, TakeState::SUCCESS, arm_group_);
         return {true, "SUCCESS", arm_group_ + "_already_holding"};
     }
 
-    // ── PREPARING_EXTEND ──────────────────────────────────────────
+    // ── PREPARING_EXTEND ──────────────────────────────────────
     publishFeedback(gh, TakeState::PREPARING_EXTEND);
 
-    double y_coord = target_data[1].get<double>();
+    const double y_coord = target_data[1].get<double>();
 
     if (!selectArm(arm_group_, hand,
-                    right_object.get<std::string>(),
-                    left_object.get<std::string>(),
-                    y_coord)){
+                   right_object.get<std::string>(),
+                   left_object.get<std::string>(),
+                   y_coord))
+    {
         publishFeedback(gh, TakeState::FAILED, "arm_not_available");
         return {false, "FAILED", "arm_not_available"};
     }
 
-    RCLCPP_INFO(
-        node_->get_logger(),
-        "Selected arm: %s (target Y = %.3f)",
-        arm_group_.c_str(),
-        y_coord);
+    // selectTip is now valid — arm_group_ is set
+    const std::string tip = selectTip(object_name);
+
+    RCLCPP_INFO(node_->get_logger(),
+        "Selected arm: %s | tip: %s | target Y = %.3f",
+        arm_group_.c_str(), tip.c_str(), y_coord);
 
     if (!hri_->Say("Preparing take"))
         publishFeedback(gh, TakeState::PREPARING_EXTEND, "say_failed");
 
     bool prepare_torso_ok = hardware_->MoveTorso(0.3);
+    bool prepare_arm_ok   = (arm_group_ == "left_arm_group")
+        ? hardware_->MoveLeftArm({
+            PREPARE_POSE[0], PREPARE_POSE[1], PREPARE_POSE[2],
+            PREPARE_POSE[3], PREPARE_POSE[4], PREPARE_POSE[5]})
+        : hardware_->MoveRightArm({
+            PREPARE_POSE[0], PREPARE_POSE[1], PREPARE_POSE[2],
+            PREPARE_POSE[3], PREPARE_POSE[4], PREPARE_POSE[5]});
 
-    bool prepare_arm_ok = (arm_group_ == "left_arm_group")
-        ? hardware_->MoveLeftArm(
-            {PREPARE_POSE[0], PREPARE_POSE[1], PREPARE_POSE[2],
-             PREPARE_POSE[3], PREPARE_POSE[4], PREPARE_POSE[5]})
-        : hardware_->MoveRightArm(
-            {PREPARE_POSE[0], PREPARE_POSE[1], PREPARE_POSE[2],
-             PREPARE_POSE[3], PREPARE_POSE[4], PREPARE_POSE[5]});
-
-    if (!prepare_arm_ok || !prepare_torso_ok){
+    if (!prepare_arm_ok || !prepare_torso_ok)
+    {
         publishFeedback(gh, TakeState::FAILED, "invalid_preparation_pose");
         return {false, "FAILED", "invalid_preparation_pose"};
     }
 
-    // ── OPENNING_GRIPPER ───────────────────────────────────────
+    // ── OPENNING_GRIPPER ──────────────────────────────────────
     publishFeedback(gh, TakeState::OPENNING_GRIPPER);
-    
+
     bool gripper_ok = (arm_group_ == "left_arm_group")
-        ? hardware_->MoveLeftGripper("open") : hardware_->MoveRightGripper("open");
+        ? hardware_->MoveLeftGripper("open")
+        : hardware_->MoveRightGripper("open");
 
     if (!gripper_ok)
     {
@@ -195,11 +231,10 @@ Result Take::run(
 
     const auto target_pose = pose_opt.value();
 
-    RCLCPP_INFO(
-        node_->get_logger(),
+    RCLCPP_INFO(node_->get_logger(),
         "PoseStamped:\n"
         "  frame_id: %s\n"
-        "  position: [%.3f, %.3f, %.3f]\n"
+        "  position:    [%.3f, %.3f, %.3f]\n"
         "  orientation: [%.3f, %.3f, %.3f, %.3f]",
         target_pose.header.frame_id.c_str(),
         target_pose.pose.position.x,
@@ -214,7 +249,8 @@ Result Take::run(
         publishFeedback(gh, TakeState::PLANNING_EXTEND, "say_failed");
 
     bool ok = manipulation_->PlanTrajectory(
-                    target_pose, arm_group_, joint_names_, waypoints_, msg);
+                    target_pose, arm_group_, tip,
+                    joint_names_, waypoints_, msg);
 
     if (!ok)
         return {false, "FAILED", msg};
@@ -238,7 +274,8 @@ Result Take::run(
     publishFeedback(gh, TakeState::CLOSING_GRIPPER);
 
     gripper_ok = (arm_group_ == "left_arm_group")
-         ? hardware_->MoveLeftGripper("close") : hardware_->MoveRightGripper("close");
+        ? hardware_->MoveLeftGripper("close")
+        : hardware_->MoveRightGripper("close");
 
     if (!gripper_ok)
     {
@@ -249,18 +286,19 @@ Result Take::run(
     if (!gh->is_active())
         return {false, "FAILED", "goal_cancelled"};
 
-    // ── REPORTING_OCCUPANCY ──────────────────────────────────────
+    // ── REPORTING_OCCUPANCY ───────────────────────────────────
     publishFeedback(gh, TakeState::REPORTING_OCCUPANCY);
 
     bool report_ok = knowledge_->update_world_state(
                         "robot", "",
-                        hand, category_name+"_"+object_index);
+                        hand, category_name + "_" + object_index);
 
-    if (!report_ok) {
+    if (!report_ok)
+    {
         publishFeedback(gh, TakeState::FAILED, "report_object_failed");
         return {false, "FAILED", "report_object_failed"};
     }
-    
+
     // ── PLANNING_RETRACT ──────────────────────────────────────
     publishFeedback(gh, TakeState::PLANNING_RETRACT);
 
@@ -270,7 +308,8 @@ Result Take::run(
         publishFeedback(gh, TakeState::PLANNING_RETRACT, "say_failed");
 
     ok = manipulation_->PlanTrajectory(
-                home, arm_group_, joint_names_, waypoints_, msg);
+                home, arm_group_, tip,
+                joint_names_, waypoints_, msg);
 
     if (!ok)
         return {false, "FAILED", msg};
@@ -287,32 +326,23 @@ Result Take::run(
     if (!ok)
         return {false, "FAILED", msg};
 
-    // ── PREPARING_TRANSPORT ──────────────────────────────────────
+    // ── PREPARING_TRANSPORT ───────────────────────────────────
     publishFeedback(gh, TakeState::PREPARING_TRANSPORT);
 
     bool torso_ok = hardware_->MoveTorso(0.3);
-
-    bool arm_ok = (arm_group_ == "left_arm_group") ? hardware_->MoveLeftArm(
-                                            {TRANSPORT_POSE[0], TRANSPORT_POSE[1], TRANSPORT_POSE[2],
-                                             TRANSPORT_POSE[3], TRANSPORT_POSE[4], TRANSPORT_POSE[5]})
-                                        : hardware_->MoveRightArm(
-                                            {TRANSPORT_POSE[0], TRANSPORT_POSE[1], TRANSPORT_POSE[2],
-                                             TRANSPORT_POSE[3], TRANSPORT_POSE[4], TRANSPORT_POSE[5]});
+    bool arm_ok   = (arm_group_ == "left_arm_group")
+        ? hardware_->MoveLeftArm({
+            TRANSPORT_POSE[0], TRANSPORT_POSE[1], TRANSPORT_POSE[2],
+            TRANSPORT_POSE[3], TRANSPORT_POSE[4], TRANSPORT_POSE[5]})
+        : hardware_->MoveRightArm({
+            TRANSPORT_POSE[0], TRANSPORT_POSE[1], TRANSPORT_POSE[2],
+            TRANSPORT_POSE[3], TRANSPORT_POSE[4], TRANSPORT_POSE[5]});
 
     if (!torso_ok || !arm_ok)
-        return {false, "FAILED", msg};
+        return {false, "FAILED", "transport_pose_failed"};
 
     if (!gh->is_active())
         return {false, "FAILED", "goal_cancelled"};
-
-    // ── EXECUTING_RETRACT ─────────────────────────────────────
-    publishFeedback(gh, TakeState::EXECUTING_RETRACT);
-
-    ok = manipulation_->FollowTrajectory(
-                arm_group_, joint_names_, waypoints_, msg);
-
-    if (!ok)
-        return {false, "FAILED", msg};
 
     // ── SUCCESS ───────────────────────────────────────────────
     publishFeedback(gh, TakeState::SUCCESS, arm_group_);
@@ -329,16 +359,11 @@ bool Take::parseArgument(
 {
     const std::size_t sep = argument.rfind('_');
 
-    if (sep == std::string::npos ||
-        sep == 0 ||
-        sep + 1 == argument.size())
-    {
+    if (sep == std::string::npos || sep == 0 || sep + 1 == argument.size())
         return false;
-    }
 
     out_name  = argument.substr(0, sep);
     out_index = argument.substr(sep + 1);
-
     return true;
 }
 
@@ -349,18 +374,16 @@ std::optional<geometry_msgs::msg::PoseStamped> Take::jsonToPose(
     const json& data,
     rclcpp::Clock::SharedPtr clock)
 {
-    geometry_msgs::msg::PoseStamped pose;
-
     if (!data.is_array() || data.size() != 7)
         return std::nullopt;
 
+    geometry_msgs::msg::PoseStamped pose;
     pose.header.stamp    = clock->now();
     pose.header.frame_id = "base_link";
 
-    pose.pose.position.x = data[0].get<double>();
-    pose.pose.position.y = data[1].get<double>();
-    pose.pose.position.z = data[2].get<double>();
-
+    pose.pose.position.x    = data[0].get<double>();
+    pose.pose.position.y    = data[1].get<double>();
+    pose.pose.position.z    = data[2].get<double>();
     pose.pose.orientation.x = data[3].get<double>();
     pose.pose.orientation.y = data[4].get<double>();
     pose.pose.orientation.z = data[5].get<double>();
@@ -372,18 +395,19 @@ std::optional<geometry_msgs::msg::PoseStamped> Take::jsonToPose(
 // ─────────────────────────────────────────────────────────────
 //  selectArm
 // ─────────────────────────────────────────────────────────────
-bool Take::selectArm(std::string& arm_group,
-                     std::string& hand,
-                     const std::string& right_obj,
-                     const std::string& left_obj,
-                     const double y_coord) const
+bool Take::selectArm(
+    std::string& arm_group,
+    std::string& hand,
+    const std::string& right_obj,
+    const std::string& left_obj,
+    const double y_coord) const
 {
     arm_group = (y_coord >= 0.0) ? "left_arm_group" : "right_arm_group";
-    
+
     if (arm_group == "left_arm_group") {
         hand = "left_hand";
         return (left_obj == "nothing");
-    } else {        
+    } else {
         hand = "right_hand";
         return (right_obj == "nothing");
     }
@@ -419,7 +443,6 @@ void Take::publishFeedback(
         return;
 
     std::string msg = "[take] " + stateName(state);
-
     if (!detail.empty())
         msg += ": " + detail;
 
