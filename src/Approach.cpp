@@ -30,6 +30,12 @@ Approach::Approach(const rclcpp::Node::SharedPtr &node,
 
   set_params_client_ = node_->create_client<rcl_interfaces::srv::SetParameters>(
       "/navigation/potential_fields/set_parameters");
+
+  global_goal_pub_ = node_->create_publisher<geometry_msgs::msg::PoseStamped>(
+      "/nav_control/goal", 10);
+
+  stop_nav_pub_ = node_->create_publisher<std_msgs::msg::Empty>(
+      "/navigation/navigation/stop", 10);
 }
 
 // =========================================================
@@ -73,7 +79,6 @@ Result Approach::run(const std::string &argument,
     target_frame = "customer";
     is_person = true;
   } else {
-    // If it does not start with OWL_ and isn't a raw frame name, resolve to
     // OWL_<arg>_0
     if (argument.find("OWL_") == std::string::npos && argument != "object") {
       target_frame = "OWL_" + argument + "_0";
@@ -110,6 +115,101 @@ Result Approach::run(const std::string &argument,
   if (!tf_found) {
     publishFeedback(gh, ApproachState::FAILED, "tf_not_found: " + target_frame);
     return {false, "FAILED", "tf_not_found"};
+  }
+
+  // =====================================================
+  // GLOBAL EMPTY-MAP NAVIGATION
+  // =====================================================
+  if (is_person && gh->is_active()) {
+    double initial_tx = 0.0;
+    double initial_ty = 0.0;
+    try {
+      auto tf = tf_buffer_->lookupTransform("base_link", target_frame,
+                                            tf2::TimePointZero, 100ms);
+      initial_tx = tf.transform.translation.x;
+      initial_ty = tf.transform.translation.y;
+
+      double initial_dist =
+          std::sqrt(initial_tx * initial_tx + initial_ty * initial_ty);
+      if (initial_dist > 1.2) {
+        RCLCPP_INFO(node_->get_logger(),
+                    "Approach: Target is far (%.3f m). Starting global "
+                    "empty-map navigation...",
+                    initial_dist);
+
+        bool global_goal_sent = false;
+        auto last_goal_time =
+            std::chrono::steady_clock::now() - 5s; // force immediate send
+
+        while (gh->is_active()) {
+          double tx = 0.0;
+          double ty = 0.0;
+          bool tf_ok = false;
+          try {
+            auto tf = tf_buffer_->lookupTransform("base_link", target_frame,
+                                                  tf2::TimePointZero, 100ms);
+            tx = tf.transform.translation.x;
+            ty = tf.transform.translation.y;
+            tf_ok = true;
+          } catch (const tf2::TransformException &ex) {
+            RCLCPP_WARN(
+                node_->get_logger(),
+                "Approach: TF lookup failed during global navigation: %s",
+                ex.what());
+          }
+
+          if (tf_ok) {
+            double dist = std::sqrt(tx * tx + ty * ty);
+            if (dist <= 1.0) {
+              RCLCPP_INFO(node_->get_logger(),
+                          "Approach: Target reached proximity threshold (%.3f "
+                          "m <= 1.0 m). Stopping global navigation.",
+                          dist);
+              auto stop_msg = std::make_shared<std_msgs::msg::Empty>();
+              stop_nav_pub_->publish(*stop_msg);
+              break;
+            }
+
+            auto now_time = std::chrono::steady_clock::now();
+            if (now_time - last_goal_time > 3s) {
+              try {
+                auto tf_map_target = tf_buffer_->lookupTransform(
+                    "map", target_frame, tf2::TimePointZero, 100ms);
+
+                geometry_msgs::msg::PoseStamped goal_msg;
+                goal_msg.header.frame_id = "map";
+                goal_msg.header.stamp = node_->now();
+                goal_msg.pose.position.x =
+                    tf_map_target.transform.translation.x;
+                goal_msg.pose.position.y =
+                    tf_map_target.transform.translation.y;
+                goal_msg.pose.position.z =
+                    tf_map_target.transform.translation.z;
+                goal_msg.pose.orientation = tf_map_target.transform.rotation;
+
+                global_goal_pub_->publish(goal_msg);
+                global_goal_sent = true;
+                last_goal_time = now_time;
+
+                RCLCPP_INFO(node_->get_logger(),
+                            "Approach: Sent global goal for %s to [%.3f, %.3f] "
+                            "in map frame",
+                            target_frame.c_str(), goal_msg.pose.position.x,
+                            goal_msg.pose.position.y);
+              } catch (const tf2::TransformException &ex) {
+                RCLCPP_WARN(node_->get_logger(),
+                            "Approach: Map transform lookup failed: %s",
+                            ex.what());
+              }
+            }
+          }
+          std::this_thread::sleep_for(100ms);
+        }
+      }
+    } catch (const tf2::TransformException &ex) {
+      RCLCPP_WARN(node_->get_logger(), "Approach: Initial TF lookup failed: %s",
+                  ex.what());
+    }
   }
 
   // =====================================================
@@ -270,7 +370,7 @@ Result Approach::run(const std::string &argument,
       continue;
     }
 
-    // --- Person Target (Omnidirectional Approach) ---
+    // --- Person Target ---
     if (is_person) {
       double dist = std::sqrt(tx * tx + ty * ty);
       double angle = std::atan2(ty, tx);
@@ -322,8 +422,8 @@ Result Approach::run(const std::string &argument,
                        // where the laser is)
       double wz = 0.0;
 
-      // Always turn in place first to align with the net force vector (safe
-      // direction) before moving forward
+      // Always turn in place first to align with the net force vector
+      // before moving forward
       if (std::abs(net_angle) <= 0.25) {
         vx = kKpX * total_x;
         wz = kKpTheta * net_angle;
@@ -343,9 +443,7 @@ Result Approach::run(const std::string &argument,
         wz = -kMaxAngVel;
 
       moveRobot(vx, vy, wz);
-    }
-    // --- Object Target (Sideways Lateral Centering) ---
-    else {
+    } else {
       double y_err = ty;
 
       // Sideways aligned check
