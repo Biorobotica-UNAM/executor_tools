@@ -391,7 +391,7 @@ bool Take::selectArm(std::string& arm_group,
 
 std::string Take::selectTip(const std::string& arm_group){
     return (arm_group_=="left_arm_group") ? 
-            "left_pinch_object_link" : "right_pinch_object_link"
+            "left_pinch_object_link" : "right_pinch_object_link";
 }
 
 // ─────────────────────────────────────────────────────────────
