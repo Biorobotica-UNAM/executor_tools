@@ -74,6 +74,8 @@ private:
                     const std::string& left_obj,
                     const double y_coord) const;
 
+    std::string selectTip(const std::string& arm_group);
+
     PoseStamped retractPose(const std::string& arm) const;
 
     void publishFeedback(

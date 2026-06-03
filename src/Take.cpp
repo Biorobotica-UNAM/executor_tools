@@ -97,7 +97,7 @@ Result Take::run(
 
         std::string msg;
         bool ok = manipulation_->PlanTrajectory(
-                        home, arm_group_, joint_names_, waypoints_, msg);
+                        home, arm_group_, selectTip(arm_group_), joint_names_, waypoints_, msg);
         if (!ok)
             return {false, "FAILED", msg};
 
@@ -214,7 +214,7 @@ Result Take::run(
         publishFeedback(gh, TakeState::PLANNING_EXTEND, "say_failed");
 
     bool ok = manipulation_->PlanTrajectory(
-                    target_pose, arm_group_, joint_names_, waypoints_, msg);
+                    target_pose, arm_group_, selectTip(arm_group_), joint_names_, waypoints_, msg);
 
     if (!ok)
         return {false, "FAILED", msg};
@@ -270,7 +270,7 @@ Result Take::run(
         publishFeedback(gh, TakeState::PLANNING_RETRACT, "say_failed");
 
     ok = manipulation_->PlanTrajectory(
-                home, arm_group_, joint_names_, waypoints_, msg);
+                home, arm_group_, selectTip(arm_group_), joint_names_, waypoints_, msg);
 
     if (!ok)
         return {false, "FAILED", msg};
@@ -387,6 +387,11 @@ bool Take::selectArm(std::string& arm_group,
         hand = "right_hand";
         return (right_obj == "nothing");
     }
+}
+
+std::string Take::selectTip(const std::string& arm_group){
+    return (arm_group_=="left_arm_group") ? 
+            "left_pinch_object_link" : "right_pinch_object_link"
 }
 
 // ─────────────────────────────────────────────────────────────
