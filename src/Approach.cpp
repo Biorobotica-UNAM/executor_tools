@@ -1,9 +1,9 @@
 #include "executor_tools/Approach.hpp"
-
-#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+#include <nlohmann/json.hpp>
 #include <chrono>
 #include <cmath>
 #include <thread>
+#include <vector>
 
 using namespace std::chrono_literals;
 
@@ -12,11 +12,12 @@ using namespace std::chrono_literals;
 // =========================================================
 Approach::Approach(const rclcpp::Node::SharedPtr &node,
                    const std::shared_ptr<Hardware> &hardware,
-                   const std::shared_ptr<Vision> &vision)
-    : node_(node), hardware_(hardware), vision_(vision) {
-  tf_buffer_ = std::make_shared<tf2_ros::Buffer>(node_->get_clock());
-  tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
-}
+                   const std::shared_ptr<Vision> &vision,
+                   const std::shared_ptr<Navigation> &navigation,
+                   const std::shared_ptr<Knowledge> &knowledge)
+    : node_(node), hardware_(hardware), vision_(vision), 
+      navigation_(navigation), knowledge_(knowledge) 
+{}
 
 // =========================================================
 // run
@@ -26,206 +27,124 @@ Result Approach::run(const std::string &argument,
   if (!gh || !gh->is_active())
     return {false, "FAILED", "goal_handle_inactive"};
 
+  // ── READY ─────────────────────────────────────────────
   publishFeedback(gh, ApproachState::READY, argument);
 
-  // Resolve Target TF and type
-  std::string target_frame = argument;
-  bool is_person = false;
+  // ── LOADING ───────────────────────────────────────────
+  publishFeedback(gh, ApproachState::LOADING, argument);
 
-  if (argument == "person" || argument == "customer") {
-    target_frame = "customer";
-    is_person = true;
+  // Resolver Categoría e Índice desde el argumento (ej. "guest_1")
+  std::string category = "guest";
+  std::string index = "1";
+  
+  if (argument.find('_') != std::string::npos) {
+      category = argument.substr(0, argument.find('_'));
+      index = argument.substr(argument.find('_') + 1);
   } else {
-    // If it does not start with OWL_ and isn't a raw frame name, resolve to
-    // OWL_<arg>_0
-    if (argument.find("OWL_") == std::string::npos && argument != "object") {
-      target_frame = "OWL_" + argument + "_0";
-    }
+      category = argument;
   }
 
-  RCLCPP_INFO(node_->get_logger(), "Approach starting: frame=%s (type=%s)",
-              target_frame.c_str(), is_person ? "person" : "object");
-
-  // =====================================================
-  // LOOKING_FOR_TF
-  // =====================================================
-  publishFeedback(gh, ApproachState::LOOKING_FOR_TF, target_frame);
-
-  bool tf_found = false;
-  auto lookup_start = std::chrono::steady_clock::now();
-  const auto kLookupTimeout = 5s;
-
-  while (gh->is_active()) {
-    try {
-      // Quick check if transform is lookupable
-      auto tf = tf_buffer_->lookupTransform("base_link", target_frame,
-                                            tf2::TimePointZero, 100ms);
-      tf_found = true;
-      break;
-    } catch (const tf2::TransformException &ex) {
-      std::this_thread::sleep_for(100ms);
-    }
-    if (std::chrono::steady_clock::now() - lookup_start > kLookupTimeout) {
-      break;
-    }
+  // Interrogar al Knowledge Bank por la pose serializada en nav.dump()
+  nlohmann::json raw_knowledge_response = knowledge_->get_world_state(category, index, "navigation");
+  
+  if (raw_knowledge_response.empty()) {
+    publishFeedback(gh, ApproachState::FAILED, "target_not_in_knowledge: " + argument);
+    return {false, "FAILED", "target_not_in_knowledge"};
   }
 
-  if (!tf_found) {
-    publishFeedback(gh, ApproachState::FAILED, "tf_not_found: " + target_frame);
-    return {false, "FAILED", "tf_not_found"};
+  // Desempaquetar el string JSON interno hacia el array numérico real
+  std::string serialized_nav_string = raw_knowledge_response.get<std::string>();
+  nlohmann::json nav_array = nlohmann::json::parse(serialized_nav_string);
+
+  if (!nav_array.is_array() || nav_array.size() != 7) {
+    publishFeedback(gh, ApproachState::FAILED, "invalid_serialized_pose_format: " + argument);
+    return {false, "FAILED", "invalid_pose_format"};
   }
 
-  // =====================================================
-  // APPROACHING LOOP
-  // =====================================================
-  publishFeedback(gh, ApproachState::APPROACHING);
+  double target_x = nav_array[0].get<double>();
+  double target_y = nav_array[1].get<double>();
 
-  const double kTargetDist = 0.8; // 80 cm target distance
-  const double kDistTol = 0.05;   // 5 cm distance tolerance
-  const double kAngleTol = 0.1;   // ~5.7 degrees angular tolerance
-  const double kYAlignTol = 0.03; // 3 cm sideways tolerance for objects
+  // ── APPROACHING (Muestreo Circular a 45° con Nav2) ────
+  publishFeedback(gh, ApproachState::APPROACHING, argument);
 
-  // Proportional Gains
-  const double kKpX = 0.6;
-  const double kKpY = 0.6;
-  const double kKpTheta = 0.8;
+  const double R = 0.30; // Radio de detención seguro (30 cm)
+  
+  // Vector de ángulos en abanico (0°, +45°, -45°, +90°, -90°, +135°, -135°, 180°)
+  std::vector<double> angles_to_try = {0.0, -0.785, 0.785, -1.57, 1.57, -2.356, 2.356, 3.141};
+  bool any_goal_reached = false;
 
-  // Safety Velocity Limits
-  const double kMaxLinVel = 0.25; // m/s
-  const double kMaxAngVel = 0.5;  // rad/s
-
-  auto start_time = std::chrono::steady_clock::now();
-  const auto kMaxDuration = 20s;
-
-  while (gh->is_active()) {
-    double tx = 0.0;
-    double ty = 0.0;
-
-    try {
-      auto tf = tf_buffer_->lookupTransform("base_link", target_frame,
-                                            tf2::TimePointZero, 100ms);
-      tx = tf.transform.translation.x;
-      ty = tf.transform.translation.y;
-    } catch (const tf2::TransformException &ex) {
-      RCLCPP_WARN(node_->get_logger(), "Approach: TF lookup failed: %s",
-                  ex.what());
-      std::this_thread::sleep_for(50ms);
-      continue;
+  for (size_t i = 0; i < angles_to_try.size(); ++i) {
+    if (!gh->is_active()) {
+      publishFeedback(gh, ApproachState::FAILED, "goal_cancelled");
+      return {false, "FAILED", "goal_cancelled"};
     }
 
-    // --- Person Target (Omnidirectional Approach) ---
-    if (is_person) {
-      double dist = std::sqrt(tx * tx + ty * ty);
-      double angle = std::atan2(ty, tx);
-      double dist_err = dist - kTargetDist;
+    double alpha = angles_to_try[i];
+    
+    // Ecuaciones de la circunferencia para desplazar la meta de Nav2
+    double goal_x = target_x + R * std::cos(alpha);
+    double goal_y = target_y + R * std::sin(alpha);
+    
+    // Calcular orientación cartesiana para que Justina mire al objetivo central
+    double goal_theta = std::atan2(target_y - goal_y, target_x - goal_x);
 
-      // Arrived check
-      if (std::abs(dist_err) <= kDistTol && std::abs(angle) <= kAngleTol) {
-        hardware_->MoveBase(0.0, 0.0, 0.0);
-        publishFeedback(gh, ApproachState::SUCCESS);
-        return {true, "SUCCESS", "approached_person"};
-      }
+    std::string retry_detail = "retry_" + std::to_string(i + 1) + "_angle_" + 
+                               std::to_string(static_cast<int>(alpha * 180.0 / M_PI)) + 
+                               "_deg";
+    publishFeedback(gh, ApproachState::APPROACHING, retry_detail);
 
-      // Project errors on local base_link axes
-      double ux = tx / dist;
-      double uy = ty / dist;
-      double err_x = dist_err * ux;
-      double err_y = dist_err * uy;
+    // Invocar la navegación global síncrona
+    bool nav_ok = navigation_->GoToCoordinates(goal_x, goal_y, goal_theta);
 
-      double vx = kKpX * err_x;
-      double vy = kKpY * err_y;
-      double wz = kKpTheta * angle;
-
-      // Clamping velocities
-      if (vx > kMaxLinVel)
-        vx = kMaxLinVel;
-      if (vx < -kMaxLinVel)
-        vx = -kMaxLinVel;
-      if (vy > kMaxLinVel)
-        vy = kMaxLinVel;
-      if (vy < -kMaxLinVel)
-        vy = -kMaxLinVel;
-      if (wz > kMaxAngVel)
-        wz = kMaxAngVel;
-      if (wz < -kMaxAngVel)
-        wz = -kMaxAngVel;
-
-      hardware_->MoveBase(vx, vy, wz);
-    }
-    // --- Object Target (Sideways Lateral Centering) ---
-    else {
-      double y_err = ty;
-
-      // Sideways aligned check
-      if (std::abs(y_err) <= kYAlignTol) {
-        hardware_->MoveBase(0.0, 0.0, 0.0);
-        publishFeedback(gh, ApproachState::SUCCESS);
-        return {true, "SUCCESS", "aligned_object"};
-      }
-
-      double vy = kKpY * y_err;
-
-      if (vy > kMaxLinVel)
-        vy = kMaxLinVel;
-      if (vy < -kMaxLinVel)
-        vy = -kMaxLinVel;
-
-      hardware_->MoveBase(0.0, vy, 0.0);
+    if (nav_ok) {
+        any_goal_reached = true;
+        break; // Éxito: Rompemos el abanico cinemático
     }
 
-    // Timeout check
-    if (std::chrono::steady_clock::now() - start_time > kMaxDuration) {
-      hardware_->MoveBase(0.0, 0.0, 0.0);
-      publishFeedback(gh, ApproachState::FAILED, "timeout");
-      return {false, "FAILED", "timeout"};
-    }
-
-    std::this_thread::sleep_for(50ms); // 20 Hz control loop
+    RCLCPP_WARN(node_->get_logger(), "[Approach] Angle %.1f deg blocked by obstacles. Trying next offset...", alpha * 180.0 / M_PI);
+    std::this_thread::sleep_for(200ms);
   }
 
-  // Cancelled goal
-  hardware_->MoveBase(0.0, 0.0, 0.0);
-  publishFeedback(gh, ApproachState::FAILED, "goal_cancelled");
-  return {false, "FAILED", "goal_cancelled"};
+  // ── SUCCESS / FAILED ──────────────────────────────────
+  if (any_goal_reached) {
+    publishFeedback(gh, ApproachState::SUCCESS, argument);
+    return {true, "SUCCESS", "approached_safely: " + argument};
+  } else {
+    publishFeedback(gh, ApproachState::FAILED, "all_angles_blocked: " + argument);
+    return {false, "FAILED", "all_approach_angles_blocked: " + argument};
+  }
 }
 
 // =========================================================
 // publishFeedback
 // =========================================================
-void Approach::publishFeedback(const std::shared_ptr<GoalHandle> &gh,
-                               ApproachState state, const std::string &detail) {
-  if (!gh->is_active())
-    return;
+void Approach::publishFeedback(const std::shared_ptr<GoalHandle>& gh,
+                               ApproachState                      state,
+                               const std::string&                 detail)
+{
+    if (!gh->is_active()) return;
 
-  std::string msg = "[approach] " + stateName(state);
-  if (!detail.empty())
-    msg += ": " + detail;
+    std::string msg = "[approach] " + stateName(state);
+    if (!detail.empty()) msg += ": " + detail;
 
-  auto fb = std::make_shared<ExecuteTask::Feedback>();
-  fb->feedback.message = msg;
-  gh->publish_feedback(fb);
+    auto fb = std::make_shared<ExecuteTask::Feedback>();
+    fb->feedback.message = msg;
+    gh->publish_feedback(fb);
 
-  RCLCPP_INFO(node_->get_logger(), "%s", msg.c_str());
+    RCLCPP_INFO(node_->get_logger(), "%s", msg.c_str());
 }
 
 // =========================================================
 // stateName
 // =========================================================
-std::string Approach::stateName(ApproachState s) {
-  switch (s) {
-  case ApproachState::READY:
-    return "READY";
-  case ApproachState::LOOKING_FOR_TF:
-    return "LOOKING_FOR_TF";
-  case ApproachState::APPROACHING:
-    return "APPROACHING";
-  case ApproachState::STABILIZING:
-    return "STABILIZING";
-  case ApproachState::SUCCESS:
-    return "SUCCESS";
-  case ApproachState::FAILED:
-    return "FAILED";
-  default:
-    return "UNKNOWN";
-  }
+std::string Approach::stateName(ApproachState s)
+{
+    switch (s) {
+        case ApproachState::READY:       return "READY";
+        case ApproachState::LOADING:     return "LOADING";
+        case ApproachState::APPROACHING: return "APPROACHING";
+        case ApproachState::SUCCESS:     return "SUCCESS";
+        case ApproachState::FAILED:      return "FAILED";
+        default:                         return "UNKNOWN";
+    }
 }
