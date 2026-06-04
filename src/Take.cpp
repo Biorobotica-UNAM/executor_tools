@@ -97,7 +97,7 @@ Result Take::run(
 
         std::string msg;
         bool ok = manipulation_->PlanTrajectory(
-                        home, arm_group_, joint_names_, waypoints_, msg);
+                        home, arm_group_, selectTip(arm_group_), joint_names_, waypoints_, msg);
         if (!ok)
             return {false, "FAILED", msg};
 
@@ -108,6 +108,24 @@ Result Take::run(
                     arm_group_, joint_names_, waypoints_, msg);
         if (!ok)
             return {false, "FAILED", msg};
+
+        // ── PREPARING_TRANSPORT (early jump) ──────────────────────────────────────
+        publishFeedback(gh, TakeState::PREPARING_TRANSPORT);
+
+        bool torso_ok = hardware_->MoveTorso(0.3);
+
+        bool arm_ok = (arm_group_ == "left_arm_group") ? hardware_->MoveLeftArm(
+                                                {TRANSPORT_POSE[0], TRANSPORT_POSE[1], TRANSPORT_POSE[2],
+                                                 TRANSPORT_POSE[3], TRANSPORT_POSE[4], TRANSPORT_POSE[5]})
+                                            : hardware_->MoveRightArm(
+                                                {TRANSPORT_POSE[0], TRANSPORT_POSE[1], TRANSPORT_POSE[2],
+                                                 TRANSPORT_POSE[3], TRANSPORT_POSE[4], TRANSPORT_POSE[5]});
+
+        if (!arm_ok || !torso_ok)
+            return {false, "FAILED", msg};
+
+        if (!gh->is_active())
+            return {false, "FAILED", "goal_cancelled"};
 
         // ── SUCCESS (early jump) ────────────────────────────────────
         publishFeedback(gh, TakeState::SUCCESS, arm_group_);
@@ -196,7 +214,7 @@ Result Take::run(
         publishFeedback(gh, TakeState::PLANNING_EXTEND, "say_failed");
 
     bool ok = manipulation_->PlanTrajectory(
-                    target_pose, arm_group_, joint_names_, waypoints_, msg);
+                    target_pose, arm_group_, selectTip(arm_group_), joint_names_, waypoints_, msg);
 
     if (!ok)
         return {false, "FAILED", msg};
@@ -252,9 +270,36 @@ Result Take::run(
         publishFeedback(gh, TakeState::PLANNING_RETRACT, "say_failed");
 
     ok = manipulation_->PlanTrajectory(
-                home, arm_group_, joint_names_, waypoints_, msg);
+                home, arm_group_, selectTip(arm_group_), joint_names_, waypoints_, msg);
 
     if (!ok)
+        return {false, "FAILED", msg};
+
+    if (!gh->is_active())
+        return {false, "FAILED", "goal_cancelled"};
+
+    // ── EXECUTING_RETRACT ─────────────────────────────────────
+    publishFeedback(gh, TakeState::EXECUTING_RETRACT);
+
+    ok = manipulation_->FollowTrajectory(
+                arm_group_, joint_names_, waypoints_, msg);
+
+    if (!ok)
+        return {false, "FAILED", msg};
+
+    // ── PREPARING_TRANSPORT ──────────────────────────────────────
+    publishFeedback(gh, TakeState::PREPARING_TRANSPORT);
+
+    bool torso_ok = hardware_->MoveTorso(0.3);
+
+    bool arm_ok = (arm_group_ == "left_arm_group") ? hardware_->MoveLeftArm(
+                                            {TRANSPORT_POSE[0], TRANSPORT_POSE[1], TRANSPORT_POSE[2],
+                                             TRANSPORT_POSE[3], TRANSPORT_POSE[4], TRANSPORT_POSE[5]})
+                                        : hardware_->MoveRightArm(
+                                            {TRANSPORT_POSE[0], TRANSPORT_POSE[1], TRANSPORT_POSE[2],
+                                             TRANSPORT_POSE[3], TRANSPORT_POSE[4], TRANSPORT_POSE[5]});
+
+    if (!torso_ok || !arm_ok)
         return {false, "FAILED", msg};
 
     if (!gh->is_active())
@@ -344,6 +389,11 @@ bool Take::selectArm(std::string& arm_group,
     }
 }
 
+std::string Take::selectTip(const std::string& arm_group){
+    return (arm_group_=="left_arm_group") ? 
+            "left_pinch_object_link" : "right_pinch_object_link";
+}
+
 // ─────────────────────────────────────────────────────────────
 //  retractPose
 // ─────────────────────────────────────────────────────────────
@@ -403,6 +453,7 @@ std::string Take::stateName(TakeState s)
         case TakeState::REPORTING_OCCUPANCY: return "REPORTING_OCCUPANCY";
         case TakeState::PLANNING_RETRACT:    return "PLANNING_RETRACT";
         case TakeState::EXECUTING_RETRACT:   return "EXECUTING_RETRACT";
+        case TakeState::PREPARING_TRANSPORT: return "PREPARING_TRANSPORT";
         case TakeState::SUCCESS:             return "SUCCESS";
         case TakeState::FAILED:              return "FAILED";
         default:                             return "UNKNOWN";

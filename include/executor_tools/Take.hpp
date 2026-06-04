@@ -34,6 +34,7 @@ enum class TakeState
     REPORTING_OCCUPANCY,
     PLANNING_RETRACT,
     EXECUTING_RETRACT,
+    PREPARING_TRANSPORT,
     SUCCESS,
     FAILED
 };
@@ -73,6 +74,8 @@ private:
                     const std::string& left_obj,
                     const double y_coord) const;
 
+    std::string selectTip(const std::string& arm_group);
+
     PoseStamped retractPose(const std::string& arm) const;
 
     void publishFeedback(
@@ -82,7 +85,8 @@ private:
 
     static std::string stateName(TakeState s);
 
-    static constexpr std::array<double, 6> PREPARE_POSE = {0.0, 0.0, 0.0, 1.5, 0.0, 0.9};
+    static constexpr std::array<double, 6> PREPARE_POSE   = {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
+    static constexpr std::array<double, 6> TRANSPORT_POSE = {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
 
     rclcpp::Node::SharedPtr       node_;
     std::shared_ptr<Manipulation> manipulation_;
