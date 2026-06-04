@@ -62,6 +62,8 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr pf_cmd_vel_pub_;
   rclcpp::Client<rcl_interfaces::srv::SetParameters>::SharedPtr
       set_params_client_;
+  rclcpp::Client<rcl_interfaces::srv::SetParameters>::SharedPtr
+      set_sm_params_client_;
 
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr
       global_goal_pub_;

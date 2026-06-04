@@ -31,6 +31,10 @@ Approach::Approach(const rclcpp::Node::SharedPtr &node,
   set_params_client_ = node_->create_client<rcl_interfaces::srv::SetParameters>(
       "/navigation/potential_fields/set_parameters");
 
+  set_sm_params_client_ =
+      node_->create_client<rcl_interfaces::srv::SetParameters>(
+          "/navigation/simple_move/set_parameters");
+
   global_goal_pub_ = node_->create_publisher<geometry_msgs::msg::PoseStamped>(
       "/nav_control/goal", 10);
 
@@ -137,6 +141,50 @@ Result Approach::run(const std::string &argument,
                     "empty-map navigation...",
                     initial_dist);
 
+        // Temporarily reduce simple_move max_linear_speed for safe empty-map
+        // navigation
+        if (set_sm_params_client_->wait_for_service(
+                std::chrono::milliseconds(500))) {
+          auto req =
+              std::make_shared<rcl_interfaces::srv::SetParameters::Request>();
+          rcl_interfaces::msg::Parameter param_max_speed;
+          param_max_speed.name = "max_linear_speed";
+          param_max_speed.value.type =
+              rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
+          param_max_speed.value.double_value = 0.3;
+          req->parameters.push_back(param_max_speed);
+          set_sm_params_client_->async_send_request(req);
+          RCLCPP_INFO(node_->get_logger(),
+                      "Approach: Set simple_move max_linear_speed to 0.3 m/s");
+        }
+
+        // Temporarily increase potential_fields search window to stop further
+        // from obstacles
+        if (set_params_client_->wait_for_service(
+                std::chrono::milliseconds(500))) {
+          auto req =
+              std::make_shared<rcl_interfaces::srv::SetParameters::Request>();
+          rcl_interfaces::msg::Parameter param_laser_x;
+          param_laser_x.name = "laser_max_x";
+          param_laser_x.value.type =
+              rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
+          param_laser_x.value.double_value = 0.75;
+          req->parameters.push_back(param_laser_x);
+
+          rcl_interfaces::msg::Parameter param_cloud_x;
+          param_cloud_x.name = "cloud_max_x";
+          param_cloud_x.value.type =
+              rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
+          param_cloud_x.value.double_value = 1.0;
+          req->parameters.push_back(param_cloud_x);
+
+          set_params_client_->async_send_request(req);
+          RCLCPP_INFO(
+              node_->get_logger(),
+              "Approach: Set potential_fields laser_max_x to 0.95 m and "
+              "cloud_max_x to 1.20 m");
+        }
+
         bool global_goal_sent = false;
         auto last_goal_time =
             std::chrono::steady_clock::now() - 5s; // force immediate send
@@ -220,16 +268,19 @@ Result Approach::run(const std::string &argument,
   // Helper lambda to disable potential fields when we exit
   auto disable_pf = [this, is_person]() {
     if (is_person) {
+      /*
       auto disable_msg = std::make_shared<std_msgs::msg::Bool>();
       disable_msg->data = false;
       pf_enable_pub_->publish(*disable_msg);
       RCLCPP_INFO(node_->get_logger(), "Approach: Disabled potential fields");
+      */
 
       // Restore head position to look straight ahead
       hardware_->MoveHead({0.0, 0.0});
       RCLCPP_INFO(node_->get_logger(),
                   "Approach: Restored head position to (0.0, 0.0)");
 
+      /*
       // Restore potential_fields parameters to their defaults
       if (set_params_client_->wait_for_service(
               std::chrono::milliseconds(500))) {
@@ -269,6 +320,50 @@ Result Approach::run(const std::string &argument,
                     "Approach: Restored potential_fields default parameters "
                     "(use_pot_fields=false, use_point_cloud=false, d0=1.0)");
       }
+      */
+
+      // Restore potential_fields search windows to launch defaults (0.55 m /
+      // 0.80 m)
+      if (set_params_client_->wait_for_service(
+              std::chrono::milliseconds(500))) {
+        auto req =
+            std::make_shared<rcl_interfaces::srv::SetParameters::Request>();
+        rcl_interfaces::msg::Parameter param_laser_x;
+        param_laser_x.name = "laser_max_x";
+        param_laser_x.value.type =
+            rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
+        param_laser_x.value.double_value = 0.55;
+        req->parameters.push_back(param_laser_x);
+
+        rcl_interfaces::msg::Parameter param_cloud_x;
+        param_cloud_x.name = "cloud_max_x";
+        param_cloud_x.value.type =
+            rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
+        param_cloud_x.value.double_value = 0.80;
+        req->parameters.push_back(param_cloud_x);
+
+        set_params_client_->async_send_request(req);
+        RCLCPP_INFO(node_->get_logger(), "Approach: Restored potential_fields "
+                                         "search windows (laser_max_x=0.55 m, "
+                                         "cloud_max_x=0.80 m)");
+      }
+
+      // Restore simple_move parameter back to its default (0.8 m/s)
+      if (set_sm_params_client_->wait_for_service(
+              std::chrono::milliseconds(500))) {
+        auto req =
+            std::make_shared<rcl_interfaces::srv::SetParameters::Request>();
+        rcl_interfaces::msg::Parameter param_max_speed;
+        param_max_speed.name = "max_linear_speed";
+        param_max_speed.value.type =
+            rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
+        param_max_speed.value.double_value = 0.8;
+        req->parameters.push_back(param_max_speed);
+        set_sm_params_client_->async_send_request(req);
+        RCLCPP_INFO(
+            node_->get_logger(),
+            "Approach: Restored simple_move max_linear_speed to 0.8 m/s");
+      }
     }
   };
 
@@ -279,6 +374,7 @@ Result Approach::run(const std::string &argument,
     RCLCPP_INFO(node_->get_logger(),
                 "Approach: Lowered head to see close obstacles (-0.4 rad)");
 
+    /*
     auto enable_msg = std::make_shared<std_msgs::msg::Bool>();
     enable_msg->data = true;
     pf_enable_pub_->publish(*enable_msg);
@@ -335,21 +431,22 @@ Result Approach::run(const std::string &argument,
                   "Approach: set_parameters service not available. Obstacle "
                   "avoidance might not activate if launched disabled.");
     }
+    */
   }
 
-  const double kTargetDist = 0.3; // 80 cm target distance
+  const double kTargetDist = 0.5; // 50 cm target distance
   const double kDistTol = 0.05;   // 5 cm distance tolerance
   const double kAngleTol = 0.1;   // ~5.7 degrees angular tolerance
   const double kYAlignTol = 0.03; // 3 cm sideways tolerance for objects
 
   // Proportional Gains
-  const double kKpX = 0.6;
-  const double kKpY = 0.6;
+  const double kKpX = 0.4;
+  const double kKpY = 0.4;
   const double kKpTheta = 0.8;
 
   // Safety Velocity Limits
-  const double kMaxLinVel = 0.4; // m/s
-  const double kMaxAngVel = 0.5; // rad/s
+  const double kMaxLinVel = 0.25; // m/s
+  const double kMaxAngVel = 0.5;  // rad/s
 
   auto start_time = std::chrono::steady_clock::now();
   const auto kMaxDuration = 120s;
@@ -387,11 +484,13 @@ Result Approach::run(const std::string &argument,
       // Retrieve latest repulsive force
       double rep_x = 0.0;
       double rep_y = 0.0;
+      /*
       {
         std::lock_guard<std::mutex> lock(force_mutex_);
         rep_x = pf_force_x_;
         rep_y = pf_force_y_;
       }
+      */
 
       // Compute attractive force components on base_link axes
       double ux = tx / dist;
