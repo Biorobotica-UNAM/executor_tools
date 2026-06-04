@@ -94,12 +94,12 @@ Result Approach::run(const std::string &argument,
     publishFeedback(gh, ApproachState::APPROACHING, retry_detail);
 
     // Invocar la navegación global síncrona
-    bool nav_ok = navigation_->GoToCoordinates(goal_x, goal_y, goal_theta);
+    /*bool nav_ok = navigation_->GoToCoordinates(goal_x, goal_y, goal_theta);
 
     if (nav_ok) {
         any_goal_reached = true;
         break; // Éxito: Rompemos el abanico cinemático
-    }
+    }*/
 
     RCLCPP_WARN(node_->get_logger(), "[Approach] Angle %.1f deg blocked by obstacles. Trying next offset...", alpha * 180.0 / M_PI);
     std::this_thread::sleep_for(200ms);
