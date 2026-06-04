@@ -72,10 +72,11 @@ Result Approach::run(const std::string &argument,
   // ── APPROACHING ───────────────────────────────────────
   publishFeedback(gh, ApproachState::APPROACHING, argument);
 
-  const double R = 0.30; // 30 cm de distancia
+  const double R = 0.65; // 65 cm de distancia
   const std::string temp_location_name = "temp_approach_target";
   
-  std::vector<double> angles_to_try = {0.0, 0.785, -0.785, 1.57, -1.57, 2.356, -2.356, 3.141};
+  // Vector de ángulos en abanico (0°, -45°, +45°, -90°, +90°, -135°, +135°, 180°)
+  std::vector<double> angles_to_try = {0.0, -0.785, 0.785, -1.57, 1.57, -2.356, 2.356, 3.141};
   bool any_goal_reached = false;
 
   for (size_t i = 0; i < angles_to_try.size(); ++i) {
