@@ -26,9 +26,6 @@ Drop::Drop(const rclcpp::Node::SharedPtr &node,
           "/vision/container_drop_tf/enable");
   enable_shelf_drop_tf_client_ = node_->create_client<std_srvs::srv::SetBool>(
       "/vision/shelf_drop_tf/enable");
-  enable_container_yolo_world_client_ =
-      node_->create_client<std_srvs::srv::SetBool>(
-          "/vision/container_yolo_world/enable");
 }
 
 // =========================================================
@@ -64,26 +61,6 @@ Result Drop::run(const std::string &argument,
               argument.c_str(), drop_target.mode.c_str(), drop_frame.c_str(),
               target_frame.c_str());
 
-  bool yolo_world_enabled = false;
-  const auto unload_yolo_world = [&]() {
-    if (yolo_world_enabled) {
-      setDropTfNodeEnabled(enable_container_yolo_world_client_,
-                           "/vision/container_yolo_world/enable", false);
-      yolo_world_enabled = false;
-    }
-  };
-
-  if (drop_target.mode == "container") {
-    yolo_world_enabled =
-        setDropTfNodeEnabled(enable_container_yolo_world_client_,
-                             "/vision/container_yolo_world/enable", true);
-    if (!yolo_world_enabled) {
-      RCLCPP_WARN(node_->get_logger(),
-                  "[Drop] YOLO-World container no disponible; vision usara "
-                  "fallback si esta configurado");
-    }
-  }
-
   publishFeedback(gh, DropState::PREPARE_SENSOR,
                   "deteniendo base, ajustando torso y cabeza");
   hardware_->MoveBase(0.0, 0.0, 0.0);
@@ -91,13 +68,11 @@ Result Drop::run(const std::string &argument,
   // 2) Preparamos la postura de sensores segun el objetivo. Para mesa la
   // cabeza mira menos hacia abajo; para contenedores en piso mira mas abajo.
   if (!hardware_->MoveTorso(drop_target.torso_height)) {
-    unload_yolo_world();
     publishFeedback(gh, DropState::FAILED, "move_torso_failed");
     return {false, "FAILED", "move_torso_failed"};
   }
 
   if (!hardware_->MoveHead({0.0, drop_target.head_pitch})) {
-    unload_yolo_world();
     publishFeedback(gh, DropState::FAILED, "move_head_failed");
     return {false, "FAILED", "move_head_failed"};
   }
@@ -106,7 +81,6 @@ Result Drop::run(const std::string &argument,
   // 3) Activamos solo el nodo de vision necesario. Cada nodo procesa una nube
   // y publica una TF estatica cuando encuentra un punto seguro.
   if (!setDropTfNodeEnabled(enable_client, drop_target.service_label, true)) {
-    unload_yolo_world();
     publishFeedback(gh, DropState::FAILED,
                     "enable_" + drop_target.mode + "_drop_tf_failed");
     return {false, "FAILED",
@@ -186,7 +160,6 @@ Result Drop::run(const std::string &argument,
 
   if (!gh->is_active()) {
     setDropTfNodeEnabled(enable_client, drop_target.service_label, false);
-    unload_yolo_world();
     publishFeedback(gh, DropState::FAILED, "goal_cancelled");
     return {false, "FAILED", "goal_cancelled"};
   }
@@ -198,7 +171,6 @@ Result Drop::run(const std::string &argument,
     publishFeedback(gh, DropState::FAILED,
                     "drop_tf_not_available: " + last_error);
     setDropTfNodeEnabled(enable_client, drop_target.service_label, false);
-    unload_yolo_world();
     return {false, "FAILED", "drop_tf_not_available"};
   }
 
@@ -232,7 +204,6 @@ Result Drop::run(const std::string &argument,
     RCLCPP_WARN(node_->get_logger(), "[Drop] %s", oss.str().c_str());
     publishFeedback(gh, DropState::FAILED, oss.str());
     setDropTfNodeEnabled(enable_client, drop_target.service_label, false);
-    unload_yolo_world();
     return {false, "FAILED", oss.str()};
   }
 
@@ -242,7 +213,6 @@ Result Drop::run(const std::string &argument,
 
   publishFeedback(gh, DropState::SUCCESS, ok_msg.str());
   setDropTfNodeEnabled(enable_client, drop_target.service_label, false);
-  unload_yolo_world();
   return {true, "SUCCESS", ok_msg.str()};
 }
 
