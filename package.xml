@@ -18,6 +18,7 @@
   <depend>navigation_tools</depend>
   <depend>hardware_tools</depend>
   <depend>vision_tools</depend>
+  <depend>vision_interfaces</depend>
   <depend>manipulation_tools</depend>
   <depend>planning_tools</depend>
   <depend>knowledge_tools</depend>

@@ -6,6 +6,7 @@
 #include <cmath>
 #include <sstream>
 #include <thread>
+#include <unordered_map>
 
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "tf2/exceptions.h"
@@ -26,6 +27,8 @@ Drop::Drop(const rclcpp::Node::SharedPtr &node,
           "/vision/container_drop_tf/enable");
   enable_shelf_drop_tf_client_ = node_->create_client<std_srvs::srv::SetBool>(
       "/vision/shelf_drop_tf/enable");
+  owl_v2_client_ = node_->create_client<vision_interfaces::srv::GetDetections>(
+      "/vision/owl/owlv2_service");
 }
 
 // =========================================================
@@ -77,9 +80,26 @@ Result Drop::run(const std::string &argument,
     return {false, "FAILED", "move_head_failed"};
   }
 
+  if (drop_target.sensor_settle_delay_sec > 0.0) {
+    RCLCPP_INFO(node_->get_logger(),
+                "[Drop] esperando %.2fs para estabilizar cabeza/camara antes "
+                "del escaneo %s",
+                drop_target.sensor_settle_delay_sec,
+                drop_target.mode.c_str());
+    std::this_thread::sleep_for(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::duration<double>(drop_target.sensor_settle_delay_sec)));
+  }
+
+  if (drop_target.mode == "container" &&
+      !precenterContainerWithOwl(gh, drop_target)) {
+    publishFeedback(gh, DropState::FAILED, "container_out_of_scan_zone");
+    hardware_->MoveBase(0.0, 0.0, 0.0);
+    return {false, "FAILED", "container_out_of_scan_zone"};
+  }
+
   const rclcpp::Time request_stamp = node_->now();
   // 3) Activamos solo el nodo de vision necesario. Cada nodo procesa una nube
-  // y publica una TF estatica cuando encuentra un punto seguro.
+  // y publica una TF fresca cuando encuentra un punto seguro.
   if (!setDropTfNodeEnabled(enable_client, drop_target.service_label, true)) {
     publishFeedback(gh, DropState::FAILED,
                     "enable_" + drop_target.mode + "_drop_tf_failed");
@@ -122,10 +142,10 @@ Result Drop::run(const std::string &argument,
         last_error = "stale_drop_tf stamp=" + std::to_string(tf_stamp.seconds()) +
                      " request_stamp=" +
                      std::to_string(request_stamp.seconds());
-        RCLCPP_DEBUG(node_->get_logger(),
-                     "[Drop] ignorando TF vieja %s <- %s intento=%d %s",
-                     target_frame.c_str(), drop_frame.c_str(), attempts,
-                     last_error.c_str());
+        RCLCPP_INFO_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
+                             "[Drop] ignorando TF vieja %s <- %s intento=%d %s",
+                             target_frame.c_str(), drop_frame.c_str(), attempts,
+                             last_error.c_str());
         std::this_thread::sleep_for(100ms);
         continue;
       }
@@ -146,7 +166,9 @@ Result Drop::run(const std::string &argument,
       }
       found = true;
       RCLCPP_INFO(node_->get_logger(),
-                  "[Drop] TF encontrada tras %d intento(s)", attempts);
+                  "[Drop] TF encontrada tras %d intento(s) stamp=%.3f "
+                  "request_stamp=%.3f",
+                  attempts, tf_stamp.seconds(), request_stamp.seconds());
       break;
     } catch (const tf2::TransformException &ex) {
       last_error = ex.what();
@@ -246,6 +268,252 @@ bool Drop::setDropTfNodeEnabled(
   return response->success;
 }
 
+bool Drop::precenterContainerWithOwl(
+    const std::shared_ptr<GoalHandle> &gh,
+    const DropTarget &drop_target) {
+  constexpr int kMaxHeadCorrections = 2;
+  constexpr int kMaxBaseCorrections = 2;
+  constexpr double kIdealXMin = 1.05;
+  constexpr double kIdealXMax = 1.35;
+  constexpr double kIdealAbsYMax = 0.22;
+  constexpr double kScanXMin = 0.85;
+  constexpr double kScanXMax = 1.60;
+  constexpr double kScanAbsYMax = 0.65;
+  constexpr double kImageCenterX = 320.0;
+  constexpr double kImageCenterTolerancePx = 55.0;
+  constexpr double kHeadPanMax = 0.55;
+  constexpr double kHeadPanMin = -0.55;
+  constexpr double kMaxVx = 0.10;
+  constexpr double kMaxVy = 0.07;
+
+  double commanded_pan = 0.0;
+  int head_corrections = 0;
+  int base_corrections = 0;
+  for (int attempt = 0; attempt <= kMaxHeadCorrections + kMaxBaseCorrections + 1;
+       ++attempt) {
+    if (!gh->is_active()) {
+      return false;
+    }
+
+    publishFeedback(
+        gh, DropState::PRECENTER_CONTAINER_WITH_OWL,
+        "centrando contenedor con cabeza/base y OWLv2 intento=" +
+            std::to_string(attempt + 1));
+
+    OwlContainerPose pose;
+    std::string error;
+    if (!requestOwlContainerPose(pose, error)) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "[Drop] precenter OWL no disponible/sin deteccion: %s; "
+                  "se usara fallback geometrico",
+                  error.c_str());
+      return true;
+    }
+
+    const bool in_scan_zone =
+        pose.x >= kScanXMin && pose.x <= kScanXMax &&
+        std::fabs(pose.y) <= kScanAbsYMax;
+    const bool in_ideal_zone =
+        pose.x >= kIdealXMin && pose.x <= kIdealXMax &&
+        std::fabs(pose.y) <= kIdealAbsYMax;
+    RCLCPP_INFO(node_->get_logger(),
+                "[Drop] precenter OWL class=%s frame=%s conf=%.2f "
+                "base=(%.3f %.3f %.3f) bbox_cx=%.1f bbox_size=(%.1f %.1f) "
+                "ideal_x=[%.2f %.2f] ideal_abs_y<=%.2f "
+                "scan_x=[%.2f %.2f] scan_abs_y<=%.2f",
+                pose.class_name.c_str(), pose.frame.c_str(), pose.confidence,
+                pose.x, pose.y, pose.z, pose.bbox_center_x, pose.bbox_width,
+                pose.bbox_height, kIdealXMin, kIdealXMax, kIdealAbsYMax,
+                kScanXMin, kScanXMax, kScanAbsYMax);
+
+    if (!in_scan_zone) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "[Drop] contenedor fuera de la zona corregible actual: "
+                  "base=(%.3f %.3f %.3f) scan_x=[%.2f %.2f] abs_y<=%.2f. "
+                  "Se requiere reaproximacion externa.",
+                  pose.x, pose.y, pose.z, kScanXMin, kScanXMax,
+                  kScanAbsYMax);
+      return false;
+    }
+
+    const double image_error =
+        pose.bbox_center_x > 0.0 ? pose.bbox_center_x - kImageCenterX : 0.0;
+    const double desired_pan =
+        std::clamp(std::atan2(pose.y, std::max(0.05, pose.x)), kHeadPanMin,
+                   kHeadPanMax);
+    const bool image_centered =
+        std::fabs(image_error) <= kImageCenterTolerancePx;
+    const bool pan_close = std::fabs(desired_pan - commanded_pan) <= 0.05;
+    if (in_ideal_zone && image_centered && pan_close) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "[Drop] precenter OWL listo: contenedor en zona ideal "
+                  "para procesar nube");
+      return true;
+    }
+
+    if ((!image_centered || !pan_close) &&
+        head_corrections < kMaxHeadCorrections) {
+      commanded_pan = desired_pan;
+      ++head_corrections;
+      RCLCPP_INFO(node_->get_logger(),
+                  "[Drop] precenter moviendo cabeza pan=%.3f tilt=%.3f "
+                  "image_error=%.1f head_correction=%d/%d",
+                  commanded_pan, drop_target.head_pitch, image_error,
+                  head_corrections, kMaxHeadCorrections);
+      if (!hardware_->MoveHead({commanded_pan, drop_target.head_pitch})) {
+        RCLCPP_WARN(node_->get_logger(),
+                    "[Drop] fallo al mover cabeza para centrar contenedor; "
+                    "se intentara continuar con geometria/base si aplica");
+      }
+      std::this_thread::sleep_for(
+          std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::duration<double>(drop_target.sensor_settle_delay_sec)));
+      continue;
+    }
+
+    if (!in_ideal_zone && base_corrections < kMaxBaseCorrections) {
+      double vx = 0.0;
+      double vy = 0.0;
+      if (pose.x > kIdealXMax) {
+        vx = kMaxVx;
+      } else if (pose.x < kIdealXMin) {
+        vx = -kMaxVx;
+      }
+      if (pose.y > kIdealAbsYMax) {
+        vy = kMaxVy;
+      } else if (pose.y < -kIdealAbsYMax) {
+        vy = -kMaxVy;
+      }
+
+      const double x_error = std::max(
+          {0.0, pose.x - kIdealXMax, kIdealXMin - pose.x});
+      const double y_error =
+          std::max(0.0, std::fabs(pose.y) - kIdealAbsYMax);
+      const auto pulse_ms = static_cast<int>(std::clamp(
+          450.0 + 900.0 * std::max(x_error, y_error), 450.0, 950.0));
+
+      ++base_corrections;
+      RCLCPP_INFO(node_->get_logger(),
+                  "[Drop] precenter corrigiendo base vx=%.3f vy=%.3f "
+                  "duracion=%.2fs base_correction=%d/%d",
+                  vx, vy, static_cast<double>(pulse_ms) / 1000.0,
+                  base_corrections, kMaxBaseCorrections);
+      publishBasePulse(vx, vy, 0.0, std::chrono::milliseconds(pulse_ms));
+      std::this_thread::sleep_for(
+          std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::duration<double>(drop_target.sensor_settle_delay_sec)));
+      continue;
+    }
+
+    RCLCPP_WARN(node_->get_logger(),
+                "[Drop] no se logro zona ideal tras correcciones; "
+                "se continuara con geometria si sigue en zona escaneable");
+    return true;
+  }
+
+  return true;
+}
+
+bool Drop::requestOwlContainerPose(OwlContainerPose &pose_out,
+                                   std::string &error_out) {
+  if (!owl_v2_client_->wait_for_service(1s)) {
+    error_out = "owl_service_not_available";
+    return false;
+  }
+
+  auto request =
+      std::make_shared<vision_interfaces::srv::GetDetections::Request>();
+  request->queries = {"container_drop"};
+
+  auto future = owl_v2_client_->async_send_request(request);
+  if (future.wait_for(4s) != std::future_status::ready) {
+    error_out = "owl_service_timeout";
+    return false;
+  }
+
+  const auto response = future.get();
+  if (!response || !response->success || response->detections.empty()) {
+    error_out = response ? response->message : "empty_owl_response";
+    if (error_out.empty()) {
+      error_out = "no_owl_detections";
+    }
+    return false;
+  }
+
+  bool found = false;
+  double best_score = -1.0e9;
+  std::string best_frame;
+  std::string best_class;
+  double best_confidence = 0.0;
+  double best_bbox_center_x = 0.0;
+  double best_bbox_width = 0.0;
+  double best_bbox_height = 0.0;
+  std::unordered_map<std::string, int> class_counts;
+
+  for (const auto &det : response->detections) {
+    const double width = std::max(0.0, det.x_max - det.x_min);
+    const double height = std::max(0.0, det.y_max - det.y_min);
+    if (width < 15.0 || height < 15.0) {
+      continue;
+    }
+
+    const std::string frame_class = det.class_name;
+    std::string sanitized = frame_class;
+    std::replace(sanitized.begin(), sanitized.end(), ' ', '_');
+    const int instance = class_counts[sanitized]++;
+    const double area = width * height;
+    const double center_x = 0.5 * (det.x_min + det.x_max);
+    const double center_offset = std::fabs(center_x - 320.0) / 320.0;
+    const double score = det.confidence + 0.00001 * area - 0.20 * center_offset;
+
+    if (!found || score > best_score) {
+      found = true;
+      best_score = score;
+      best_frame = owlFrameName(frame_class, instance);
+      best_class = frame_class;
+      best_confidence = det.confidence;
+      best_bbox_center_x = center_x;
+      best_bbox_width = width;
+      best_bbox_height = height;
+    }
+  }
+
+  if (!found) {
+    error_out = "owl_detections_too_small";
+    return false;
+  }
+
+  try {
+    const auto tf = tf_buffer_->lookupTransform(
+        "base_link", best_frame, tf2::TimePointZero, 500ms);
+    pose_out.detected = true;
+    pose_out.class_name = best_class;
+    pose_out.frame = best_frame;
+    pose_out.confidence = best_confidence;
+    pose_out.bbox_center_x = best_bbox_center_x;
+    pose_out.bbox_width = best_bbox_width;
+    pose_out.bbox_height = best_bbox_height;
+    pose_out.x = tf.transform.translation.x;
+    pose_out.y = tf.transform.translation.y;
+    pose_out.z = tf.transform.translation.z;
+    return true;
+  } catch (const tf2::TransformException &ex) {
+    error_out = "owl_tf_not_available frame=" + best_frame +
+                " error=" + ex.what();
+    return false;
+  }
+}
+
+void Drop::publishBasePulse(double vx, double vy, double wz,
+                            std::chrono::milliseconds duration) {
+  const auto start = std::chrono::steady_clock::now();
+  while (std::chrono::steady_clock::now() - start < duration) {
+    hardware_->MoveBase(vx, vy, wz);
+    std::this_thread::sleep_for(50ms);
+  }
+  hardware_->MoveBase(0.0, 0.0, 0.0);
+}
+
 Drop::DropTarget Drop::resolveDropTarget(const std::string &argument) {
   // Mapeo conservador:
   // - left_table/table/mesa siguen usando la logica de mesa.
@@ -288,7 +556,8 @@ Drop::DropTarget Drop::resolveDropTarget(const std::string &argument) {
     target.frame = "container_drop_start";
     target.service_label = "/vision/container_drop_tf/enable";
     target.torso_height = 0.2;
-    target.head_pitch = -0.85;
+    target.head_pitch = -0.55;
+    target.sensor_settle_delay_sec = 1.6;
     target.bounds = {0.15, 1.35, 0.45, 0.08, 1.10, 1.50};
   }
 
@@ -311,6 +580,12 @@ Drop::DropTarget Drop::resolveDropTarget(const std::string &argument) {
   }
 
   return target;
+}
+
+std::string Drop::owlFrameName(const std::string &class_name, int instance) {
+  std::string sanitized = class_name;
+  std::replace(sanitized.begin(), sanitized.end(), ' ', '_');
+  return "OWL_" + sanitized + "_" + std::to_string(instance);
 }
 
 // =========================================================
@@ -343,6 +618,8 @@ std::string Drop::stateName(DropState s) {
     return "READY";
   case DropState::PREPARE_SENSOR:
     return "PREPARE_SENSOR";
+  case DropState::PRECENTER_CONTAINER_WITH_OWL:
+    return "PRECENTER_CONTAINER_WITH_OWL";
   case DropState::WAIT_DROP_TF:
     return "WAIT_DROP_TF";
   case DropState::VALIDATE_DROP_TF:
