@@ -36,7 +36,6 @@ add_library(${PROJECT_NAME}
   src/Follow.cpp
   src/Take.cpp
   src/Listen.cpp
-  src/Approach.cpp
   src/FindPose
   src/Analyze
 )
