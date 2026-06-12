@@ -187,7 +187,7 @@ Result Take::run(
     // ── OPENNING_GRIPPER ──────────────────────────────────────
     publishFeedback(gh, TakeState::OPENNING_GRIPPER);
 
-    bool gripper_ok = (arm_group_ == "left_arm_group")
+    /*bool gripper_ok = (arm_group_ == "left_arm_group")
         ? hardware_->MoveLeftGripper("open")
         : hardware_->MoveRightGripper("open");
 
@@ -195,7 +195,7 @@ Result Take::run(
     {
         publishFeedback(gh, TakeState::OPENNING_GRIPPER, "gripper_open_failed");
         return {false, "FAILED", "gripper_open_failed"};
-    }
+    }*/
 
     // ── PLANNING_EXTEND ───────────────────────────────────────
     publishFeedback(gh, TakeState::PLANNING_EXTEND);
@@ -209,9 +209,26 @@ Result Take::run(
         return {false, "FAILED", "invalid_manipulation_pose"};
     }
 
-    const auto target_pose = pose_opt.value();
+    auto target_pose = pose_opt.value();
 
     RCLCPP_INFO(node_->get_logger(),
+        "PoseStamped:\n"
+        "  frame_id: %s\n"
+        "  position:    [%.3f, %.3f, %.3f]\n"
+        "  orientation: [%.3f, %.3f, %.3f, %.3f]",
+        target_pose.header.frame_id.c_str(),
+        target_pose.pose.position.x,
+        target_pose.pose.position.y,
+        target_pose.pose.position.z,
+        target_pose.pose.orientation.x,
+        target_pose.pose.orientation.y,
+        target_pose.pose.orientation.z,
+        target_pose.pose.orientation.w);
+
+	target_pose.pose.position.x += 0.08;
+	target_pose.pose.position.z += 0.08; 
+
+	RCLCPP_INFO(node_->get_logger(),
         "PoseStamped:\n"
         "  frame_id: %s\n"
         "  position:    [%.3f, %.3f, %.3f]\n"
@@ -253,7 +270,7 @@ Result Take::run(
     // ── CLOSING_GRIPPER ───────────────────────────────────────
     publishFeedback(gh, TakeState::CLOSING_GRIPPER);
 
-    gripper_ok = (arm_group_ == "left_arm_group")
+    /* gripper_ok = (arm_group_ == "left_arm_group")
         ? hardware_->MoveLeftGripper("close")
         : hardware_->MoveRightGripper("close");
 
@@ -265,6 +282,7 @@ Result Take::run(
 
     if (!gh->is_active())
         return {false, "FAILED", "goal_cancelled"};
+	*/
 
     // ── REPORTING_OCCUPANCY ───────────────────────────────────
     publishFeedback(gh, TakeState::REPORTING_OCCUPANCY);
@@ -415,8 +433,8 @@ geometry_msgs::msg::PoseStamped Take::retractPose(
     geometry_msgs::msg::PoseStamped pose;
     pose.header.frame_id    = "base_link";
     pose.pose.position.x    =  0.4;
-    pose.pose.position.y    = (arm == "right_arm_group") ? -0.35 : 0.35;
-    pose.pose.position.z    =  0.9;
+    pose.pose.position.y    = (arm == "right_arm_group") ? -0.25 : 0.25;
+    pose.pose.position.z    =  1.0;
     pose.pose.orientation.x =  0.0;
     pose.pose.orientation.y = -0.707;
     pose.pose.orientation.z =  0.0;
