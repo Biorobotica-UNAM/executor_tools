@@ -209,7 +209,8 @@ Result Take::run(
         return {false, "FAILED", "invalid_manipulation_pose"};
     }
 
-    auto target_pose = pose_opt.value();
+    auto object_exclusion_pose = pose_opt.value();
+    auto target_pose = object_exclusion_pose;
 
     RCLCPP_INFO(node_->get_logger(),
         "PoseStamped:\n"
@@ -225,10 +226,10 @@ Result Take::run(
         target_pose.pose.orientation.z,
         target_pose.pose.orientation.w);
 
-	target_pose.pose.position.x += 0.0;
-	target_pose.pose.position.z += 0.0; 
+    target_pose.pose.position.x += 0.08;
+    target_pose.pose.position.z += 0.08; 
 
-	RCLCPP_INFO(node_->get_logger(),
+    RCLCPP_INFO(node_->get_logger(),
         "PoseStamped:\n"
         "  frame_id: %s\n"
         "  position:    [%.3f, %.3f, %.3f]\n"
@@ -245,9 +246,13 @@ Result Take::run(
     if (!hri_->Say("Planning trajectory"))
         publishFeedback(gh, TakeState::PLANNING_EXTEND, "say_failed");
 
+    // Durante el acercamiento al objeto, el propio objeto aparece en el octomap
+    // de MoveIt como obstaculo. Excluimos solo una zona local alrededor del
+    // centro detectado para conservar mesa y otros obstaculos.
     bool ok = manipulation_->PlanTrajectory(
                     target_pose, arm_group_, tip,
-                    joint_names_, waypoints_, msg);
+                    joint_names_, waypoints_, msg,
+                    true, object_exclusion_pose, 0.14, 0.24);
 
     if (!ok)
         return {false, "FAILED", msg};
@@ -282,7 +287,7 @@ Result Take::run(
 
     if (!gh->is_active())
         return {false, "FAILED", "goal_cancelled"};
-	*/
+    */
 
     // ── REPORTING_OCCUPANCY ───────────────────────────────────
     publishFeedback(gh, TakeState::REPORTING_OCCUPANCY);
