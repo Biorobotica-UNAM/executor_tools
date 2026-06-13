@@ -12,6 +12,12 @@
   <!-- C++ / Build -->
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
+  <depend>geometry_msgs</depend>
+  <depend>rcl_interfaces</depend>
+  <depend>std_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>tf2_ros</depend>
 
   <!-- Tools -->
   <depend>hri_tools</depend>

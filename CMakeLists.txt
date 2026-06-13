@@ -8,6 +8,12 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(executor_interfaces REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(rcl_interfaces REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 find_package(hri_tools REQUIRED)
 find_package(navigation_tools REQUIRED)
@@ -37,9 +43,12 @@ add_library(${PROJECT_NAME}
   src/Follow.cpp
   src/Take.cpp
   src/Listen.cpp
-  src/FindPose
-  src/Analyze
+  src/FindPose.cpp
+  src/Analyze.cpp
+  src/Approach.cpp
 )
+
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 
 target_include_directories(${PROJECT_NAME}
   PUBLIC
@@ -51,6 +60,12 @@ ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   rclcpp_action
   executor_interfaces
+  geometry_msgs
+  rcl_interfaces
+  std_msgs
+  tf2
+  tf2_geometry_msgs
+  tf2_ros
   hri_tools
   navigation_tools
   hardware_tools
@@ -91,6 +106,12 @@ ament_export_dependencies(
   rclcpp
   rclcpp_action
   executor_interfaces
+  geometry_msgs
+  rcl_interfaces
+  std_msgs
+  tf2
+  tf2_geometry_msgs
+  tf2_ros
   hri_tools
   navigation_tools
   hardware_tools
