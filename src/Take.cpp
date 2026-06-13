@@ -225,8 +225,8 @@ Result Take::run(
         target_pose.pose.orientation.z,
         target_pose.pose.orientation.w);
 
-	target_pose.pose.position.x += 0.08;
-	target_pose.pose.position.z += 0.08; 
+	target_pose.pose.position.x += 0.0;
+	target_pose.pose.position.z += 0.0; 
 
 	RCLCPP_INFO(node_->get_logger(),
         "PoseStamped:\n"
