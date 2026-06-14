@@ -579,7 +579,7 @@ bool Take::orderApproachJointSequence(
 
     std::vector<double> ordered_waypoints;
     ordered_waypoints.reserve(
-        (ordered_indices.size() + kMaxRemainingApproachBlocks) * block_size);
+        (ordered_indices.size() + 1 + kMaxRemainingApproachBlocks) * block_size);
 
     std::vector<double> staged_block = initial_block;
     for (std::size_t i = 0; i < ordered_indices.size(); ++i)
@@ -587,6 +587,24 @@ bool Take::orderApproachJointSequence(
         const std::size_t joint_index = ordered_indices[i];
         const double initial_value = initial_block[joint_index];
         const double final_value = final_block[joint_index];
+
+        if (i == 0)
+        {
+            staged_block[joint_index] =
+                initial_value + 0.5 * (final_value - initial_value);
+            ordered_waypoints.insert(
+                ordered_waypoints.end(), staged_block.begin(), staged_block.end());
+
+            RCLCPP_INFO(node_->get_logger(),
+                "Approach joint order stage %zu/%zu: %s joint=%s intermediate=%.3f final=%.3f",
+                i + 1,
+                ordered_indices.size(),
+                ordered_joints[i].label.c_str(),
+                ordered_joints[i].name.c_str(),
+                staged_block[joint_index],
+                final_value);
+        }
+
         staged_block[joint_index] = final_value;
         ordered_waypoints.insert(
             ordered_waypoints.end(), staged_block.begin(), staged_block.end());
