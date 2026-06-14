@@ -76,10 +76,10 @@ std::vector<Take::ApproachPoseCandidate> Take::approachPoseCandidates() const
     // Orden recomendado: de menos invasivo a mas separado/alto. La primera pose
     // que planea se usa para ejecutar, y las siguientes ya no se intentan.
     return {
-        {"vision_nominal_front", 0.05, 0.00, 0.00},
-        {"front_slightly_higher", 0.08, 0.00, 0.04},
-        {"front_high_clearance", 0.10, 0.00, 0.08},
-        {"farther_high_clearance", 0.12, 0.00, 0.10},
+        {"vision_nominal_front", 0.08, 0.00, 0.08},
+        {"front_slightly_higher", 0.08, 0.00, 0.09},
+        {"front_high_clearance", 0.08, 0.00, 0.10},
+        {"farther_high_clearance", 0.08, 0.00, 0.11},
     };
 }
 
@@ -248,7 +248,7 @@ Result Take::run(
     // ── OPENNING_GRIPPER ──────────────────────────────────────
     publishFeedback(gh, TakeState::OPENNING_GRIPPER);
 
-    /*bool gripper_ok = (arm_group_ == "left_arm_group")
+    bool gripper_ok = (arm_group_ == "left_arm_group")
         ? hardware_->MoveLeftGripper("open")
         : hardware_->MoveRightGripper("open");
 
@@ -256,7 +256,7 @@ Result Take::run(
     {
         publishFeedback(gh, TakeState::OPENNING_GRIPPER, "gripper_open_failed");
         return {false, "FAILED", "gripper_open_failed"};
-    }*/
+    }
 
     // ── PLANNING_EXTEND ───────────────────────────────────────
     publishFeedback(gh, TakeState::PLANNING_EXTEND);
@@ -371,7 +371,7 @@ Result Take::run(
     // ── CLOSING_GRIPPER ───────────────────────────────────────
     publishFeedback(gh, TakeState::CLOSING_GRIPPER);
 
-    /* gripper_ok = (arm_group_ == "left_arm_group")
+    gripper_ok = (arm_group_ == "left_arm_group")
         ? hardware_->MoveLeftGripper("close")
         : hardware_->MoveRightGripper("close");
 
@@ -383,7 +383,7 @@ Result Take::run(
 
     if (!gh->is_active())
         return {false, "FAILED", "goal_cancelled"};
-    */
+    
 
     // ── REPORTING_OCCUPANCY ───────────────────────────────────
     publishFeedback(gh, TakeState::REPORTING_OCCUPANCY);
