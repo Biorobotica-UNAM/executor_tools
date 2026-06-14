@@ -228,8 +228,8 @@ Result Take::run(
         target_pose.pose.orientation.z,
         target_pose.pose.orientation.w);
 
-    target_pose.pose.position.x += 0.08;
-    target_pose.pose.position.z += 0.08; 
+    target_pose.pose.position.x += 0.05;
+    // target_pose.pose.position.z += 0.08; 
 
     RCLCPP_INFO(node_->get_logger(),
         "PoseStamped:\n"
@@ -321,10 +321,32 @@ Result Take::run(
     // apareciendo en el octomap. Si no se excluyen durante la retraccion,
     // MoveIt puede abortar por colision en el estado inicial antes de planear.
     auto retract_exclusion_pose = target_pose;
+    RCLCPP_INFO(node_->get_logger(),
+        "Planning retract with carried-object exclusion center=[%.3f %.3f %.3f] radius_xy=%.3f height_z=%.3f",
+        retract_exclusion_pose.pose.position.x,
+        retract_exclusion_pose.pose.position.y,
+        retract_exclusion_pose.pose.position.z,
+        0.26,
+        0.40);
+
     ok = manipulation_->PlanTrajectory(
                 home, arm_group_, tip,
                 joint_names_, waypoints_, msg,
-                true, retract_exclusion_pose, 0.22, 0.35);
+                true, retract_exclusion_pose, 0.26, 0.40);
+
+    if (!ok)
+    {
+        RCLCPP_WARN(node_->get_logger(),
+            "Retract planning failed with primary exclusion (%s). Retrying with wider carried-object exclusion radius_xy=%.3f height_z=%.3f",
+            msg.c_str(),
+            0.34,
+            0.50);
+
+        ok = manipulation_->PlanTrajectory(
+                    home, arm_group_, tip,
+                    joint_names_, waypoints_, msg,
+                    true, retract_exclusion_pose, 0.34, 0.50);
+    }
 
     if (!ok)
         return {false, "FAILED", msg};
