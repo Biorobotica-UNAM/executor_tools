@@ -120,7 +120,7 @@ private:
 
     PoseStamped retractPose(const std::string& arm) const;
 
-    bool prealignWristForApproach(
+    bool orderApproachJointSequence(
         const std::vector<std::string>& joint_names,
         std::vector<double>& waypoints) const;
 

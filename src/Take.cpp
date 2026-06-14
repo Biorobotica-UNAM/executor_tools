@@ -259,10 +259,10 @@ Result Take::run(
     if (!ok)
         return {false, "FAILED", msg};
 
-    // La pose final ya contiene la orientacion correcta de la mano. Para evitar
-    // que la muneca rote hasta el final, cuando ya esta cerca del objeto,
-    // fijamos su valor final desde el primer bloque de la trayectoria.
-    prealignWristForApproach(joint_names_, waypoints_);
+    // Reordenamos el inicio del acercamiento: primero hombro, luego codo,
+    // luego muneca, y despues el resto de la trayectoria planeada. Asi la mano
+    // no rota hasta el final ni inicia sola antes de acomodar el brazo.
+    orderApproachJointSequence(joint_names_, waypoints_);
     const auto approach_joint_names = joint_names_;
     const auto approach_waypoints = waypoints_;
 
@@ -503,16 +503,16 @@ geometry_msgs::msg::PoseStamped Take::retractPose(
 }
 
 // ─────────────────────────────────────────────────────────────
-//  prealignWristForApproach
+//  orderApproachJointSequence
 // ─────────────────────────────────────────────────────────────
-bool Take::prealignWristForApproach(
+bool Take::orderApproachJointSequence(
     const std::vector<std::string>& joint_names,
     std::vector<double>& waypoints) const
 {
     if (joint_names.empty() || waypoints.empty())
     {
         RCLCPP_WARN(node_->get_logger(),
-            "Cannot prealign wrist: empty trajectory.");
+            "Cannot order approach joints: empty trajectory.");
         return false;
     }
 
@@ -520,46 +520,102 @@ bool Take::prealignWristForApproach(
     if (waypoints.size() % block_size != 0)
     {
         RCLCPP_WARN(node_->get_logger(),
-            "Cannot prealign wrist: %zu waypoint values are not a multiple of %zu joints.",
+            "Cannot order approach joints: %zu waypoint values are not a multiple of %zu joints.",
             waypoints.size(), block_size);
         return false;
     }
 
-    const std::string wrist_joint =
-        (arm_group_ == "left_arm_group") ? "l_wrist_joint" : "r_wrist_joint";
-
-    const auto wrist_it =
-        std::find(joint_names.begin(), joint_names.end(), wrist_joint);
-
-    if (wrist_it == joint_names.end())
+    const std::size_t blocks = waypoints.size() / block_size;
+    if (blocks < 2)
     {
         RCLCPP_WARN(node_->get_logger(),
-            "Cannot prealign wrist: joint '%s' is not present in trajectory.",
-            wrist_joint.c_str());
+            "Cannot order approach joints: only %zu block(s) available.",
+            blocks);
         return false;
     }
 
-    const std::size_t wrist_index =
-        static_cast<std::size_t>(std::distance(joint_names.begin(), wrist_it));
-    const std::size_t blocks = waypoints.size() / block_size;
-    const double initial_wrist = waypoints[wrist_index];
-    const double final_wrist = waypoints[(blocks - 1) * block_size + wrist_index];
-    const double delta = final_wrist - initial_wrist;
-
-    if (std::abs(delta) < 0.01)
+    struct OrderedJoint
     {
-        RCLCPP_INFO(node_->get_logger(),
-            "Wrist prealignment skipped: %s already near final value %.3f rad.",
-            wrist_joint.c_str(), final_wrist);
-        return true;
+        std::string label;
+        std::string name;
+    };
+
+    const std::vector<OrderedJoint> ordered_joints = {
+        {"motor_0_shoulder",
+         (arm_group_ == "left_arm_group") ? "lf_shoulder_joint"
+                                          : "rf_shoulder_joint"},
+        {"motor_3_elbow",
+         (arm_group_ == "left_arm_group") ? "l_elbow_joint"
+                                          : "r_elbow_joint"},
+        {"motor_5_wrist",
+         (arm_group_ == "left_arm_group") ? "l_wrist_joint"
+                                          : "r_wrist_joint"},
+    };
+
+    std::vector<std::size_t> ordered_indices;
+    ordered_indices.reserve(ordered_joints.size());
+    for (const auto& joint : ordered_joints)
+    {
+        const auto it = std::find(joint_names.begin(), joint_names.end(), joint.name);
+        if (it == joint_names.end())
+        {
+            RCLCPP_WARN(node_->get_logger(),
+                "Cannot order approach joints: joint '%s' (%s) is not present in trajectory.",
+                joint.name.c_str(),
+                joint.label.c_str());
+            return false;
+        }
+        ordered_indices.push_back(
+            static_cast<std::size_t>(std::distance(joint_names.begin(), it)));
     }
 
-    for (std::size_t block = 0; block < blocks; ++block)
-        waypoints[block * block_size + wrist_index] = final_wrist;
+    const auto initial_first = waypoints.begin();
+    const auto initial_last = initial_first + block_size;
+    const auto final_first = waypoints.begin() + (blocks - 1) * block_size;
 
+    std::vector<double> initial_block(initial_first, initial_last);
+    std::vector<double> final_block(final_first, final_first + block_size);
+    std::vector<double> ordered_waypoints;
+    ordered_waypoints.reserve(waypoints.size() + ordered_indices.size() * block_size);
+
+    std::vector<double> staged_block = initial_block;
+    for (std::size_t i = 0; i < ordered_indices.size(); ++i)
+    {
+        const std::size_t joint_index = ordered_indices[i];
+        const double initial_value = initial_block[joint_index];
+        const double final_value = final_block[joint_index];
+        staged_block[joint_index] = final_value;
+        ordered_waypoints.insert(
+            ordered_waypoints.end(), staged_block.begin(), staged_block.end());
+
+        RCLCPP_INFO(node_->get_logger(),
+            "Approach joint order stage %zu/%zu: %s joint=%s initial=%.3f final=%.3f delta=%.3f",
+            i + 1,
+            ordered_indices.size(),
+            ordered_joints[i].label.c_str(),
+            ordered_joints[i].name.c_str(),
+            initial_value,
+            final_value,
+            final_value - initial_value);
+    }
+
+    for (std::size_t block = 1; block < blocks; ++block)
+    {
+        std::vector<double> ordered_block(
+            waypoints.begin() + block * block_size,
+            waypoints.begin() + (block + 1) * block_size);
+        for (const std::size_t joint_index : ordered_indices)
+            ordered_block[joint_index] = final_block[joint_index];
+        ordered_waypoints.insert(
+            ordered_waypoints.end(), ordered_block.begin(), ordered_block.end());
+    }
+
+    const std::size_t ordered_blocks = ordered_waypoints.size() / block_size;
+    waypoints = std::move(ordered_waypoints);
     RCLCPP_INFO(node_->get_logger(),
-        "Wrist prealignment applied before approach: joint=%s initial=%.3f final=%.3f delta=%.3f blocks=%zu.",
-        wrist_joint.c_str(), initial_wrist, final_wrist, delta, blocks);
+        "Approach trajectory reordered: original_blocks=%zu ordered_blocks=%zu joint_order=[motor0_shoulder, motor3_elbow, motor5_wrist, remaining]. Retract reverse will use the opposite order.",
+        blocks,
+        ordered_blocks);
 
     return true;
 }
