@@ -317,9 +317,14 @@ Result Take::run(
     if (!hri_->Say("Planning retract"))
         publishFeedback(gh, TakeState::PLANNING_RETRACT, "say_failed");
 
+    // Al cerrar la mano, el objeto agarrado y parte del gripper pueden seguir
+    // apareciendo en el octomap. Si no se excluyen durante la retraccion,
+    // MoveIt puede abortar por colision en el estado inicial antes de planear.
+    auto retract_exclusion_pose = target_pose;
     ok = manipulation_->PlanTrajectory(
                 home, arm_group_, tip,
-                joint_names_, waypoints_, msg);
+                joint_names_, waypoints_, msg,
+                true, retract_exclusion_pose, 0.22, 0.35);
 
     if (!ok)
         return {false, "FAILED", msg};
