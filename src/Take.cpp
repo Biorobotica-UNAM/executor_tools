@@ -1,6 +1,8 @@
 #include "executor_tools/Take.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <thread>
 #include <functional>
 
@@ -257,6 +259,11 @@ Result Take::run(
     if (!ok)
         return {false, "FAILED", msg};
 
+    // La pose final ya contiene la orientacion correcta de la mano. Para evitar
+    // que la muneca rote hasta el final, cuando ya esta cerca del objeto,
+    // fijamos su valor final desde el primer bloque de la trayectoria.
+    prealignWristForApproach(joint_names_, waypoints_);
+
     if (!gh->is_active())
         return {false, "FAILED", "goal_cancelled"};
 
@@ -445,6 +452,68 @@ geometry_msgs::msg::PoseStamped Take::retractPose(
     pose.pose.orientation.z =  0.0;
     pose.pose.orientation.w =  0.707;
     return pose;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  prealignWristForApproach
+// ─────────────────────────────────────────────────────────────
+bool Take::prealignWristForApproach(
+    const std::vector<std::string>& joint_names,
+    std::vector<double>& waypoints) const
+{
+    if (joint_names.empty() || waypoints.empty())
+    {
+        RCLCPP_WARN(node_->get_logger(),
+            "Cannot prealign wrist: empty trajectory.");
+        return false;
+    }
+
+    const std::size_t block_size = joint_names.size();
+    if (waypoints.size() % block_size != 0)
+    {
+        RCLCPP_WARN(node_->get_logger(),
+            "Cannot prealign wrist: %zu waypoint values are not a multiple of %zu joints.",
+            waypoints.size(), block_size);
+        return false;
+    }
+
+    const std::string wrist_joint =
+        (arm_group_ == "left_arm_group") ? "l_wrist_joint" : "r_wrist_joint";
+
+    const auto wrist_it =
+        std::find(joint_names.begin(), joint_names.end(), wrist_joint);
+
+    if (wrist_it == joint_names.end())
+    {
+        RCLCPP_WARN(node_->get_logger(),
+            "Cannot prealign wrist: joint '%s' is not present in trajectory.",
+            wrist_joint.c_str());
+        return false;
+    }
+
+    const std::size_t wrist_index =
+        static_cast<std::size_t>(std::distance(joint_names.begin(), wrist_it));
+    const std::size_t blocks = waypoints.size() / block_size;
+    const double initial_wrist = waypoints[wrist_index];
+    const double final_wrist = waypoints[(blocks - 1) * block_size + wrist_index];
+    const double delta = final_wrist - initial_wrist;
+
+    if (std::abs(delta) < 0.01)
+    {
+        RCLCPP_INFO(node_->get_logger(),
+            "Wrist prealignment skipped: %s already near final value %.3f rad.",
+            wrist_joint.c_str(), final_wrist);
+        return true;
+    }
+
+    for (std::size_t block = 0; block < blocks; ++block)
+        waypoints[block * block_size + wrist_index] = final_wrist;
+
+    RCLCPP_INFO(node_->get_logger(),
+        "Wrist prealignment applied before approach: joint=%s initial=%.3f final=%.3f delta=%.3f blocks=%zu.",
+        wrist_joint.c_str(), initial_wrist, final_wrist, delta, blocks);
+
+    return true;
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -120,6 +120,10 @@ private:
 
     PoseStamped retractPose(const std::string& arm) const;
 
+    bool prealignWristForApproach(
+        const std::vector<std::string>& joint_names,
+        std::vector<double>& waypoints) const;
+
     void publishFeedback(
         const std::shared_ptr<GoalHandle>& gh,
         TakeState                          state,
