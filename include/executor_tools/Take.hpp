@@ -1,13 +1,12 @@
 #pragma once
 
-#include <array>
 #include <memory>
 #include <string>
-#include <unordered_set>
 #include <vector>
 #include <optional>
 
 #include <nlohmann/json.hpp>
+
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
@@ -20,7 +19,7 @@
 #include "hri_tools/HRI.hpp"
 
 // ─────────────────────────────────────────────────────────────
-//   TakeState
+//   Take
 // ─────────────────────────────────────────────────────────────
 enum class TakeState
 {
@@ -40,9 +39,6 @@ enum class TakeState
     FAILED
 };
 
-// ─────────────────────────────────────────────────────────────
-//   Take
-// ─────────────────────────────────────────────────────────────
 class Take
 {
 public:
@@ -63,32 +59,6 @@ public:
         const std::shared_ptr<GoalHandle>& gh);
 
 private:
-    // ── Grasp-type classification ──────────────────────────────
-
-	inline static const std::unordered_set<std::string> PINCH_OBJECTS = {
-		// Cutlery
-		"spoon", "fork", "knife", "chopstick", "teaspoon",
-		"dessert_spoon", "butter_knife", "spatula", "ladle",
-		// Writing / office
-		"pen", "pencil", "marker", "straw", "chopsticks",
-		// Small flat items
-		"card", "coin", "key", "remote",
-	};
-
-	inline static const std::unordered_set<std::string> GRAB_OBJECTS = {
-		// Tableware
-		"cup", "mug", "glass", "bowl", "plate",
-		"saucer", "pitcher", "teapot", "kettle",
-		// Containers
-		"bottle", "can", "jar", "box", "carton",
-		"thermos", "flask", "container", "tray",
-		// Food items
-		"apple", "orange", "banana", "bread",
-		// Misc household
-		"book", "spray", "soap", "shampoo",
-	};
-
-    // ── FSM helpers ───────────────────────────────────────────
     bool parseArgument(
         const std::string& argument,
         std::string& out_name,
@@ -98,19 +68,13 @@ private:
         const json& data,
         rclcpp::Clock::SharedPtr clock);
 
-    bool selectArm(
-        std::string& arm_group,
-        std::string& hand,
-        const std::string& right_obj,
-        const std::string& left_obj,
-        double y_coord) const;
+    bool selectArm(std::string& arm_group,
+                    std::string& hand,
+                    const std::string& right_obj,
+                    const std::string& left_obj,
+                    const double y_coord) const;
 
-    // ─────────────────────────────────────────────────────────────
-    //  selectTip
-    //
-    //  Returns the appropriate kinematic tip link for the selected arm group.
-    // ─────────────────────────────────────────────────────────────
-    std::string selectTip(const std::string& arm_group) const;
+    std::string selectTip(const std::string& arm_group);
 
     PoseStamped retractPose(const std::string& arm) const;
 
@@ -121,18 +85,15 @@ private:
 
     static std::string stateName(TakeState s);
 
-    // ── Arm poses ─────────────────────────────────────────────
     static constexpr std::array<double, 6> PREPARE_POSE   = {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
     static constexpr std::array<double, 6> TRANSPORT_POSE = {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
 
-    // ── Dependencies ──────────────────────────────────────────
     rclcpp::Node::SharedPtr       node_;
     std::shared_ptr<Manipulation> manipulation_;
     std::shared_ptr<Hardware>     hardware_;
     std::shared_ptr<Knowledge>    knowledge_;
     std::shared_ptr<HRI>          hri_;
 
-    // ── Per-run state ─────────────────────────────────────────
     std::string              arm_group_;
     std::vector<std::string> joint_names_;
     std::vector<double>      waypoints_;
