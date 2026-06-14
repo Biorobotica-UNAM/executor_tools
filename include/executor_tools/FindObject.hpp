@@ -47,6 +47,11 @@ private:
   bool parseArgument(const std::string &argument, std::string &out_name,
                      std::string &out_index) const;
 
+  bool refreshCenteredObjectPose(const std::string &query_name,
+                                 geometry_msgs::msg::PoseStamped &out_pose,
+                                 std::string &out_detected_name,
+                                 const std::shared_ptr<GoalHandle> &gh);
+
   void updateObjectState(const std::string &category, const std::string &index,
                          const std::string &name,
                          const geometry_msgs::msg::PoseStamped &pose);

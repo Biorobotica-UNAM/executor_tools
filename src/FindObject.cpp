@@ -87,11 +87,25 @@ Result FindObject::run(const std::string &argument,
 
         std::this_thread::sleep_for(1500ms);
 
-        publishFeedback(gh, FindObjectState::UPDATING, detected_name);
-        updateObjectState(query_name, object_index, detected_name, object_pose);
+        geometry_msgs::msg::PoseStamped centered_object_pose;
+        std::string centered_detected_name;
 
-        publishFeedback(gh, FindObjectState::SUCCESS, detected_name);
-        return {true, "SUCCESS", detected_name + "_found"};
+        publishFeedback(gh, FindObjectState::DETECTING,
+                        detected_name + "_centered");
+
+        if (!refreshCenteredObjectPose(query_name, centered_object_pose,
+                                       centered_detected_name, gh)) {
+          publishFeedback(gh, FindObjectState::FAILED,
+                          "centered_pose_not_found");
+          continue;
+        }
+
+        publishFeedback(gh, FindObjectState::UPDATING, centered_detected_name);
+        updateObjectState(query_name, object_index, centered_detected_name,
+                          centered_object_pose);
+
+        publishFeedback(gh, FindObjectState::SUCCESS, centered_detected_name);
+        return {true, "SUCCESS", centered_detected_name + "_found"};
       }
     }
   }
@@ -112,6 +126,36 @@ bool FindObject::detectEmptyChair(geometry_msgs::msg::PointStamped &point) {
 
   point = result.second;
   return true;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  refreshCenteredObjectPose
+// ─────────────────────────────────────────────────────────────
+
+bool FindObject::refreshCenteredObjectPose(
+    const std::string &query_name, geometry_msgs::msg::PoseStamped &out_pose,
+    std::string &out_detected_name, const std::shared_ptr<GoalHandle> &gh) {
+  for (int attempt = 1; attempt <= 3; ++attempt) {
+    if (!gh || !gh->is_active())
+      return false;
+
+    if (vision_->GetOwlPose(query_name, out_pose, out_detected_name, 2s)) {
+      RCLCPP_INFO(
+          node_->get_logger(),
+          "[FindObject] Refreshed centered object pose for '%s' as '%s' "
+          "(attempt %d)",
+          query_name.c_str(), out_detected_name.c_str(), attempt);
+      return true;
+    }
+
+    RCLCPP_WARN(node_->get_logger(),
+                "[FindObject] Could not refresh centered object pose for '%s' "
+                "(attempt %d)",
+                query_name.c_str(), attempt);
+    std::this_thread::sleep_for(200ms);
+  }
+
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────
