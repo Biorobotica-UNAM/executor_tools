@@ -575,8 +575,11 @@ bool Take::orderApproachJointSequence(
 
     std::vector<double> initial_block(initial_first, initial_last);
     std::vector<double> final_block(final_first, final_first + block_size);
+    constexpr std::size_t kMaxRemainingApproachBlocks = 4;
+
     std::vector<double> ordered_waypoints;
-    ordered_waypoints.reserve(waypoints.size() + ordered_indices.size() * block_size);
+    ordered_waypoints.reserve(
+        (ordered_indices.size() + kMaxRemainingApproachBlocks) * block_size);
 
     std::vector<double> staged_block = initial_block;
     for (std::size_t i = 0; i < ordered_indices.size(); ++i)
@@ -599,8 +602,19 @@ bool Take::orderApproachJointSequence(
             final_value - initial_value);
     }
 
-    for (std::size_t block = 1; block < blocks; ++block)
+    const std::size_t remaining_blocks = blocks - 1;
+    const std::size_t kept_remaining_blocks =
+        std::min(remaining_blocks, kMaxRemainingApproachBlocks);
+
+    for (std::size_t kept = 1; kept <= kept_remaining_blocks; ++kept)
     {
+        std::size_t block = 1;
+        if (kept_remaining_blocks > 1)
+        {
+            block = 1 + ((kept - 1) * (remaining_blocks - 1)) /
+                          (kept_remaining_blocks - 1);
+        }
+
         std::vector<double> ordered_block(
             waypoints.begin() + block * block_size,
             waypoints.begin() + (block + 1) * block_size);
@@ -613,9 +627,11 @@ bool Take::orderApproachJointSequence(
     const std::size_t ordered_blocks = ordered_waypoints.size() / block_size;
     waypoints = std::move(ordered_waypoints);
     RCLCPP_INFO(node_->get_logger(),
-        "Approach trajectory reordered: original_blocks=%zu ordered_blocks=%zu joint_order=[motor0_shoulder, motor3_elbow, motor5_wrist, remaining]. Retract reverse will use the opposite order.",
+        "Approach trajectory reordered: original_blocks=%zu ordered_blocks=%zu joint_order=[motor0_shoulder, motor3_elbow, motor5_wrist, remaining]. Kept %zu/%zu remaining MoveIt blocks. Retract reverse will use the opposite order.",
         blocks,
-        ordered_blocks);
+        ordered_blocks,
+        kept_remaining_blocks,
+        remaining_blocks);
 
     return true;
 }
