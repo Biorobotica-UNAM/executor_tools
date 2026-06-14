@@ -263,6 +263,8 @@ Result Take::run(
     // que la muneca rote hasta el final, cuando ya esta cerca del objeto,
     // fijamos su valor final desde el primer bloque de la trayectoria.
     prealignWristForApproach(joint_names_, waypoints_);
+    const auto approach_joint_names = joint_names_;
+    const auto approach_waypoints = waypoints_;
 
     if (!gh->is_active())
         return {false, "FAILED", "goal_cancelled"};
@@ -317,35 +319,54 @@ Result Take::run(
     if (!hri_->Say("Planning retract"))
         publishFeedback(gh, TakeState::PLANNING_RETRACT, "say_failed");
 
-    // Al cerrar la mano, el objeto agarrado y parte del gripper pueden seguir
-    // apareciendo en el octomap. Si no se excluyen durante la retraccion,
-    // MoveIt puede abortar por colision en el estado inicial antes de planear.
-    auto retract_exclusion_pose = target_pose;
-    RCLCPP_INFO(node_->get_logger(),
-        "Planning retract with carried-object exclusion center=[%.3f %.3f %.3f] radius_xy=%.3f height_z=%.3f",
-        retract_exclusion_pose.pose.position.x,
-        retract_exclusion_pose.pose.position.y,
-        retract_exclusion_pose.pose.position.z,
-        0.26,
-        0.40);
+    std::vector<double> reverse_waypoints;
+    ok = buildReverseTrajectory(
+            approach_joint_names,
+            approach_waypoints,
+            reverse_waypoints);
 
-    ok = manipulation_->PlanTrajectory(
-                home, arm_group_, tip,
-                joint_names_, waypoints_, msg,
-                true, retract_exclusion_pose, 0.26, 0.40);
-
-    if (!ok)
+    if (ok)
+    {
+        joint_names_ = approach_joint_names;
+        waypoints_ = reverse_waypoints;
+        msg = "Using reversed approach trajectory for retract";
+        RCLCPP_INFO(node_->get_logger(), "%s", msg.c_str());
+    }
+    else
     {
         RCLCPP_WARN(node_->get_logger(),
-            "Retract planning failed with primary exclusion (%s). Retrying with wider carried-object exclusion radius_xy=%.3f height_z=%.3f",
-            msg.c_str(),
-            0.34,
-            0.50);
+            "Could not build reversed approach trajectory. Falling back to MoveIt retract planning with carried-object exclusion.");
+
+        // Respaldo: si por alguna razon no se puede invertir la trayectoria,
+        // usamos el plan de MoveIt con una exclusion local alrededor del objeto
+        // agarrado para evitar falsos contactos con el gripper.
+        auto retract_exclusion_pose = target_pose;
+        RCLCPP_INFO(node_->get_logger(),
+            "Planning retract fallback with carried-object exclusion center=[%.3f %.3f %.3f] radius_xy=%.3f height_z=%.3f",
+            retract_exclusion_pose.pose.position.x,
+            retract_exclusion_pose.pose.position.y,
+            retract_exclusion_pose.pose.position.z,
+            0.26,
+            0.40);
 
         ok = manipulation_->PlanTrajectory(
                     home, arm_group_, tip,
                     joint_names_, waypoints_, msg,
-                    true, retract_exclusion_pose, 0.34, 0.50);
+                    true, retract_exclusion_pose, 0.26, 0.40);
+
+        if (!ok)
+        {
+            RCLCPP_WARN(node_->get_logger(),
+                "Retract fallback planning failed with primary exclusion (%s). Retrying with wider carried-object exclusion radius_xy=%.3f height_z=%.3f",
+                msg.c_str(),
+                0.34,
+                0.50);
+
+            ok = manipulation_->PlanTrajectory(
+                        home, arm_group_, tip,
+                        joint_names_, waypoints_, msg,
+                        true, retract_exclusion_pose, 0.34, 0.50);
+        }
     }
 
     if (!ok)
@@ -539,6 +560,83 @@ bool Take::prealignWristForApproach(
     RCLCPP_INFO(node_->get_logger(),
         "Wrist prealignment applied before approach: joint=%s initial=%.3f final=%.3f delta=%.3f blocks=%zu.",
         wrist_joint.c_str(), initial_wrist, final_wrist, delta, blocks);
+
+    return true;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  buildReverseTrajectory
+// ─────────────────────────────────────────────────────────────
+bool Take::buildReverseTrajectory(
+    const std::vector<std::string>& joint_names,
+    const std::vector<double>& source_waypoints,
+    std::vector<double>& reversed_waypoints) const
+{
+    reversed_waypoints.clear();
+
+    if (joint_names.empty() || source_waypoints.empty())
+    {
+        RCLCPP_WARN(node_->get_logger(),
+            "Cannot build reverse trajectory: empty joint list or waypoints.");
+        return false;
+    }
+
+    const std::size_t block_size = joint_names.size();
+    if (source_waypoints.size() % block_size != 0)
+    {
+        RCLCPP_WARN(node_->get_logger(),
+            "Cannot build reverse trajectory: %zu waypoint values are not a multiple of %zu joints.",
+            source_waypoints.size(), block_size);
+        return false;
+    }
+
+    const std::size_t blocks = source_waypoints.size() / block_size;
+    if (blocks < 2)
+    {
+        RCLCPP_WARN(node_->get_logger(),
+            "Cannot build reverse trajectory: only %zu block(s) available.",
+            blocks);
+        return false;
+    }
+
+    reversed_waypoints.reserve(source_waypoints.size());
+    for (std::size_t reverse_block = blocks; reverse_block > 0; --reverse_block)
+    {
+        const std::size_t source_block = reverse_block - 1;
+        const auto first = source_waypoints.begin() + source_block * block_size;
+        const auto last = first + block_size;
+        reversed_waypoints.insert(reversed_waypoints.end(), first, last);
+    }
+
+    const std::string wrist_joint =
+        (arm_group_ == "left_arm_group") ? "l_wrist_joint" : "r_wrist_joint";
+    const auto wrist_it =
+        std::find(joint_names.begin(), joint_names.end(), wrist_joint);
+
+    if (wrist_it != joint_names.end())
+    {
+        const std::size_t wrist_index =
+            static_cast<std::size_t>(std::distance(joint_names.begin(), wrist_it));
+        const double retract_start_wrist = reversed_waypoints[wrist_index];
+        const double retract_end_wrist =
+            reversed_waypoints[(blocks - 1) * block_size + wrist_index];
+
+        RCLCPP_INFO(node_->get_logger(),
+            "Built reversed approach retract: blocks=%zu joints=%zu wrist=%s start=%.3f end=%.3f",
+            blocks,
+            block_size,
+            wrist_joint.c_str(),
+            retract_start_wrist,
+            retract_end_wrist);
+    }
+    else
+    {
+        RCLCPP_INFO(node_->get_logger(),
+            "Built reversed approach retract: blocks=%zu joints=%zu wrist_joint_not_found=%s",
+            blocks,
+            block_size,
+            wrist_joint.c_str());
+    }
 
     return true;
 }

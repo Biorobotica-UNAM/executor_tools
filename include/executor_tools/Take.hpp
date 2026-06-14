@@ -124,6 +124,11 @@ private:
         const std::vector<std::string>& joint_names,
         std::vector<double>& waypoints) const;
 
+    bool buildReverseTrajectory(
+        const std::vector<std::string>& joint_names,
+        const std::vector<double>& source_waypoints,
+        std::vector<double>& reversed_waypoints) const;
+
     void publishFeedback(
         const std::shared_ptr<GoalHandle>& gh,
         TakeState                          state,
