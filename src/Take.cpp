@@ -54,6 +54,36 @@ std::vector<Take::MotorStage> Take::approachMotorStages() const
 }
 
 // ─────────────────────────────────────────────────────────────
+//  approachPoseCandidates
+// ─────────────────────────────────────────────────────────────
+std::vector<Take::ApproachPoseCandidate> Take::approachPoseCandidates() const
+{
+    // Lista ordenada de metas de acercamiento para Take.
+    //
+    // La pose base viene de vision y representa el centro/punto de agarre del
+    // objeto en base_link. Cada candidato aplica un offset pequeno sobre esa
+    // pose antes de pedirle un plan a MoveIt.
+    //
+    // Que se busca con cada dato:
+    // - dx: aleja la mano hacia el frente del robot para no pedir una meta tan
+    //   metida en el objeto. Si MoveIt no puede samplear IK, aumentar dx suele
+    //   dar mas espacio al brazo.
+    // - dy: ajuste lateral fino. Normalmente queda en 0.0 para no cambiar de
+    //   lado el agarre; puede servir si un brazo queda muy cruzado.
+    // - dz: sube un poco la meta. Ayuda cuando la mesa, el borde del objeto o
+    //   una orientacion de top grasp dejan la mano demasiado pegada.
+    //
+    // Orden recomendado: de menos invasivo a mas separado/alto. La primera pose
+    // que planea se usa para ejecutar, y las siguientes ya no se intentan.
+    return {
+        {"vision_nominal_front", 0.05, 0.00, 0.00},
+        {"front_slightly_higher", 0.08, 0.00, 0.04},
+        {"front_high_clearance", 0.10, 0.00, 0.08},
+        {"farther_high_clearance", 0.12, 0.00, 0.10},
+    };
+}
+
+// ─────────────────────────────────────────────────────────────
 //  run
 // ─────────────────────────────────────────────────────────────
 Result Take::run(
@@ -244,24 +274,7 @@ Result Take::run(
     auto target_pose = object_exclusion_pose;
 
     RCLCPP_INFO(node_->get_logger(),
-        "PoseStamped:\n"
-        "  frame_id: %s\n"
-        "  position:    [%.3f, %.3f, %.3f]\n"
-        "  orientation: [%.3f, %.3f, %.3f, %.3f]",
-        target_pose.header.frame_id.c_str(),
-        target_pose.pose.position.x,
-        target_pose.pose.position.y,
-        target_pose.pose.position.z,
-        target_pose.pose.orientation.x,
-        target_pose.pose.orientation.y,
-        target_pose.pose.orientation.z,
-        target_pose.pose.orientation.w);
-
-    target_pose.pose.position.x += 0.05;
-    // target_pose.pose.position.z += 0.08; 
-
-    RCLCPP_INFO(node_->get_logger(),
-        "PoseStamped:\n"
+        "Detected object pose for take:\n"
         "  frame_id: %s\n"
         "  position:    [%.3f, %.3f, %.3f]\n"
         "  orientation: [%.3f, %.3f, %.3f, %.3f]",
@@ -277,13 +290,58 @@ Result Take::run(
     if (!hri_->Say("Planning trajectory"))
         publishFeedback(gh, TakeState::PLANNING_EXTEND, "say_failed");
 
-    // Durante el acercamiento al objeto, el propio objeto aparece en el octomap
-    // de MoveIt como obstaculo. Excluimos solo una zona local alrededor del
-    // centro detectado para conservar mesa y otros obstaculos.
-    bool ok = manipulation_->PlanTrajectory(
-                    target_pose, arm_group_, tip,
-                    joint_names_, waypoints_, msg,
-                    true, object_exclusion_pose, 0.14, 0.24);
+    // Durante el acercamiento, la vision puede entregar una pose correcta para
+    // el objeto pero demasiado estricta para IK/MoveIt. Probamos una lista de
+    // pregrasp candidates con offsets pequenos, manteniendo object_exclusion_pose
+    // como el centro real del objeto para no borrar mesa u otros obstaculos.
+    bool ok = false;
+    const auto pose_candidates = approachPoseCandidates();
+    for (std::size_t i = 0; i < pose_candidates.size(); ++i)
+    {
+        const auto& candidate = pose_candidates[i];
+        auto candidate_pose = object_exclusion_pose;
+        candidate_pose.pose.position.x += candidate.dx;
+        candidate_pose.pose.position.y += candidate.dy;
+        candidate_pose.pose.position.z += candidate.dz;
+
+        RCLCPP_INFO(node_->get_logger(),
+            "Trying take approach candidate %zu/%zu '%s': offset=[%.3f %.3f %.3f] target=[%.3f %.3f %.3f] orientation=[%.3f %.3f %.3f %.3f]",
+            i + 1,
+            pose_candidates.size(),
+            candidate.label.c_str(),
+            candidate.dx,
+            candidate.dy,
+            candidate.dz,
+            candidate_pose.pose.position.x,
+            candidate_pose.pose.position.y,
+            candidate_pose.pose.position.z,
+            candidate_pose.pose.orientation.x,
+            candidate_pose.pose.orientation.y,
+            candidate_pose.pose.orientation.z,
+            candidate_pose.pose.orientation.w);
+
+        ok = manipulation_->PlanTrajectory(
+                candidate_pose, arm_group_, tip,
+                joint_names_, waypoints_, msg,
+                true, object_exclusion_pose, 0.14, 0.24);
+
+        if (ok)
+        {
+            target_pose = candidate_pose;
+            RCLCPP_INFO(node_->get_logger(),
+                "Take approach candidate accepted: '%s'",
+                candidate.label.c_str());
+            break;
+        }
+
+        RCLCPP_WARN(node_->get_logger(),
+            "Take approach candidate failed: '%s' planner_message='%s'",
+            candidate.label.c_str(),
+            msg.c_str());
+
+        if (!gh->is_active())
+            return {false, "FAILED", "goal_cancelled"};
+    }
 
     if (!ok)
         return {false, "FAILED", msg};

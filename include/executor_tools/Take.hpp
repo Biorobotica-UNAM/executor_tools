@@ -75,6 +75,19 @@ private:
         std::size_t waypoints;
     };
 
+    struct ApproachPoseCandidate
+    {
+        // Configura una pose candidata para la planeacion de acercamiento:
+        // - label: nombre legible para logs.
+        // - dx/dy/dz: offsets en base_link aplicados sobre la pose detectada.
+        // Estos candidatos compensan ruido de vision y metas IK demasiado
+        // cerradas sin modificar la pose original usada para excluir el objeto.
+        std::string label;
+        double dx;
+        double dy;
+        double dz;
+    };
+
     // ── Grasp-type classification ──────────────────────────────
 
 	inline static const std::unordered_set<std::string> PINCH_OBJECTS = {
@@ -141,6 +154,8 @@ private:
     std::size_t maxRemainingApproachBlocks() const;
 
     std::string motorJointName(std::size_t motor) const;
+
+    std::vector<ApproachPoseCandidate> approachPoseCandidates() const;
 
     bool buildReverseTrajectory(
         const std::vector<std::string>& joint_names,
