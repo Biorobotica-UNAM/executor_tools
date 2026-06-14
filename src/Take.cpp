@@ -25,6 +25,35 @@ Take::Take(
 {}
 
 // ─────────────────────────────────────────────────────────────
+//  approachMotorStages
+// ─────────────────────────────────────────────────────────────
+std::vector<Take::MotorStage> Take::approachMotorStages() const
+{
+    // Para cambiar el orden del acercamiento, modifica solo esta lista.
+    // Cada entrada es una etapa; los motores dentro de la misma etapa se
+    // adelantan juntos. El ultimo dato indica cuantos waypoints interpolados
+    // usara esa etapa para llegar al valor final que calculo MoveIt.
+    //
+    // Datos que ocupa cada etapa:
+    // - label: aparece en logs para identificar la prueba.
+    // - motors: indices fisicos/logicos, traducidos por motorJointName().
+    // - waypoints: pasos intermedios; mas pasos = movimiento mas gradual.
+    //
+    // Ejemplos utiles:
+    //   { "shoulder_elbow", {0, 3}, 3 }, { "wrist", {5}, 2 }
+    //   { "shoulder", {0}, 2 }, { "elbow_wrist", {3, 5}, 3 }
+    // return {
+    //     {"motor_0_shoulder", {0}, 1},
+    //     {"motor_3_elbow", {3}, 1},
+    //     {"motor_5_wrist", {5}, 1},
+    // };
+    return {
+        {"shoulder_elbow", {0, 3}, 3},
+        {"wrist", {5}, 2},
+    };
+}
+
+// ─────────────────────────────────────────────────────────────
 //  run
 // ─────────────────────────────────────────────────────────────
 Result Take::run(
@@ -534,39 +563,67 @@ bool Take::orderApproachJointSequence(
         return false;
     }
 
-    struct OrderedJoint
+    struct ResolvedStage
     {
         std::string label;
-        std::string name;
+        std::vector<std::size_t> joint_indices;
+        std::vector<std::string> joint_names;
+        std::size_t waypoints{1};
     };
 
-    const std::vector<OrderedJoint> ordered_joints = {
-        {"motor_0_shoulder",
-         (arm_group_ == "left_arm_group") ? "lf_shoulder_joint"
-                                          : "rf_shoulder_joint"},
-        {"motor_3_elbow",
-         (arm_group_ == "left_arm_group") ? "l_elbow_joint"
-                                          : "r_elbow_joint"},
-        {"motor_5_wrist",
-         (arm_group_ == "left_arm_group") ? "l_wrist_joint"
-                                          : "r_wrist_joint"},
-    };
+    const auto motor_stages = approachMotorStages();
+    std::vector<ResolvedStage> resolved_stages;
+    resolved_stages.reserve(motor_stages.size());
 
-    std::vector<std::size_t> ordered_indices;
-    ordered_indices.reserve(ordered_joints.size());
-    for (const auto& joint : ordered_joints)
+    for (const auto& stage : motor_stages)
     {
-        const auto it = std::find(joint_names.begin(), joint_names.end(), joint.name);
-        if (it == joint_names.end())
+        ResolvedStage resolved;
+        resolved.label = stage.label;
+        resolved.waypoints = stage.waypoints;
+
+        if (resolved.waypoints == 0)
         {
             RCLCPP_WARN(node_->get_logger(),
-                "Cannot order approach joints: joint '%s' (%s) is not present in trajectory.",
-                joint.name.c_str(),
-                joint.label.c_str());
+                "Cannot order approach joints: stage '%s' has zero waypoints.",
+                stage.label.c_str());
             return false;
         }
-        ordered_indices.push_back(
-            static_cast<std::size_t>(std::distance(joint_names.begin(), it)));
+
+        for (const auto motor : stage.motors)
+        {
+            const std::string joint_name = motorJointName(motor);
+            if (joint_name.empty())
+            {
+                RCLCPP_WARN(node_->get_logger(),
+                    "Cannot order approach joints: motor %zu has no joint mapping.",
+                    motor);
+                return false;
+            }
+
+            const auto it = std::find(joint_names.begin(), joint_names.end(), joint_name);
+            if (it == joint_names.end())
+            {
+                RCLCPP_WARN(node_->get_logger(),
+                    "Cannot order approach joints: joint '%s' for motor %zu is not present in trajectory.",
+                    joint_name.c_str(),
+                    motor);
+                return false;
+            }
+
+            resolved.joint_indices.push_back(
+                static_cast<std::size_t>(std::distance(joint_names.begin(), it)));
+            resolved.joint_names.push_back(joint_name);
+        }
+
+        if (resolved.joint_indices.empty())
+        {
+            RCLCPP_WARN(node_->get_logger(),
+                "Cannot order approach joints: stage '%s' has no motors.",
+                stage.label.c_str());
+            return false;
+        }
+
+        resolved_stages.push_back(resolved);
     }
 
     const auto initial_first = waypoints.begin();
@@ -575,54 +632,57 @@ bool Take::orderApproachJointSequence(
 
     std::vector<double> initial_block(initial_first, initial_last);
     std::vector<double> final_block(final_first, final_first + block_size);
-    constexpr std::size_t kMaxRemainingApproachBlocks = 4;
+    const std::size_t max_remaining_blocks = maxRemainingApproachBlocks();
 
     std::vector<double> ordered_waypoints;
+    std::size_t configured_stage_waypoints = 0;
+    for (const auto& stage : resolved_stages)
+        configured_stage_waypoints += stage.waypoints;
     ordered_waypoints.reserve(
-        (ordered_indices.size() + 1 + kMaxRemainingApproachBlocks) * block_size);
+        (configured_stage_waypoints + max_remaining_blocks) * block_size);
 
     std::vector<double> staged_block = initial_block;
-    for (std::size_t i = 0; i < ordered_indices.size(); ++i)
+    for (std::size_t i = 0; i < resolved_stages.size(); ++i)
     {
-        const std::size_t joint_index = ordered_indices[i];
-        const double initial_value = initial_block[joint_index];
-        const double final_value = final_block[joint_index];
+        const auto& stage = resolved_stages[i];
+        const auto stage_start_block = staged_block;
 
-        if (i == 0)
+        // Cada etapa interpola solo sus motores desde el valor actual hasta el
+        // valor final del ultimo bloque planeado por MoveIt. Los demas motores
+        // conservan el valor acumulado por etapas previas.
+        for (std::size_t step = 1; step <= stage.waypoints; ++step)
         {
-            staged_block[joint_index] =
-                initial_value + 0.5 * (final_value - initial_value);
+            const double ratio =
+                static_cast<double>(step) / static_cast<double>(stage.waypoints);
+            for (const auto joint_index : stage.joint_indices)
+            {
+                const double start = stage_start_block[joint_index];
+                const double goal = final_block[joint_index];
+                staged_block[joint_index] = start + ratio * (goal - start);
+            }
             ordered_waypoints.insert(
                 ordered_waypoints.end(), staged_block.begin(), staged_block.end());
-
-            RCLCPP_INFO(node_->get_logger(),
-                "Approach joint order stage %zu/%zu: %s joint=%s intermediate=%.3f final=%.3f",
-                i + 1,
-                ordered_indices.size(),
-                ordered_joints[i].label.c_str(),
-                ordered_joints[i].name.c_str(),
-                staged_block[joint_index],
-                final_value);
         }
 
-        staged_block[joint_index] = final_value;
-        ordered_waypoints.insert(
-            ordered_waypoints.end(), staged_block.begin(), staged_block.end());
-
-        RCLCPP_INFO(node_->get_logger(),
-            "Approach joint order stage %zu/%zu: %s joint=%s initial=%.3f final=%.3f delta=%.3f",
-            i + 1,
-            ordered_indices.size(),
-            ordered_joints[i].label.c_str(),
-            ordered_joints[i].name.c_str(),
-            initial_value,
-            final_value,
-            final_value - initial_value);
+        for (std::size_t j = 0; j < stage.joint_indices.size(); ++j)
+        {
+            const std::size_t joint_index = stage.joint_indices[j];
+            RCLCPP_INFO(node_->get_logger(),
+                "Approach joint order stage %zu/%zu: %s joint=%s waypoints=%zu initial=%.3f final=%.3f delta=%.3f",
+                i + 1,
+                resolved_stages.size(),
+                stage.label.c_str(),
+                stage.joint_names[j].c_str(),
+                stage.waypoints,
+                stage_start_block[joint_index],
+                final_block[joint_index],
+                final_block[joint_index] - stage_start_block[joint_index]);
+        }
     }
 
     const std::size_t remaining_blocks = blocks - 1;
     const std::size_t kept_remaining_blocks =
-        std::min(remaining_blocks, kMaxRemainingApproachBlocks);
+        std::min(remaining_blocks, max_remaining_blocks);
 
     for (std::size_t kept = 1; kept <= kept_remaining_blocks; ++kept)
     {
@@ -636,8 +696,9 @@ bool Take::orderApproachJointSequence(
         std::vector<double> ordered_block(
             waypoints.begin() + block * block_size,
             waypoints.begin() + (block + 1) * block_size);
-        for (const std::size_t joint_index : ordered_indices)
-            ordered_block[joint_index] = final_block[joint_index];
+        for (const auto& stage : resolved_stages)
+            for (const std::size_t joint_index : stage.joint_indices)
+                ordered_block[joint_index] = final_block[joint_index];
         ordered_waypoints.insert(
             ordered_waypoints.end(), ordered_block.begin(), ordered_block.end());
     }
@@ -645,13 +706,49 @@ bool Take::orderApproachJointSequence(
     const std::size_t ordered_blocks = ordered_waypoints.size() / block_size;
     waypoints = std::move(ordered_waypoints);
     RCLCPP_INFO(node_->get_logger(),
-        "Approach trajectory reordered: original_blocks=%zu ordered_blocks=%zu joint_order=[motor0_shoulder, motor3_elbow, motor5_wrist, remaining]. Kept %zu/%zu remaining MoveIt blocks. Retract reverse will use the opposite order.",
+        "Approach trajectory reordered: original_blocks=%zu ordered_blocks=%zu configured_stages=%zu stage_waypoints=%zu kept_remaining=%zu/%zu. Retract reverse will use the opposite order.",
         blocks,
         ordered_blocks,
+        resolved_stages.size(),
+        configured_stage_waypoints,
         kept_remaining_blocks,
         remaining_blocks);
 
     return true;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  maxRemainingApproachBlocks
+// ─────────────────────────────────────────────────────────────
+std::size_t Take::maxRemainingApproachBlocks() const
+{
+    // Cantidad maxima de bloques originales de MoveIt que se conservan DESPUES
+    // de las etapas manuales. No controla los waypoints por motor; eso se hace
+    // en approachMotorStages(). Subirlo conserva mas detalle de la trayectoria
+    // planeada; bajarlo hace el acercamiento mas directo.
+    return 4;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  motorJointName
+// ─────────────────────────────────────────────────────────────
+std::string Take::motorJointName(std::size_t motor) const
+{
+    const bool left = arm_group_ == "left_arm_group";
+
+    // Mapa intencional para las pruebas actuales de Take. Aqui dejamos claro
+    // que el "motor 5" solicitado se trata como muneca aunque el modelo tenga
+    // tambien un joint de mano/gripper.
+    switch (motor)
+    {
+        case 0: return left ? "lf_shoulder_joint" : "rf_shoulder_joint";
+        case 1: return left ? "ls_shoulder_joint" : "rs_shoulder_joint";
+        case 2: return left ? "l_arm_twist_joint" : "r_arm_twist_joint";
+        case 3: return left ? "l_elbow_joint" : "r_elbow_joint";
+        case 4: return left ? "l_hand_joint" : "r_hand_joint";
+        case 5: return left ? "l_wrist_joint" : "r_wrist_joint";
+        default: return "";
+    }
 }
 
 // ─────────────────────────────────────────────────────────────

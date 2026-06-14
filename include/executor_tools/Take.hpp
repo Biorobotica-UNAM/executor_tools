@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <unordered_set>
@@ -63,6 +64,17 @@ public:
         const std::shared_ptr<GoalHandle>& gh);
 
 private:
+    struct MotorStage
+    {
+        // Configura una etapa manual del acercamiento:
+        // - label: nombre legible para logs.
+        // - motors: indices fisicos/logicos que se adelantan juntos.
+        // - waypoints: cantidad de pasos interpolados para llegar al valor final.
+        std::string label;
+        std::vector<std::size_t> motors;
+        std::size_t waypoints;
+    };
+
     // ── Grasp-type classification ──────────────────────────────
 
 	inline static const std::unordered_set<std::string> PINCH_OBJECTS = {
@@ -123,6 +135,12 @@ private:
     bool orderApproachJointSequence(
         const std::vector<std::string>& joint_names,
         std::vector<double>& waypoints) const;
+
+    std::vector<MotorStage> approachMotorStages() const;
+
+    std::size_t maxRemainingApproachBlocks() const;
+
+    std::string motorJointName(std::size_t motor) const;
 
     bool buildReverseTrajectory(
         const std::vector<std::string>& joint_names,
