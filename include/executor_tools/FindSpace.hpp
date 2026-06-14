@@ -6,7 +6,9 @@
 
 #include "executor_interfaces/action/execute_task.hpp"
 #include "executor_tools/Result.hpp"
+#include "geometry_msgs/msg/transform_stamped.hpp"
 #include "hardware_tools/Hardware.hpp"
+#include "knowledge_tools/Knowledge.hpp"
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -34,7 +36,8 @@ public:
   using GoalHandle = rclcpp_action::ServerGoalHandle<ExecuteTask>;
 
   FindSpace(const rclcpp::Node::SharedPtr &node,
-       const std::shared_ptr<Hardware> &hardware);
+       const std::shared_ptr<Hardware> &hardware,
+       const std::shared_ptr<Knowledge> &knowledge);
 
   Result run(const std::string &argument,
              const std::shared_ptr<GoalHandle> &gh);
@@ -90,6 +93,9 @@ private:
                                std::string &error_out);
   void publishBasePulse(double vx, double vy, double wz,
                         std::chrono::milliseconds duration);
+  bool storeSafeDropInKnowledge(
+      const SpaceTarget &space_target,
+      const geometry_msgs::msg::TransformStamped &tf);
 
   static SpaceTarget resolveDropTarget(const std::string &argument);
   static std::string owlFrameName(const std::string &class_name, int instance);
@@ -97,6 +103,7 @@ private:
 
   rclcpp::Node::SharedPtr node_;
   std::shared_ptr<Hardware> hardware_;
+  std::shared_ptr<Knowledge> knowledge_;
   rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr
       enable_table_drop_tf_client_;
   rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr

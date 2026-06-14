@@ -9,6 +9,7 @@
 #include <unordered_map>
 
 #include "geometry_msgs/msg/transform_stamped.hpp"
+#include "nlohmann/json.hpp"
 #include "tf2/exceptions.h"
 
 using namespace std::chrono_literals;
@@ -17,8 +18,9 @@ using namespace std::chrono_literals;
 // Constructor
 // =========================================================
 FindSpace::FindSpace(const rclcpp::Node::SharedPtr &node,
-           const std::shared_ptr<Hardware> &hardware)
-    : node_(node), hardware_(hardware) {
+           const std::shared_ptr<Hardware> &hardware,
+           const std::shared_ptr<Knowledge> &knowledge)
+    : node_(node), hardware_(hardware), knowledge_(knowledge) {
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(node_->get_clock());
   tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
   enable_table_drop_tf_client_ = node_->create_client<std_srvs::srv::SetBool>(
@@ -239,6 +241,11 @@ Result FindSpace::run(const std::string &argument,
   std::ostringstream ok_msg;
   ok_msg << "find_space_tf_ready frame=" << space_frame << " base=(" << x
          << ", " << y << ", " << z << ") mode=" << space_target.mode;
+
+  if (!storeSafeDropInKnowledge(space_target, tf)) {
+    publishFeedback(gh, FindSpaceState::VALIDATE_SPACE_TF,
+                    "safe_drop_knowledge_update_failed");
+  }
 
   publishFeedback(gh, FindSpaceState::SUCCESS, ok_msg.str());
   setSpaceTfNodeEnabled(enable_client, space_target.service_label, false);
@@ -527,6 +534,46 @@ void FindSpace::publishBasePulse(double vx, double vy, double wz,
     std::this_thread::sleep_for(50ms);
   }
   hardware_->MoveBase(0.0, 0.0, 0.0);
+}
+
+bool FindSpace::storeSafeDropInKnowledge(
+    const SpaceTarget &space_target,
+    const geometry_msgs::msg::TransformStamped &tf) {
+  if (!knowledge_) {
+    return false;
+  }
+
+  const nlohmann::json pose = nlohmann::json::array({
+      tf.transform.translation.x,
+      tf.transform.translation.y,
+      tf.transform.translation.z,
+      tf.transform.rotation.x,
+      tf.transform.rotation.y,
+      tf.transform.rotation.z,
+      tf.transform.rotation.w,
+  });
+
+  const bool mode_ok = knowledge_->update_world_state(
+      "robot", "", "safe_drop_mode", space_target.mode);
+  const bool frame_ok = knowledge_->update_world_state(
+      "robot", "", "safe_drop_frame", space_target.frame);
+  const bool pose_ok = knowledge_->update_world_state(
+      "robot", "", "safe_drop_pose", pose.dump());
+
+  if (!mode_ok || !frame_ok || !pose_ok) {
+    RCLCPP_WARN(node_->get_logger(),
+                "[FindSpace] no se pudo guardar safe_drop en knowledge "
+                "mode_ok=%d frame_ok=%d pose_ok=%d",
+                mode_ok, frame_ok, pose_ok);
+    return false;
+  }
+
+  RCLCPP_INFO(node_->get_logger(),
+              "[FindSpace] safe_drop guardado en knowledge: mode=%s frame=%s "
+              "pose=%s",
+              space_target.mode.c_str(), space_target.frame.c_str(),
+              pose.dump().c_str());
+  return true;
 }
 
 FindSpace::SpaceTarget FindSpace::resolveDropTarget(const std::string &argument) {
