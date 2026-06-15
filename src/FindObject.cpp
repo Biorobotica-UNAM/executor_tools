@@ -74,10 +74,10 @@ Result FindObject::run(const std::string &argument,
     // ── OWL OBJECTS ────────────────────────────────────
 
     else {
-      geometry_msgs::msg::PoseStamped object_pose;
+      geometry_msgs::msg::PoseStamped object_pose, object_nav;
       std::string detected_name;
 
-      if (vision_->GetOwlPose(query_name, object_pose, detected_name)) {
+      if (vision_->GetOwlPose(query_name, object_pose, object_nav, detected_name)) {
         publishFeedback(gh, FindObjectState::LOOKING_AT_TARGET, detected_name);
 
         for (int i = 0; i < 6; ++i) {
@@ -88,7 +88,7 @@ Result FindObject::run(const std::string &argument,
         std::this_thread::sleep_for(1500ms);
 
         publishFeedback(gh, FindObjectState::UPDATING, detected_name);
-        updateObjectState(query_name, object_index, detected_name, object_pose);
+        updateObjectState(query_name, object_index, detected_name, object_pose, object_nav);
 
         publishFeedback(gh, FindObjectState::SUCCESS, detected_name);
         return {true, "SUCCESS", detected_name + "_found"};
@@ -137,15 +137,24 @@ bool FindObject::parseArgument(const std::string &argument,
 
 void FindObject::updateObjectState(
     const std::string &category, const std::string &index,
-    const std::string &name, const geometry_msgs::msg::PoseStamped &pose) {
+    const std::string &name, const geometry_msgs::msg::PoseStamped &pose,
+    const geometry_msgs::msg::PoseStamped &nav) {
+
   const auto &p = pose.pose.position;
   const auto &q = pose.pose.orientation;
 
   nlohmann::json manipulation = {p.x, p.y, p.z, q.x, q.y, q.z, q.w};
 
+  const auto &np = nav.pose.position;
+  const auto &nq = nav.pose.orientation;
+
+  nlohmann::json navigation = {np.x, np.y, np.z, nq.x, nq.y, nq.z, nq.w};
+
   knowledge_->update_world_state(category, index, "name", name);
   knowledge_->update_world_state(category, index, "manipulation",
                                  manipulation.dump());
+  knowledge_->update_world_state(category, index, "navigation",
+                                 navigation.dump());
 }
 
 // ─────────────────────────────────────────────────────────────

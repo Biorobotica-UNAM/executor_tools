@@ -170,7 +170,7 @@ bool FindPerson::scanPosition(double pan, double tilt, bool anybody,
                   description.c_str());
       publishFeedback(gh, FindPersonState::UPDATING, found_name);
       updatePersonState(category, person_index, found_name, target_pose,
-                        description, anybody);
+                        detection.nav, description, anybody);
     } else {
       RCLCPP_WARN(node_->get_logger(),
                   "[FindPerson] DescribePerson failed for '%s'",
@@ -210,7 +210,7 @@ bool FindPerson::scanPosition(double pan, double tilt, bool anybody,
                 description.c_str());
     publishFeedback(gh, FindPersonState::UPDATING, found_name);
     updatePersonState(category, person_index, found_name, target_pose,
-                      description, anybody);
+                      detection.nav, description, anybody);
   } else {
     RCLCPP_WARN(node_->get_logger(),
                 "[FindPerson] DescribePerson failed for '%s'",
@@ -228,6 +228,7 @@ void FindPerson::updatePersonState(const std::string &category,
                                    const std::string &index,
                                    const std::string &name,
                                    const geometry_msgs::msg::PoseStamped &pose,
+                                   const geometry_msgs::msg::PoseStamped &nav,
                                    const std::string &description,
                                    bool overwrite_name) {
   // description llega como CSV ("male, black shirt, young, ...")
@@ -244,16 +245,16 @@ void FindPerson::updatePersonState(const std::string &category,
 
   nlohmann::json desc_json = tokens;
 
-  const auto &p = pose.pose.position;
-  const auto &q = pose.pose.orientation;
-  nlohmann::json nav = {p.x, p.y, p.z, q.x, q.y, q.z, q.w};
+  const auto &np = nav.pose.position;
+  const auto &nq = nav.pose.orientation;
+  nlohmann::json nav_json = {np.x, np.y, np.z, nq.x, nq.y, nq.z, nq.w};
 
   if (overwrite_name)
     knowledge_->update_world_state(category, index, "name", name);
 
   knowledge_->update_world_state(category, index, "description",
                                  desc_json.dump());
-  knowledge_->update_world_state(category, index, "navigation", nav.dump());
+  knowledge_->update_world_state(category, index, "navigation", nav_json.dump());
 }
 
 // ============================================================

@@ -49,7 +49,8 @@ private:
 
   void updateObjectState(const std::string &category, const std::string &index,
                          const std::string &name,
-                         const geometry_msgs::msg::PoseStamped &pose);
+                         const geometry_msgs::msg::PoseStamped &pose,
+                         const geometry_msgs::msg::PoseStamped &nav);
 
   void publishFeedback(const std::shared_ptr<GoalHandle> &gh,
                        FindObjectState state, const std::string &detail = "");
