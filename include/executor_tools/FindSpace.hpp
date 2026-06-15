@@ -10,6 +10,7 @@
 #include "hardware_tools/Hardware.hpp"
 #include "knowledge_tools/Knowledge.hpp"
 
+#include "rclcpp/parameter_client.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "std_srvs/srv/set_bool.hpp"
@@ -75,6 +76,7 @@ private:
     double torso_height{0.3};
     double head_pitch{-0.6};
     double sensor_settle_delay_sec{0.3};
+    int shelf_level_rank{0};
     SpaceBounds bounds;
   };
 
@@ -89,6 +91,8 @@ private:
   // fuera de la zona ideal pero aun dentro de la zona corregible.
   bool precenterContainerWithOwl(const std::shared_ptr<GoalHandle> &gh,
                                  const SpaceTarget &space_target);
+  bool preScanShelf(const std::shared_ptr<GoalHandle> &gh,
+                    const SpaceTarget &space_target);
   bool requestOwlContainerPose(OwlContainerPose &pose_out,
                                std::string &error_out);
   void publishBasePulse(double vx, double vy, double wz,
@@ -96,6 +100,8 @@ private:
   bool storeSafeDropInKnowledge(
       const SpaceTarget &space_target,
       const geometry_msgs::msg::TransformStamped &tf);
+  void configureTablePreferenceForHeldObject();
+  void configureShelfPreference(const SpaceTarget &space_target);
 
   static SpaceTarget resolveDropTarget(const std::string &argument);
   static std::string owlFrameName(const std::string &class_name, int instance);

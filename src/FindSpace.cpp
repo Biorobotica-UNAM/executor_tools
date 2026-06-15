@@ -1,12 +1,14 @@
 #include "executor_tools/FindSpace.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <chrono>
 #include <cmath>
 #include <sstream>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "nlohmann/json.hpp"
@@ -102,6 +104,18 @@ Result FindSpace::run(const std::string &argument,
     return {false, "FAILED", "container_out_of_scan_zone"};
   }
 
+  if (space_target.mode == "shelf" && !preScanShelf(gh, space_target)) {
+    publishFeedback(gh, FindSpaceState::FAILED, "shelf_prescan_failed");
+    hardware_->MoveBase(0.0, 0.0, 0.0);
+    return {false, "FAILED", "shelf_prescan_failed"};
+  }
+
+  if (space_target.mode == "table") {
+    configureTablePreferenceForHeldObject();
+  } else if (space_target.mode == "shelf") {
+    configureShelfPreference(space_target);
+  }
+
   const rclcpp::Time request_stamp = node_->now();
   // 3) Activamos solo el nodo de vision necesario. Cada nodo procesa una nube
   // y publica una TF fresca cuando encuentra un punto seguro.
@@ -121,6 +135,16 @@ Result FindSpace::run(const std::string &argument,
   bool found = false;
   std::string last_error;
   int attempts = 0;
+  std::shared_ptr<rclcpp::AsyncParametersClient> container_status_client;
+  if (space_target.mode == "container") {
+    container_status_client = std::make_shared<rclcpp::AsyncParametersClient>(
+        node_, "/vision/container_drop_tf_node");
+    if (!container_status_client->wait_for_service(300ms)) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "[FindSpace] parametros de /vision/container_drop_tf_node "
+                  "no disponibles al iniciar espera; se seguira intentando");
+    }
+  }
 
   auto poseInBounds = [&space_target](
                           const geometry_msgs::msg::TransformStamped &candidate) {
@@ -133,12 +157,58 @@ Result FindSpace::run(const std::string &argument,
            z >= b.z_min && z <= b.z_max && distance_xy <= b.dist_xy_max;
   };
 
+  auto readContainerDropStatus = [&container_status_client](
+                                     std::string &result,
+                                     std::string &error) {
+    result.clear();
+    error.clear();
+    if (!container_status_client ||
+        !container_status_client->service_is_ready()) {
+      return false;
+    }
+
+    auto future = container_status_client->get_parameters(
+        {"last_result", "last_error"});
+    if (future.wait_for(60ms) != std::future_status::ready) {
+      return false;
+    }
+
+    const auto params = future.get();
+    if (!params.empty() &&
+        params[0].get_type() == rclcpp::ParameterType::PARAMETER_STRING) {
+      result = params[0].as_string();
+    }
+    if (params.size() > 1 &&
+        params[1].get_type() == rclcpp::ParameterType::PARAMETER_STRING) {
+      error = params[1].as_string();
+    }
+    return !result.empty();
+  };
+
   // 4) Esperamos la TF fresca publicada por vision. Se ignoran TF viejas
   // anteriores a esta peticion y candidatos fuera de limites.
   // DEBUG: si aparece "ignorando TF vieja", el detector no genero una TF nueva
   // para este escaneo; revisar logs de container/table/shelf_drop_tf_node.
   while (gh->is_active() && std::chrono::steady_clock::now() - start_time < max_wait) {
     ++attempts;
+    if (space_target.mode == "container") {
+      std::string container_result;
+      std::string container_error;
+      if (readContainerDropStatus(container_result, container_error) &&
+          container_result == "container_full") {
+        last_error = container_error.empty() ? "container_full"
+                                             : container_error;
+        RCLCPP_WARN(node_->get_logger(),
+                    "[FindSpace] contenedor lleno reportado por vision; "
+                    "terminando espera de TF: %s",
+                    last_error.c_str());
+        publishFeedback(gh, FindSpaceState::FAILED,
+                        "container_full: " + last_error);
+        setSpaceTfNodeEnabled(enable_client, space_target.service_label, false);
+        return {false, "FAILED", "container_full"};
+      }
+    }
+
     try {
       // Pedimos la transformacion mas reciente disponible. El nodo de vision
       // activo la publica como punto inicial seguro para soltar.
@@ -282,30 +352,272 @@ bool FindSpace::setSpaceTfNodeEnabled(
   return response->success;
 }
 
+void FindSpace::configureTablePreferenceForHeldObject() {
+  const json left_object = knowledge_->get_world_state("robot", "", "left_hand");
+  const json right_object =
+      knowledge_->get_world_state("robot", "", "right_hand");
+
+  if (!left_object.is_string() || !right_object.is_string()) {
+    RCLCPP_WARN(node_->get_logger(),
+                "[FindSpace] no se pudo leer ocupacion de manos; se conserva "
+                "preferred_x_m de launch");
+    return;
+  }
+
+  const bool left_occupied = left_object.get<std::string>() != "nothing";
+  const bool right_occupied = right_object.get<std::string>() != "nothing";
+
+  if (!left_occupied && !right_occupied) {
+    RCLCPP_INFO(node_->get_logger(),
+                "[FindSpace] ninguna mano ocupada; se conserva preferred_x_m "
+                "de launch para mesa");
+    return;
+  }
+
+  const bool prefer_right = right_occupied || !left_occupied;
+  const double preferred_x = prefer_right ? 0.35 : -0.35;
+  const std::string preferred_hand = prefer_right ? "right_hand" : "left_hand";
+
+  rclcpp::AsyncParametersClient parameter_client(
+      node_, "/vision/table_drop_tf_node");
+  if (!parameter_client.wait_for_service(500ms)) {
+    RCLCPP_WARN(node_->get_logger(),
+                "[FindSpace] parametros de /vision/table_drop_tf_node no "
+                "disponibles; se conserva preferred_x_m de launch");
+    return;
+  }
+
+  auto future = parameter_client.set_parameters(
+      {rclcpp::Parameter("preferred_x_m", preferred_x)});
+  if (future.wait_for(1s) != std::future_status::ready) {
+    RCLCPP_WARN(node_->get_logger(),
+                "[FindSpace] timeout ajustando preferred_x_m para mesa; se "
+                "conserva el valor actual");
+    return;
+  }
+
+  const auto results = future.get();
+  if (results.empty() || !results.front().successful) {
+    const std::string reason =
+        results.empty() ? "empty_result" : results.front().reason;
+    RCLCPP_WARN(node_->get_logger(),
+                "[FindSpace] fallo ajustando preferred_x_m para mesa: %s",
+                reason.c_str());
+    return;
+  }
+
+  RCLCPP_INFO(node_->get_logger(),
+              "[FindSpace] preferred_x_m de mesa ajustado a %.2f por %s "
+              "ocupada (left='%s' right='%s')",
+              preferred_x, preferred_hand.c_str(),
+              left_object.get<std::string>().c_str(),
+              right_object.get<std::string>().c_str());
+}
+
+void FindSpace::configureShelfPreference(const SpaceTarget &space_target) {
+  const json left_object = knowledge_->get_world_state("robot", "", "left_hand");
+  const json right_object =
+      knowledge_->get_world_state("robot", "", "right_hand");
+
+  double preferred_y = 0.0;
+  bool has_hand_preference = false;
+
+  if (!left_object.is_string() || !right_object.is_string()) {
+    RCLCPP_WARN(node_->get_logger(),
+                "[FindSpace] no se pudo leer ocupacion de manos; se conserva "
+                "preferred_y_m de launch para shelf");
+  } else {
+    const bool left_occupied = left_object.get<std::string>() != "nothing";
+    const bool right_occupied = right_object.get<std::string>() != "nothing";
+
+    if (!left_occupied && !right_occupied) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "[FindSpace] ninguna mano ocupada; se conserva preferred_y_m "
+                  "de launch para shelf");
+    } else {
+      // En base_link, +Y es izquierda del robot y -Y es derecha.
+      const bool prefer_right = right_occupied || !left_occupied;
+      preferred_y = prefer_right ? -0.18 : 0.18;
+      has_hand_preference = true;
+    }
+  }
+
+  rclcpp::AsyncParametersClient parameter_client(
+      node_, "/vision/shelf_drop_tf_node");
+  if (!parameter_client.wait_for_service(500ms)) {
+    RCLCPP_WARN(node_->get_logger(),
+                "[FindSpace] parametros de /vision/shelf_drop_tf_node no "
+                "disponibles; se conserva preferred_y_m de launch");
+    return;
+  }
+
+  std::vector<rclcpp::Parameter> parameters;
+  if (has_hand_preference) {
+    parameters.emplace_back("preferred_y_m", preferred_y);
+  }
+  parameters.emplace_back("preferred_section_rank",
+                          space_target.shelf_level_rank);
+
+  auto future = parameter_client.set_parameters(parameters);
+  if (future.wait_for(1s) != std::future_status::ready) {
+    RCLCPP_WARN(node_->get_logger(),
+                "[FindSpace] timeout ajustando preferencias para shelf; se "
+                "conserva el valor actual");
+    return;
+  }
+
+  const auto results = future.get();
+  if (results.empty() || !results.front().successful) {
+    const std::string reason =
+        results.empty() ? "empty_result" : results.front().reason;
+    RCLCPP_WARN(node_->get_logger(),
+                "[FindSpace] fallo ajustando preferencias para shelf: %s",
+                reason.c_str());
+    return;
+  }
+
+  if (has_hand_preference) {
+    RCLCPP_INFO(node_->get_logger(),
+                "[FindSpace] preferencias shelf: preferred_y_m=%.2f "
+                "level_rank=%d (left='%s' right='%s')",
+                preferred_y, space_target.shelf_level_rank,
+                left_object.get<std::string>().c_str(),
+                right_object.get<std::string>().c_str());
+  } else {
+    RCLCPP_INFO(node_->get_logger(),
+                "[FindSpace] preferencias shelf: preferred_y_m=launch "
+                "level_rank=%d",
+                space_target.shelf_level_rank);
+  }
+}
+
+bool FindSpace::preScanShelf(const std::shared_ptr<GoalHandle> &gh,
+                             const SpaceTarget &space_target) {
+  struct ScanStep {
+    double pan;
+    double tilt;
+    double vx;
+    double vy;
+    double wz;
+    int pulse_ms;
+    const char *label;
+  };
+
+  const std::array<ScanStep, 8> steps = {{
+      {0.0, space_target.head_pitch, 0.0, 0.0, 0.0, 0, "centro"},
+      {0.0, -0.35, 0.0, 0.0, 0.0, 0, "arriba"},
+      {0.0, -0.75, 0.0, 0.0, 0.0, 0, "abajo"},
+      {0.30, space_target.head_pitch, 0.0, 0.0, 0.0, 0, "izquierda"},
+      {-0.30, space_target.head_pitch, 0.0, 0.0, 0.0, 0, "derecha"},
+      {0.0, space_target.head_pitch, 0.0, 0.0, 0.14, 450, "giro-izquierda"},
+      {0.0, space_target.head_pitch, 0.0, 0.0, -0.28, 850, "giro-derecha"},
+      {0.0, space_target.head_pitch, 0.0, 0.0, 0.14, 450, "regresa-orientacion"},
+  }};
+
+  int step_index = 0;
+  for (const auto &step : steps) {
+    if (!gh->is_active()) {
+      return false;
+    }
+    publishFeedback(
+        gh, FindSpaceState::PREPARE_SENSOR,
+        "pre-scan shelf " + std::string(step.label) + " paso=" +
+            std::to_string(++step_index));
+    RCLCPP_INFO(node_->get_logger(),
+                "[FindSpace] pre-scan shelf paso=%d/%zu %s head=(%.3f %.3f) "
+                "base=(%.3f %.3f %.3f) duracion=%.2fs",
+                step_index, steps.size(), step.label, step.pan, step.tilt,
+                step.vx, step.vy, step.wz,
+                static_cast<double>(step.pulse_ms) / 1000.0);
+
+    if (!hardware_->MoveHead({step.pan, step.tilt})) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "[FindSpace] fallo al mover cabeza durante pre-scan shelf");
+      return false;
+    }
+    if (step.pulse_ms > 0) {
+      publishBasePulse(step.vx, step.vy, step.wz,
+                       std::chrono::milliseconds(step.pulse_ms));
+    }
+    std::this_thread::sleep_for(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::duration<double>(
+                space_target.sensor_settle_delay_sec)));
+  }
+
+  if (!hardware_->MoveHead({0.0, space_target.head_pitch})) {
+    RCLCPP_WARN(node_->get_logger(),
+                "[FindSpace] fallo al regresar cabeza a postura de shelf");
+    return false;
+  }
+  std::this_thread::sleep_for(
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::duration<double>(
+              space_target.sensor_settle_delay_sec)));
+  return true;
+}
+
 bool FindSpace::precenterContainerWithOwl(
     const std::shared_ptr<GoalHandle> &gh,
     const SpaceTarget &space_target) {
-  constexpr int kMaxHeadCorrections = 2;
-  constexpr int kMaxBaseCorrections = 2;
-  constexpr double kIdealXMin = 1.05;
-  constexpr double kIdealXMax = 1.35;
+  constexpr int kMaxHeadCorrections = 4;
+  constexpr int kMaxBaseCorrections = 7;
+  constexpr double kIdealXMin = 0.75;
+  constexpr double kIdealXMax = 0.85;
   constexpr double kIdealAbsYMax = 0.22;
-  constexpr double kScanXMin = 0.85;
+  constexpr double kScanXMin = 0.65;
   constexpr double kScanXMax = 1.60;
   constexpr double kScanAbsYMax = 0.65;
+  constexpr double kActionXMin = 0.45;
+  constexpr double kActionXMax = 2.00;
+  constexpr double kActionAbsYMax = 1.10;
   constexpr double kImageCenterX = 320.0;
   constexpr double kImageCenterTolerancePx = 55.0;
   constexpr double kHeadPanMax = 0.55;
   constexpr double kHeadPanMin = -0.55;
+  constexpr double kHeadTiltMin = -0.95;
+  constexpr double kHeadTiltMax = -0.35;
   constexpr double kMaxVx = 0.10;
   constexpr double kMaxVy = 0.07;
+  constexpr double kMaxWz = 0.18;
+
+  struct SearchStep {
+    double pan;
+    double tilt_offset;
+    double vx;
+    double vy;
+    double wz;
+    int pulse_ms;
+    const char *label;
+  };
+
+  const std::array<SearchStep, 14> search_steps = {{
+      {0.0, 0.0, 0.0, 0.0, 0.0, 0, "centro"},
+      {-0.35, 0.0, 0.0, 0.0, 0.0, 0, "derecha"},
+      {0.35, 0.0, 0.0, 0.0, 0.0, 0, "izquierda"},
+      {0.0, -0.14, 0.0, 0.0, 0.0, 0, "abajo"},
+      {-0.35, -0.14, 0.0, 0.0, 0.0, 0, "abajo-derecha"},
+      {0.35, -0.14, 0.0, 0.0, 0.0, 0, "abajo-izquierda"},
+      {0.0, 0.16, 0.0, 0.0, 0.0, 0, "arriba"},
+      {-0.35, 0.16, 0.0, 0.0, 0.0, 0, "arriba-derecha"},
+      {0.35, 0.16, 0.0, 0.0, 0.0, 0, "arriba-izquierda"},
+      {0.0, 0.0, 0.0, 0.0, kMaxWz, 650, "giro-izquierda"},
+      {0.0, 0.0, 0.0, 0.0, -2.0 * kMaxWz, 1200, "giro-derecha"},
+      {0.0, 0.0, 0.0, 0.0, kMaxWz, 650, "regresa-orientacion"},
+      {0.0, 0.0, kMaxVx * 0.8, 0.0, 0.0, 650, "adelante"},
+      {0.0, 0.0, -kMaxVx * 0.7, 0.0, 0.0, 600, "atras"},
+  }};
 
   double commanded_pan = 0.0;
+  double commanded_tilt = space_target.head_pitch;
   int head_corrections = 0;
   int base_corrections = 0;
+  int search_step_index = 0;
   // Esta etapa no decide el punto de drop. Solo intenta poner al robot/camara
   // en una postura donde el detector geometrico vea suficiente nube util.
-  for (int attempt = 0; attempt <= kMaxHeadCorrections + kMaxBaseCorrections + 1;
+  for (int attempt = 0;
+       attempt <= kMaxHeadCorrections + kMaxBaseCorrections +
+                      static_cast<int>(search_steps.size()) + 1;
        ++attempt) {
     if (!gh->is_active()) {
       return false;
@@ -319,9 +631,38 @@ bool FindSpace::precenterContainerWithOwl(
     OwlContainerPose pose;
     std::string error;
     if (!requestOwlContainerPose(pose, error)) {
+      if (search_step_index < static_cast<int>(search_steps.size())) {
+        const auto &step = search_steps[search_step_index++];
+        commanded_pan = step.pan;
+        commanded_tilt =
+            std::clamp(space_target.head_pitch + step.tilt_offset,
+                       kHeadTiltMin, kHeadTiltMax);
+        RCLCPP_WARN(node_->get_logger(),
+                    "[FindSpace] precenter OWL sin deteccion (%s); "
+                    "busqueda activa paso=%d/%zu %s head=(%.3f %.3f) "
+                    "base=(%.3f %.3f %.3f) duracion=%.2fs",
+                    error.c_str(), search_step_index, search_steps.size(),
+                    step.label, commanded_pan, commanded_tilt, step.vx,
+                    step.vy, step.wz,
+                    static_cast<double>(step.pulse_ms) / 1000.0);
+        if (!hardware_->MoveHead({commanded_pan, commanded_tilt})) {
+          RCLCPP_WARN(node_->get_logger(),
+                      "[FindSpace] fallo al mover cabeza en busqueda activa");
+        }
+        if (step.pulse_ms > 0) {
+          publishBasePulse(step.vx, step.vy, step.wz,
+                           std::chrono::milliseconds(step.pulse_ms));
+        }
+        std::this_thread::sleep_for(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::duration<double>(
+                    space_target.sensor_settle_delay_sec)));
+        continue;
+      }
+
       RCLCPP_WARN(node_->get_logger(),
-                  "[FindSpace] precenter OWL no disponible/sin deteccion: %s; "
-                  "se usara fallback geometrico",
+                  "[FindSpace] precenter OWL no disponible/sin deteccion tras "
+                  "busqueda activa: %s; se usara fallback geometrico",
                   error.c_str());
       return true;
     }
@@ -345,12 +686,58 @@ bool FindSpace::precenterContainerWithOwl(
     // de vista (bbox_cx), distancia (x) o lateralidad (y).
 
     if (!in_scan_zone) {
+      const bool in_action_zone =
+          pose.x >= kActionXMin && pose.x <= kActionXMax &&
+          std::fabs(pose.y) <= kActionAbsYMax;
+      if (in_action_zone && base_corrections < kMaxBaseCorrections) {
+        double vx = 0.0;
+        double vy = 0.0;
+        double wz = 0.0;
+        if (pose.x > kIdealXMax) {
+          vx = kMaxVx;
+        } else if (pose.x < kIdealXMin) {
+          vx = -0.8 * kMaxVx;
+        }
+        if (pose.y > kIdealAbsYMax) {
+          vy = kMaxVy;
+          wz = kMaxWz;
+        } else if (pose.y < -kIdealAbsYMax) {
+          vy = -kMaxVy;
+          wz = -kMaxWz;
+        }
+
+        const double x_error = std::max(
+            {0.0, pose.x - kIdealXMax, kIdealXMin - pose.x});
+        const double y_error =
+            std::max(0.0, std::fabs(pose.y) - kIdealAbsYMax);
+        const auto pulse_ms = static_cast<int>(std::clamp(
+            500.0 + 850.0 * std::max(x_error, y_error), 500.0, 1100.0));
+
+        ++base_corrections;
+        RCLCPP_INFO(node_->get_logger(),
+                    "[FindSpace] contenedor fuera de zona de escaneo pero "
+                    "corregible; base vx=%.3f vy=%.3f wz=%.3f duracion=%.2fs "
+                    "base_correction=%d/%d",
+                    vx, vy, wz, static_cast<double>(pulse_ms) / 1000.0,
+                    base_corrections, kMaxBaseCorrections);
+        publishBasePulse(vx, vy, wz, std::chrono::milliseconds(pulse_ms));
+        commanded_pan = 0.0;
+        commanded_tilt = space_target.head_pitch;
+        hardware_->MoveHead({commanded_pan, commanded_tilt});
+        std::this_thread::sleep_for(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::duration<double>(
+                    space_target.sensor_settle_delay_sec)));
+        continue;
+      }
+
       RCLCPP_WARN(node_->get_logger(),
                   "[FindSpace] contenedor fuera de la zona corregible actual: "
-                  "base=(%.3f %.3f %.3f) scan_x=[%.2f %.2f] abs_y<=%.2f. "
+                  "base=(%.3f %.3f %.3f) scan_x=[%.2f %.2f] abs_y<=%.2f "
+                  "action_x=[%.2f %.2f] action_abs_y<=%.2f. "
                   "Se requiere reaproximacion externa.",
                   pose.x, pose.y, pose.z, kScanXMin, kScanXMax,
-                  kScanAbsYMax);
+                  kScanAbsYMax, kActionXMin, kActionXMax, kActionAbsYMax);
       return false;
     }
 
@@ -372,13 +759,14 @@ bool FindSpace::precenterContainerWithOwl(
     if ((!image_centered || !pan_close) &&
         head_corrections < kMaxHeadCorrections) {
       commanded_pan = desired_pan;
+      commanded_tilt = space_target.head_pitch;
       ++head_corrections;
       RCLCPP_INFO(node_->get_logger(),
                   "[FindSpace] precenter moviendo cabeza pan=%.3f tilt=%.3f "
                   "image_error=%.1f head_correction=%d/%d",
                   commanded_pan, space_target.head_pitch, image_error,
                   head_corrections, kMaxHeadCorrections);
-      if (!hardware_->MoveHead({commanded_pan, space_target.head_pitch})) {
+      if (!hardware_->MoveHead({commanded_pan, commanded_tilt})) {
         RCLCPP_WARN(node_->get_logger(),
                     "[FindSpace] fallo al mover cabeza para centrar contenedor; "
                     "se intentara continuar con geometria/base si aplica");
@@ -389,9 +777,39 @@ bool FindSpace::precenterContainerWithOwl(
       continue;
     }
 
+    if ((!image_centered || !pan_close) &&
+        base_corrections < kMaxBaseCorrections) {
+      const double pan_error = desired_pan - commanded_pan;
+      double wz = 0.0;
+      if (std::fabs(pan_error) > 0.03) {
+        wz = std::clamp(pan_error, -kMaxWz, kMaxWz);
+      } else if (pose.bbox_center_x > 0.0) {
+        wz = image_error > 0.0 ? -kMaxWz : kMaxWz;
+      }
+      if (std::fabs(wz) > 0.001) {
+        ++base_corrections;
+        RCLCPP_INFO(node_->get_logger(),
+                    "[FindSpace] precenter girando base para centrar vista "
+                    "wz=%.3f image_error=%.1f desired_pan=%.3f "
+                    "base_correction=%d/%d",
+                    wz, image_error, desired_pan, base_corrections,
+                    kMaxBaseCorrections);
+        publishBasePulse(0.0, 0.0, wz, 550ms);
+        commanded_pan = 0.0;
+        commanded_tilt = space_target.head_pitch;
+        hardware_->MoveHead({commanded_pan, commanded_tilt});
+        std::this_thread::sleep_for(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::duration<double>(
+                    space_target.sensor_settle_delay_sec)));
+        continue;
+      }
+    }
+
     if (!in_ideal_zone && base_corrections < kMaxBaseCorrections) {
       double vx = 0.0;
       double vy = 0.0;
+      double wz = 0.0;
       if (pose.x > kIdealXMax) {
         vx = kMaxVx;
       } else if (pose.x < kIdealXMin) {
@@ -399,8 +817,14 @@ bool FindSpace::precenterContainerWithOwl(
       }
       if (pose.y > kIdealAbsYMax) {
         vy = kMaxVy;
+        if (std::fabs(pose.y) > 0.35) {
+          wz = kMaxWz;
+        }
       } else if (pose.y < -kIdealAbsYMax) {
         vy = -kMaxVy;
+        if (std::fabs(pose.y) > 0.35) {
+          wz = -kMaxWz;
+        }
       }
 
       const double x_error = std::max(
@@ -413,10 +837,13 @@ bool FindSpace::precenterContainerWithOwl(
       ++base_corrections;
       RCLCPP_INFO(node_->get_logger(),
                   "[FindSpace] precenter corrigiendo base vx=%.3f vy=%.3f "
-                  "duracion=%.2fs base_correction=%d/%d",
-                  vx, vy, static_cast<double>(pulse_ms) / 1000.0,
+                  "wz=%.3f duracion=%.2fs base_correction=%d/%d",
+                  vx, vy, wz, static_cast<double>(pulse_ms) / 1000.0,
                   base_corrections, kMaxBaseCorrections);
-      publishBasePulse(vx, vy, 0.0, std::chrono::milliseconds(pulse_ms));
+      publishBasePulse(vx, vy, wz, std::chrono::milliseconds(pulse_ms));
+      commanded_pan = 0.0;
+      commanded_tilt = space_target.head_pitch;
+      hardware_->MoveHead({commanded_pan, commanded_tilt});
       std::this_thread::sleep_for(
           std::chrono::duration_cast<std::chrono::milliseconds>(
               std::chrono::duration<double>(space_target.sensor_settle_delay_sec)));
@@ -460,6 +887,14 @@ bool FindSpace::requestOwlContainerPose(OwlContainerPose &pose_out,
     return false;
   }
 
+  constexpr double kIdealXMin = 0.75;
+  constexpr double kIdealXMax = 0.85;
+  constexpr double kIdealAbsYMax = 0.22;
+  constexpr double kScanXMin = 0.65;
+  constexpr double kScanXMax = 1.60;
+  constexpr double kScanAbsYMax = 0.65;
+  constexpr double kImageCenterX = 320.0;
+
   bool found = false;
   double best_score = -1.0e9;
   std::string best_frame;
@@ -468,6 +903,7 @@ bool FindSpace::requestOwlContainerPose(OwlContainerPose &pose_out,
   double best_bbox_center_x = 0.0;
   double best_bbox_width = 0.0;
   double best_bbox_height = 0.0;
+  geometry_msgs::msg::TransformStamped best_tf;
   std::unordered_map<std::string, int> class_counts;
 
   for (const auto &det : response->detections) {
@@ -483,45 +919,81 @@ bool FindSpace::requestOwlContainerPose(OwlContainerPose &pose_out,
     const int instance = class_counts[sanitized]++;
     const double area = width * height;
     const double center_x = 0.5 * (det.x_min + det.x_max);
-    const double center_offset = std::fabs(center_x - 320.0) / 320.0;
-    const double score = det.confidence + 0.00001 * area - 0.20 * center_offset;
+    const std::string frame = owlFrameName(frame_class, instance);
+
+    geometry_msgs::msg::TransformStamped tf;
+    try {
+      tf = tf_buffer_->lookupTransform("base_link", frame, tf2::TimePointZero,
+                                       500ms);
+    } catch (const tf2::TransformException &ex) {
+      RCLCPP_DEBUG(node_->get_logger(),
+                   "[FindSpace] OWL candidato sin TF frame=%s error=%s",
+                   frame.c_str(), ex.what());
+      continue;
+    }
+
+    const double x = tf.transform.translation.x;
+    const double y = tf.transform.translation.y;
+    const bool in_scan_zone =
+        x >= kScanXMin && x <= kScanXMax && std::fabs(y) <= kScanAbsYMax;
+    const double ideal_x_error =
+        std::max({0.0, kIdealXMin - x, x - kIdealXMax});
+    const double ideal_y_error =
+        std::max(0.0, std::fabs(y) - kIdealAbsYMax);
+    const double scan_x_error =
+        std::max({0.0, kScanXMin - x, x - kScanXMax});
+    const double scan_y_error =
+        std::max(0.0, std::fabs(y) - kScanAbsYMax);
+    const double center_offset = std::fabs(center_x - kImageCenterX) /
+                                 kImageCenterX;
+    const double area_score = area / 10000.0;
+    const double distance_score =
+        (x >= kScanXMin && x <= kScanXMax)
+            ? (kScanXMax - x) / std::max(0.001, kScanXMax - kScanXMin)
+            : -std::fabs(x - kIdealXMin);
+    const double score =
+        0.35 * det.confidence + 1.20 * area_score +
+        1.00 * distance_score + (in_scan_zone ? 3.0 : 0.0) -
+        4.0 * std::hypot(ideal_x_error, ideal_y_error) -
+        8.0 * std::hypot(scan_x_error, scan_y_error) -
+        0.20 * center_offset;
+
+    RCLCPP_INFO(node_->get_logger(),
+                "[FindSpace] OWL candidato frame=%s conf=%.2f "
+                "base=(%.3f %.3f %.3f) bbox_cx=%.1f area=%.0f "
+                "score=%.3f in_scan=%s",
+                frame.c_str(), det.confidence, x, y, tf.transform.translation.z,
+                center_x, area, score, in_scan_zone ? "true" : "false");
 
     if (!found || score > best_score) {
       found = true;
       best_score = score;
-      best_frame = owlFrameName(frame_class, instance);
+      best_frame = frame;
       best_class = frame_class;
       best_confidence = det.confidence;
       best_bbox_center_x = center_x;
       best_bbox_width = width;
       best_bbox_height = height;
+      best_tf = tf;
     }
   }
 
   if (!found) {
-    error_out = "owl_detections_too_small";
+    error_out = "owl_detections_without_valid_tf_or_too_small";
     return false;
   }
 
-  try {
-    const auto tf = tf_buffer_->lookupTransform(
-        "base_link", best_frame, tf2::TimePointZero, 500ms);
-    pose_out.detected = true;
-    pose_out.class_name = best_class;
-    pose_out.frame = best_frame;
-    pose_out.confidence = best_confidence;
-    pose_out.bbox_center_x = best_bbox_center_x;
-    pose_out.bbox_width = best_bbox_width;
-    pose_out.bbox_height = best_bbox_height;
-    pose_out.x = tf.transform.translation.x;
-    pose_out.y = tf.transform.translation.y;
-    pose_out.z = tf.transform.translation.z;
-    return true;
-  } catch (const tf2::TransformException &ex) {
-    error_out = "owl_tf_not_available frame=" + best_frame +
-                " error=" + ex.what();
-    return false;
-  }
+  pose_out.detected = true;
+  pose_out.class_name = best_class;
+  pose_out.frame = best_frame;
+  pose_out.confidence = best_confidence;
+  pose_out.bbox_center_x = best_bbox_center_x;
+  pose_out.bbox_width = best_bbox_width;
+  pose_out.bbox_height = best_bbox_height;
+  pose_out.x = best_tf.transform.translation.x;
+  pose_out.y = best_tf.transform.translation.y;
+  pose_out.z = best_tf.transform.translation.z;
+  return true;
 }
 
 void FindSpace::publishBasePulse(double vx, double vy, double wz,
@@ -597,8 +1069,8 @@ FindSpace::SpaceTarget FindSpace::resolveDropTarget(const std::string &argument)
   target.frame = "table_drop_start";
   target.service_label = "/vision/table_drop_tf/enable";
   target.torso_height = 0.3;
-  target.head_pitch = -0.6;
-  target.bounds = {0.15, 1.20, 0.80, 0.35, 1.40, 1.40};
+  target.head_pitch = -0.7;
+  target.bounds = {0.15, 0.80, 0.55, 0.35, 1.40, 1.05};
 
   const bool explicit_container = contains("container_drop_start");
   const bool explicit_table = contains("table_drop_start");
@@ -617,8 +1089,8 @@ FindSpace::SpaceTarget FindSpace::resolveDropTarget(const std::string &argument)
     target.mode = "container";
     target.frame = "container_drop_start";
     target.service_label = "/vision/container_drop_tf/enable";
-    target.torso_height = 0.2;
-    target.head_pitch = -0.55;
+    target.torso_height = 0.1;
+    target.head_pitch = -0.7;
     target.sensor_settle_delay_sec = 1.6;
     target.bounds = {0.15, 1.35, 0.45, 0.08, 1.10, 1.50};
   }
@@ -629,7 +1101,30 @@ FindSpace::SpaceTarget FindSpace::resolveDropTarget(const std::string &argument)
     target.service_label = "/vision/shelf_drop_tf/enable";
     target.torso_height = 0.3;
     target.head_pitch = -0.45;
-    target.bounds = {0.15, 1.35, 0.85, 0.30, 1.70, 1.55};
+    target.sensor_settle_delay_sec = 0.8;
+    target.bounds = {0.15, 1.15, 0.60, 0.30, 1.55, 1.30};
+    if (contains("top") || contains("upper") || contains("alto") ||
+        contains("arriba") || contains("superior") || contains("primer") ||
+        contains("primero") || contains("level 1") || contains("level_1") ||
+        contains("nivel 1") || contains("nivel_1") || contains(" 1")) {
+      target.shelf_level_rank = 1;
+      target.torso_height = 0.35;
+      target.head_pitch = -0.35;
+    } else if (contains("middle") || contains("mid") || contains("medio") ||
+               contains("segundo") || contains("second") ||
+               contains("level 2") || contains("level_2") ||
+               contains("nivel 2") || contains("nivel_2") || contains(" 2")) {
+      target.shelf_level_rank = 2;
+    } else if (contains("bottom") || contains("lower") ||
+               contains("abajo") || contains("bajo") ||
+               contains("inferior") || contains("tercer") ||
+               contains("tercero") || contains("third") ||
+               contains("level 3") || contains("level_3") ||
+               contains("nivel 3") || contains("nivel_3") || contains(" 3")) {
+      target.shelf_level_rank = 3;
+      target.torso_height = 0.25;
+      target.head_pitch = -0.65;
+    }
   }
 
   if (explicit_table) {
@@ -637,8 +1132,8 @@ FindSpace::SpaceTarget FindSpace::resolveDropTarget(const std::string &argument)
     target.frame = "table_drop_start";
     target.service_label = "/vision/table_drop_tf/enable";
     target.torso_height = 0.3;
-    target.head_pitch = -0.6;
-    target.bounds = {0.15, 1.20, 0.80, 0.35, 1.40, 1.40};
+    target.head_pitch = -0.;
+    target.bounds = {0.15, 0.80, 0.55, 0.35, 1.40, 1.05};
   }
 
   return target;

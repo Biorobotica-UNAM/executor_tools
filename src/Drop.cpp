@@ -442,7 +442,7 @@ Drop::DropTarget Drop::resolveDropTarget(const std::string &argument) {
   DropTarget target;
   target.mode = "table";
   target.frame = "table_drop_start";
-  target.bounds = {0.15, 1.20, 0.80, 0.35, 1.40, 1.40};
+  target.bounds = {0.15, 0.80, 0.55, 0.35, 1.40, 1.05};
 
   const bool explicit_container = contains("container_drop_start");
   const bool explicit_table = contains("table_drop_start");
@@ -472,7 +472,7 @@ Drop::DropTarget Drop::resolveDropTarget(const std::string &argument) {
   if (explicit_table) {
     target.mode = "table";
     target.frame = "table_drop_start";
-    target.bounds = {0.15, 1.20, 0.80, 0.35, 1.40, 1.40};
+    target.bounds = {0.15, 0.80, 0.55, 0.35, 1.40, 1.05};
   }
 
   return target;
