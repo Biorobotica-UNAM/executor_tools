@@ -29,6 +29,7 @@ find_package(knowledge_tools REQUIRED)
 # -----------------------------
 add_library(${PROJECT_NAME}
   src/Say.cpp
+  src/Approach.cpp
   src/GoTo.cpp
   src/Check.cpp
   src/Point.cpp
