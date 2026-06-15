@@ -8,11 +8,18 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(executor_interfaces REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(rcl_interfaces REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 find_package(hri_tools REQUIRED)
 find_package(navigation_tools REQUIRED)
 find_package(hardware_tools REQUIRED)
 find_package(vision_tools REQUIRED)
+find_package(vision_interfaces REQUIRED)
 find_package(manipulation_tools REQUIRED)
 find_package(planning_tools REQUIRED)
 find_package(knowledge_tools REQUIRED)
@@ -27,6 +34,7 @@ add_library(${PROJECT_NAME}
   src/Point.cpp
   src/Align.cpp
   src/Drop.cpp
+  src/FindSpace.cpp
   src/Give.cpp
   src/FindPerson.cpp
   src/FindObject.cpp
@@ -35,10 +43,11 @@ add_library(${PROJECT_NAME}
   src/Follow.cpp
   src/Take.cpp
   src/Listen.cpp
-  src/Approach.cpp
-  src/FindPose
-  src/Analyze
+  src/FindPose.cpp
+  src/Analyze.cpp
 )
+
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 
 target_include_directories(${PROJECT_NAME}
   PUBLIC
@@ -50,10 +59,17 @@ ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   rclcpp_action
   executor_interfaces
+  geometry_msgs
+  rcl_interfaces
+  std_msgs
+  tf2
+  tf2_geometry_msgs
+  tf2_ros
   hri_tools
   navigation_tools
   hardware_tools
   vision_tools
+  vision_interfaces
   manipulation_tools
   planning_tools
   knowledge_tools
@@ -89,10 +105,17 @@ ament_export_dependencies(
   rclcpp
   rclcpp_action
   executor_interfaces
+  geometry_msgs
+  rcl_interfaces
+  std_msgs
+  tf2
+  tf2_geometry_msgs
+  tf2_ros
   hri_tools
   navigation_tools
   hardware_tools
   vision_tools
+  vision_interfaces
   manipulation_tools
   planning_tools
   knowledge_tools
