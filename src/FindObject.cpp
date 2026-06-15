@@ -74,10 +74,11 @@ Result FindObject::run(const std::string &argument,
     // ── OWL OBJECTS ────────────────────────────────────
 
     else {
-      geometry_msgs::msg::PoseStamped object_pose;
+      geometry_msgs::msg::PoseStamped object_pose, object_nav;
       std::string detected_name;
 
-      if (vision_->GetOwlPose(query_name, object_pose, detected_name)) {
+      if (vision_->GetOwlPose(query_name, object_pose, object_nav,
+                              detected_name)) {
         publishFeedback(gh, FindObjectState::LOOKING_AT_TARGET, detected_name);
 
         for (int i = 0; i < 6; ++i) {
@@ -87,13 +88,15 @@ Result FindObject::run(const std::string &argument,
 
         std::this_thread::sleep_for(1500ms);
 
-        geometry_msgs::msg::PoseStamped centered_object_pose;
+        geometry_msgs::msg::PoseStamped centered_object_pose,
+            centered_object_nav;
         std::string centered_detected_name;
 
         publishFeedback(gh, FindObjectState::DETECTING,
                         detected_name + "_centered");
 
         if (!refreshCenteredObjectPose(query_name, centered_object_pose,
+                                       centered_object_nav,
                                        centered_detected_name, gh)) {
           publishFeedback(gh, FindObjectState::FAILED,
                           "centered_pose_not_found");
@@ -102,7 +105,7 @@ Result FindObject::run(const std::string &argument,
 
         publishFeedback(gh, FindObjectState::UPDATING, centered_detected_name);
         updateObjectState(query_name, object_index, centered_detected_name,
-                          centered_object_pose);
+                          centered_object_pose, centered_object_nav);
 
         publishFeedback(gh, FindObjectState::SUCCESS, centered_detected_name);
         return {true, "SUCCESS", centered_detected_name + "_found"};
@@ -134,12 +137,14 @@ bool FindObject::detectEmptyChair(geometry_msgs::msg::PointStamped &point) {
 
 bool FindObject::refreshCenteredObjectPose(
     const std::string &query_name, geometry_msgs::msg::PoseStamped &out_pose,
-    std::string &out_detected_name, const std::shared_ptr<GoalHandle> &gh) {
+    geometry_msgs::msg::PoseStamped &out_nav, std::string &out_detected_name,
+    const std::shared_ptr<GoalHandle> &gh) {
   for (int attempt = 1; attempt <= 3; ++attempt) {
     if (!gh || !gh->is_active())
       return false;
 
-    if (vision_->GetOwlPose(query_name, out_pose, out_detected_name, 2s)) {
+    if (vision_->GetOwlPose(query_name, out_pose, out_nav, out_detected_name,
+                            2s)) {
       RCLCPP_INFO(
           node_->get_logger(),
           "[FindObject] Refreshed centered object pose for '%s' as '%s' "
@@ -181,15 +186,22 @@ bool FindObject::parseArgument(const std::string &argument,
 
 void FindObject::updateObjectState(
     const std::string &category, const std::string &index,
-    const std::string &name, const geometry_msgs::msg::PoseStamped &pose) {
+    const std::string &name, const geometry_msgs::msg::PoseStamped &pose,
+    const geometry_msgs::msg::PoseStamped &nav) {
   const auto &p = pose.pose.position;
   const auto &q = pose.pose.orientation;
 
   nlohmann::json manipulation = {p.x, p.y, p.z, q.x, q.y, q.z, q.w};
 
+  const auto &np = nav.pose.position;
+  const auto &nq = nav.pose.orientation;
+  nlohmann::json navigation = {np.x, np.y, np.z, nq.x, nq.y, nq.z, nq.w};
+
   knowledge_->update_world_state(category, index, "name", name);
   knowledge_->update_world_state(category, index, "manipulation",
                                  manipulation.dump());
+  knowledge_->update_world_state(category, index, "navigation",
+                                 navigation.dump());
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -49,12 +49,14 @@ private:
 
   bool refreshCenteredObjectPose(const std::string &query_name,
                                  geometry_msgs::msg::PoseStamped &out_pose,
+                                 geometry_msgs::msg::PoseStamped &out_nav,
                                  std::string &out_detected_name,
                                  const std::shared_ptr<GoalHandle> &gh);
 
   void updateObjectState(const std::string &category, const std::string &index,
                          const std::string &name,
-                         const geometry_msgs::msg::PoseStamped &pose);
+                         const geometry_msgs::msg::PoseStamped &pose,
+                         const geometry_msgs::msg::PoseStamped &nav);
 
   void publishFeedback(const std::shared_ptr<GoalHandle> &gh,
                        FindObjectState state, const std::string &detail = "");
