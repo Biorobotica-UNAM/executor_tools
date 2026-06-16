@@ -178,7 +178,7 @@ private:
     static constexpr std::array<double, 6> TRANSPORT_POSE = {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
 
     // ── Base movement ─────────────────────────────────────────
-	static constexpr double MOVE_DISTANCE_M   = 0.02;
+	static constexpr double MOVE_DISTANCE_M   = 0.10;
 	static constexpr double MOVE_LINEAR_SPEED = 0.05;
 
     // ── Dependencies ──────────────────────────────────────────

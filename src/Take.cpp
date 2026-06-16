@@ -76,10 +76,10 @@ std::vector<Take::ApproachPoseCandidate> Take::approachPoseCandidates() const
     // Orden recomendado: de menos invasivo a mas separado/alto. La primera pose
     // que planea se usa para ejecutar, y las siguientes ya no se intentan.
     return {
-        {"vision_nominal_front", 0.03, 0.00, 0.03},
-        {"front_slightly_higher", 0.03, 0.00, 0.05},
-        {"front_high_clearance", 0.03, 0.00, 0.07},
-        {"farther_high_clearance", 0.03, 0.00, 0.09},
+        {"vision_nominal_front", 0.01, 0.00, 0.02},
+        {"front_slightly_higher", 0.01, 0.00, 0.03},
+        {"front_high_clearance", 0.02, 0.00, 0.04},
+        {"farther_high_clearance", 0.02, 0.00, 0.05},
     };
 }
 
