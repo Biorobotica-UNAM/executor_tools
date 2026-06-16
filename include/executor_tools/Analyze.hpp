@@ -17,6 +17,8 @@
 
 enum class AnalyzeObjectsState {
   READY,
+  MOVING_HEAD,
+  STABILIZING,
   PARSING_ARGS,
   CALLING_SERVICE,
   UPDATING_KNOWLEDGE,

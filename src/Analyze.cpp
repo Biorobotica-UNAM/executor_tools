@@ -28,6 +28,15 @@ Result AnalyzeObjects::run(const std::string &argument,
 
   publishFeedback(gh, AnalyzeObjectsState::READY);
 
+  // ── Posicionar cabeza ──────────────────────────────
+  publishFeedback(gh, AnalyzeObjectsState::MOVING_HEAD);
+  hardware_->MoveHead({0.0, -0.60});
+  std::this_thread::sleep_for(1500ms);
+
+  publishFeedback(gh, AnalyzeObjectsState::STABILIZING);
+  std::this_thread::sleep_for(500ms);
+  // ──────────────────────────────────────────────────
+
   nlohmann::json json_args;
   try {
     publishFeedback(gh, AnalyzeObjectsState::PARSING_ARGS);
@@ -212,6 +221,10 @@ std::string AnalyzeObjects::stateName(AnalyzeObjectsState s) {
   switch (s) {
   case AnalyzeObjectsState::READY:
     return "READY";
+  case AnalyzeObjectsState::MOVING_HEAD:
+    return "MOVING_HEAD";
+  case AnalyzeObjectsState::STABILIZING:
+    return "STABILIZING";
   case AnalyzeObjectsState::PARSING_ARGS:
     return "PARSING_ARGS";
   case AnalyzeObjectsState::CALLING_SERVICE:
