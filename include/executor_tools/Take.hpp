@@ -32,8 +32,10 @@ enum class TakeState
     OPENNING_GRIPPER,
     PLANNING_EXTEND,
     EXECUTING_EXTEND,
+	MOVING_FORWARD,
     CLOSING_GRIPPER,
     REPORTING_OCCUPANCY,
+	MOVING_BACKWARD,
     PLANNING_RETRACT,
     EXECUTING_RETRACT,
     PREPARING_TRANSPORT,
@@ -157,6 +159,8 @@ private:
 
     std::vector<ApproachPoseCandidate> approachPoseCandidates() const;
 
+	bool moveBase(double distance_m, const std::shared_ptr<GoalHandle>& gh);
+
     bool buildReverseTrajectory(
         const std::vector<std::string>& joint_names,
         const std::vector<double>& source_waypoints,
@@ -172,6 +176,10 @@ private:
     // ── Arm poses ─────────────────────────────────────────────
     static constexpr std::array<double, 6> PREPARE_POSE   = {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
     static constexpr std::array<double, 6> TRANSPORT_POSE = {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
+
+    // ── Base movement ─────────────────────────────────────────
+	static constexpr double MOVE_DISTANCE_M   = 0.02;
+	static constexpr double MOVE_LINEAR_SPEED = 0.05;
 
     // ── Dependencies ──────────────────────────────────────────
     rclcpp::Node::SharedPtr       node_;

@@ -76,11 +76,39 @@ std::vector<Take::ApproachPoseCandidate> Take::approachPoseCandidates() const
     // Orden recomendado: de menos invasivo a mas separado/alto. La primera pose
     // que planea se usa para ejecutar, y las siguientes ya no se intentan.
     return {
-        {"vision_nominal_front", 0.08, 0.00, 0.08},
-        {"front_slightly_higher", 0.08, 0.00, 0.09},
-        {"front_high_clearance", 0.08, 0.00, 0.10},
-        {"farther_high_clearance", 0.08, 0.00, 0.11},
+        {"vision_nominal_front", 0.03, 0.00, 0.03},
+        {"front_slightly_higher", 0.03, 0.00, 0.05},
+        {"front_high_clearance", 0.03, 0.00, 0.07},
+        {"farther_high_clearance", 0.03, 0.00, 0.09},
     };
+}
+
+// ─────────────────────────────────────────────────────────────
+//  moveBase
+// ─────────────────────────────────────────────────────────────
+bool Take::moveBase(double distance_m,
+                     const std::shared_ptr<GoalHandle>& gh)
+{
+    const double sign       = (distance_m >= 0.0) ? 1.0 : -1.0;
+    const double duration_s = std::abs(distance_m) / MOVE_LINEAR_SPEED;
+
+    rclcpp::Rate rate(30.0);
+    const auto   start = node_->now();
+
+    while (rclcpp::ok() &&
+           (node_->now() - start).seconds() < duration_s)
+    {
+        if (!gh->is_active())
+        {
+            hardware_->MoveBase(0.0, 0.0, 0.0);
+            return false;
+        }
+        hardware_->MoveBase(sign * MOVE_LINEAR_SPEED, 0.0, 0.0);
+        rate.sleep();
+    }
+
+    hardware_->MoveBase(0.0, 0.0, 0.0);
+    return true;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -248,7 +276,7 @@ Result Take::run(
     // ── OPENNING_GRIPPER ──────────────────────────────────────
     publishFeedback(gh, TakeState::OPENNING_GRIPPER);
 
-    bool gripper_ok = (arm_group_ == "left_arm_group")
+    /*bool gripper_ok = (arm_group_ == "left_arm_group")
         ? hardware_->MoveLeftGripper("open")
         : hardware_->MoveRightGripper("open");
 
@@ -256,7 +284,7 @@ Result Take::run(
     {
         publishFeedback(gh, TakeState::OPENNING_GRIPPER, "gripper_open_failed");
         return {false, "FAILED", "gripper_open_failed"};
-    }
+    }*/
 
     // ── PLANNING_EXTEND ───────────────────────────────────────
     publishFeedback(gh, TakeState::PLANNING_EXTEND);
@@ -368,10 +396,16 @@ Result Take::run(
     if (!gh->is_active())
         return {false, "FAILED", "goal_cancelled"};
 
+    // ── MOVING_FORWARD ───────────────────────────────────────
+    publishFeedback(gh, TakeState::MOVING_FORWARD);
+
+    if (!moveBase(MOVE_DISTANCE_M, gh))
+        return {false, "FAILED", "goal_cancelled_during_moving_forward"};
+
     // ── CLOSING_GRIPPER ───────────────────────────────────────
     publishFeedback(gh, TakeState::CLOSING_GRIPPER);
 
-    gripper_ok = (arm_group_ == "left_arm_group")
+    /*gripper_ok = (arm_group_ == "left_arm_group")
         ? hardware_->MoveLeftGripper("close")
         : hardware_->MoveRightGripper("close");
 
@@ -382,7 +416,7 @@ Result Take::run(
     }
 
     if (!gh->is_active())
-        return {false, "FAILED", "goal_cancelled"};
+        return {false, "FAILED", "goal_cancelled"};*/
     
 
     // ── REPORTING_OCCUPANCY ───────────────────────────────────
@@ -397,6 +431,12 @@ Result Take::run(
         publishFeedback(gh, TakeState::FAILED, "report_object_failed");
         return {false, "FAILED", "report_object_failed"};
     }
+
+	// ── MOVING_BACKWARD ──────────────────────────────────────────
+    publishFeedback(gh, TakeState::MOVING_BACKWARD);
+
+    if (!moveBase(-MOVE_DISTANCE_M, gh))
+        return {false, "FAILED", "goal_cancelled_during_moving_backward"};
 
     // ── PLANNING_RETRACT ──────────────────────────────────────
     publishFeedback(gh, TakeState::PLANNING_RETRACT);
@@ -922,8 +962,10 @@ std::string Take::stateName(TakeState s)
         case TakeState::OPENNING_GRIPPER:    return "OPENNING_GRIPPER";
         case TakeState::PLANNING_EXTEND:     return "PLANNING_EXTEND";
         case TakeState::EXECUTING_EXTEND:    return "EXECUTING_EXTEND";
+		case TakeState::MOVING_FORWARD:     return "MOVING_FORWARD";
         case TakeState::CLOSING_GRIPPER:     return "CLOSING_GRIPPER";
         case TakeState::REPORTING_OCCUPANCY: return "REPORTING_OCCUPANCY";
+		case TakeState::MOVING_BACKWARD:        return "MOVING_BACKWARD";
         case TakeState::PLANNING_RETRACT:    return "PLANNING_RETRACT";
         case TakeState::EXECUTING_RETRACT:   return "EXECUTING_RETRACT";
         case TakeState::PREPARING_TRANSPORT: return "PREPARING_TRANSPORT";
