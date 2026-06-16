@@ -68,10 +68,6 @@ public:
 private:
     struct MotorStage
     {
-        // Configura una etapa manual del acercamiento:
-        // - label: nombre legible para logs.
-        // - motors: indices fisicos/logicos que se adelantan juntos.
-        // - waypoints: cantidad de pasos interpolados para llegar al valor final.
         std::string label;
         std::vector<std::size_t> motors;
         std::size_t waypoints;
@@ -79,11 +75,6 @@ private:
 
     struct ApproachPoseCandidate
     {
-        // Configura una pose candidata para la planeacion de acercamiento:
-        // - label: nombre legible para logs.
-        // - dx/dy/dz: offsets en base_link aplicados sobre la pose detectada.
-        // Estos candidatos compensan ruido de vision y metas IK demasiado
-        // cerradas sin modificar la pose original usada para excluir el objeto.
         std::string label;
         double dx;
         double dy;
@@ -132,17 +123,6 @@ private:
         const std::string& left_obj,
         double y_coord) const;
 
-    // ─────────────────────────────────────────────────────────────
-    //  selectTip
-    //
-    //  Returns the appropriate kinematic tip link based on the
-    //  object name and the currently selected arm_group_.
-    //
-    //  Decision rule:
-    //    - Object in PINCH_OBJECTS  → use *_pinch_object_link
-    //    - Everything else          → use *_grab_object_link
-    //      (grab is the safer default for unknown objects)
-    // ─────────────────────────────────────────────────────────────
     std::string selectTip(const std::string& object_name) const;
 
     PoseStamped retractPose(const std::string& arm) const;

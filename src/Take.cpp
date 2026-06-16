@@ -48,9 +48,10 @@ std::vector<Take::MotorStage> Take::approachMotorStages() const
     //     {"motor_5_wrist", {5}, 1},
     // };
     return {
-        {"shoulder_elbow", {0, 3}, 3},
-        {"wrist", {5}, 2},
-    };
+		{"arm", {1, 2, 3, 4}, 3},
+		{"wrist", {5, 6}, 2},
+		{"torso", {0}, 2},
+	};
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -824,7 +825,7 @@ std::size_t Take::maxRemainingApproachBlocks() const
     // de las etapas manuales. No controla los waypoints por motor; eso se hace
     // en approachMotorStages(). Subirlo conserva mas detalle de la trayectoria
     // planeada; bajarlo hace el acercamiento mas directo.
-    return 4;
+    return 3;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -834,19 +835,18 @@ std::string Take::motorJointName(std::size_t motor) const
 {
     const bool left = arm_group_ == "left_arm_group";
 
-    // Mapa intencional para las pruebas actuales de Take. Aqui dejamos claro
-    // que el "motor 5" solicitado se trata como muneca aunque el modelo tenga
-    // tambien un joint de mano/gripper.
-    switch (motor)
-    {
-        case 0: return left ? "lf_shoulder_joint" : "rf_shoulder_joint";
-        case 1: return left ? "ls_shoulder_joint" : "rs_shoulder_joint";
-        case 2: return left ? "l_arm_twist_joint" : "r_arm_twist_joint";
-        case 3: return left ? "l_elbow_joint" : "r_elbow_joint";
-        case 4: return left ? "l_hand_joint" : "r_hand_joint";
-        case 5: return left ? "l_wrist_joint" : "r_wrist_joint";
-        default: return "";
-    }
+	switch (motor)
+	{
+		case 0: return "torso_joint";
+		case 1: return left ? "lf_shoulder_joint" : "rf_shoulder_joint";
+		case 2: return left ? "ls_shoulder_joint" : "rs_shoulder_joint";
+		case 3: return left ? "l_arm_twist_joint" : "r_arm_twist_joint";
+		case 4: return left ? "l_elbow_joint" : "r_elbow_joint";
+		case 5: return left ? "l_hand_joint" : "r_hand_joint";
+		case 6: return left ? "l_wrist_joint" : "r_wrist_joint";
+
+		default: return "";
+	}
 }
 
 // ─────────────────────────────────────────────────────────────
