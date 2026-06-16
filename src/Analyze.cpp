@@ -1,6 +1,8 @@
 #include "executor_tools/Analyze.hpp"
 #include <chrono>
 #include <complex>
+#include <cstddef>
+#include <string>
 #include <thread>
 
 using namespace std::chrono_literals;
@@ -105,8 +107,14 @@ bool AnalyzeObjects::runCount(const std::string &target_class, bool reset_count,
   bool ok = vision_->AnalyzeCount(target_class, reset_count, current_count,
                                   class_count, total_cumulative);
   if (ok) {
-    knowledge_->update_world_state("analytics", "count", target_class,
+    knowledge_->update_world_state("analytics", "count", "target_class",
+                                   target_class);
+    knowledge_->update_world_state("analytics", "count", "class_count",
                                    std::to_string(class_count));
+    knowledge_->update_world_state("analytics", "count", "frame_count",
+                                   std::to_string(current_count));
+    knowledge_->update_world_state("analytics", "count", "cumulative",
+                                   std::to_string(total_cumulative));
 
     out_msg = "counted_" + std::to_string(class_count) + "_" + target_class +
               "_total_frame_" + std::to_string(current_count) + "_cumulative_" +
@@ -124,9 +132,13 @@ bool AnalyzeObjects::runSize(const std::string &target_class,
   bool ok = vision_->AnalyzeSize(target_class, filter_mode, limit, best_match,
                                  detections);
   if (ok) {
-    knowledge_->update_world_state("analytics", "size_match", "class_name",
+    knowledge_->update_world_state("analytics", "size", "target_class",
+                                   target_class);
+    knowledge_->update_world_state("analytics", "size", "filter_mode",
+                                   filter_mode);
+    knowledge_->update_world_state("analytics", "size", "best_match",
                                    best_match.class_name);
-    knowledge_->update_world_state("analytics", "size_match", "confidence",
+    knowledge_->update_world_state("analytics", "size", "confidence",
                                    std::to_string(best_match.confidence));
 
     out_msg = "size_filter_success_best_match_" + best_match.class_name;
@@ -140,7 +152,10 @@ bool AnalyzeObjects::runColor(const std::string &target_class,
 
   bool ok = vision_->AnalyzeColor(target_class, color, best_match);
   if (ok) {
-    knowledge_->update_world_state("analytics", "color_match", "class_name",
+    knowledge_->update_world_state("analytics", "color", "target_class",
+                                   target_class);
+    knowledge_->update_world_state("analytics", "color", "color", color);
+    knowledge_->update_world_state("analytics", "color", "best_match",
                                    best_match.class_name);
 
     out_msg = "color_match_found_" + best_match.class_name;
@@ -154,6 +169,14 @@ bool AnalyzeObjects::runCompare(const std::vector<std::string> &classes,
 
   bool ok = vision_->AnalyzeCompare(classes, winner_class);
   if (ok) {
+
+    std::string clases_str = "";
+    for (size_t i = 0; i < classes.size(); i++) {
+      clases_str += classes[i] + (i + 1 < classes.size() ? "," : "");
+    }
+
+    knowledge_->update_world_state("analytics", "compare", "classes",
+                                   clases_str);
     knowledge_->update_world_state("analytics", "compare", "winner",
                                    winner_class);
 
