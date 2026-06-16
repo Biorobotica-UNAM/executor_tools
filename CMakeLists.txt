@@ -5,6 +5,7 @@ project(executor_tools)
 # Dependencies
 # -----------------------------
 find_package(ament_cmake REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(executor_interfaces REQUIRED)
@@ -58,6 +59,7 @@ target_include_directories(${PROJECT_NAME}
 
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
+  ament_index_cpp
   rclcpp_action
   executor_interfaces
   geometry_msgs

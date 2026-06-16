@@ -1,8 +1,11 @@
 #pragma once
 
 #include <chrono>
+#include <optional>
 #include <memory>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "executor_interfaces/action/execute_task.hpp"
 #include "executor_tools/Result.hpp"
@@ -102,9 +105,21 @@ private:
       const geometry_msgs::msg::TransformStamped &tf);
   void configureTablePreferenceForHeldObject();
   void configureShelfPreference(const SpaceTarget &space_target);
+  std::optional<std::string> heldObjectName() const;
+  std::optional<std::string> objectNameFromId(const std::string &object_id) const;
+  std::unordered_map<std::string, std::vector<std::string>>
+  loadObjectCategories() const;
+  std::optional<std::string> categoryForObject(
+      const std::string &object_name,
+      const std::unordered_map<std::string, std::vector<std::string>>
+          &categories) const;
+  std::optional<double> preferredShelfYFromCategory(
+      const std::string &held_category,
+      const std::vector<std::string> &category_objects);
 
   static SpaceTarget resolveDropTarget(const std::string &argument);
   static std::string owlFrameName(const std::string &class_name, int instance);
+  static std::string normalizeObjectToken(const std::string &name);
   static std::string stateName(FindSpaceState s);
 
   rclcpp::Node::SharedPtr node_;
