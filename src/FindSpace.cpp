@@ -5,11 +5,14 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <fstream>
+#include <optional>
 #include <sstream>
 #include <thread>
 #include <unordered_map>
 #include <vector>
 
+#include "ament_index_cpp/get_package_share_directory.hpp"
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "nlohmann/json.hpp"
 #include "tf2/exceptions.h"
@@ -421,6 +424,8 @@ void FindSpace::configureShelfPreference(const SpaceTarget &space_target) {
 
   double preferred_y = 0.0;
   bool has_hand_preference = false;
+  bool has_semantic_preference = false;
+  std::string semantic_detail;
 
   if (!left_object.is_string() || !right_object.is_string()) {
     RCLCPP_WARN(node_->get_logger(),
@@ -441,6 +446,47 @@ void FindSpace::configureShelfPreference(const SpaceTarget &space_target) {
       has_hand_preference = true;
     }
   }
+  // Si hay un objeto en mano, intentamos usar su categoria para preferir un lado(category)
+  const auto categories = loadObjectCategories();
+  const auto held_object = heldObjectName();
+  if (!held_object) {
+    RCLCPP_WARN(node_->get_logger(),
+                "[FindSpace] no se encontro objeto en mano para preferencia "
+                "semantica de shelf");
+  } else if (categories.empty()) {
+    RCLCPP_WARN(node_->get_logger(),
+                "[FindSpace] diccionario de objetos vacio/no disponible; "
+                "se usara preferencia por mano si existe");
+  } else {
+    const auto held_category = categoryForObject(*held_object, categories);
+    if (!held_category) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "[FindSpace] objeto en mano '%s' no tiene categoria en "
+                  "diccionario; se usara preferencia por mano si existe",
+                  held_object->c_str());
+    } else {
+      std::vector<std::string> category_objects;
+      const std::string normalized_held = normalizeObjectToken(*held_object);
+      for (const auto &object : categories.at(*held_category)) {
+        if (object != normalized_held) {
+          category_objects.push_back(object);
+        }
+      }
+      const auto category_y =
+          preferredShelfYFromCategory(*held_category, category_objects);
+      if (category_y) {
+        preferred_y = *category_y;
+        has_semantic_preference = true;
+        semantic_detail = "held='" + *held_object + "' category='" +
+                          *held_category + "'";
+      } else {
+        RCLCPP_WARN(node_->get_logger(),
+                    "[FindSpace] no se pudo detectar lado de shelf para "
+                    "categoria '%s'; se usara preferencia por mano si existe",
+                    held_category->c_str());
+      }
+    }
+  }
 
   rclcpp::AsyncParametersClient parameter_client(
       node_, "/vision/shelf_drop_tf_node");
@@ -452,7 +498,7 @@ void FindSpace::configureShelfPreference(const SpaceTarget &space_target) {
   }
 
   std::vector<rclcpp::Parameter> parameters;
-  if (has_hand_preference) {
+  if (has_semantic_preference || has_hand_preference) {
     parameters.emplace_back("preferred_y_m", preferred_y);
   }
   parameters.emplace_back("preferred_section_rank",
@@ -476,7 +522,13 @@ void FindSpace::configureShelfPreference(const SpaceTarget &space_target) {
     return;
   }
 
-  if (has_hand_preference) {
+  if (has_semantic_preference) {
+    RCLCPP_INFO(node_->get_logger(),
+                "[FindSpace] preferencias shelf por categoria: "
+                "preferred_y_m=%.2f level_rank=%d %s",
+                preferred_y, space_target.shelf_level_rank,
+                semantic_detail.c_str());
+  } else if (has_hand_preference) {
     RCLCPP_INFO(node_->get_logger(),
                 "[FindSpace] preferencias shelf: preferred_y_m=%.2f "
                 "level_rank=%d (left='%s' right='%s')",
@@ -489,6 +541,244 @@ void FindSpace::configureShelfPreference(const SpaceTarget &space_target) {
                 "level_rank=%d",
                 space_target.shelf_level_rank);
   }
+}
+
+//category section
+std::optional<std::string> FindSpace::heldObjectName() const {
+  const json right_object =
+      knowledge_->get_world_state("robot", "", "right_hand");
+  const json left_object = knowledge_->get_world_state("robot", "", "left_hand");
+
+  const auto resolve_held = [this](const json &held)
+      -> std::optional<std::string> {
+    if (!held.is_string()) {
+      return std::nullopt;
+    }
+
+    const std::string value = held.get<std::string>();
+    if (value.empty() || value == "nothing") {
+      return std::nullopt;
+    }
+
+    if (auto object_name = objectNameFromId(value)) {
+      return object_name;
+    }
+
+    return normalizeObjectToken(value);
+  };
+
+  if (auto right = resolve_held(right_object)) {
+    return right;
+  }
+
+  return resolve_held(left_object);
+}
+
+std::optional<std::string>
+FindSpace::objectNameFromId(const std::string &object_id) const {
+  const std::size_t sep = object_id.rfind('_');
+  if (sep == std::string::npos || sep == 0 || sep + 1 >= object_id.size()) {
+    return std::nullopt;
+  }
+
+  const std::string category = object_id.substr(0, sep);
+  const std::string index = object_id.substr(sep + 1);
+  const json object_name = knowledge_->get_world_state(category, index, "name");
+  if (!object_name.is_string()) {
+    return std::nullopt;
+  }
+
+  const std::string normalized = normalizeObjectToken(object_name.get<std::string>());
+  if (normalized.empty()) {
+    return std::nullopt;
+  }
+
+  return normalized;
+}
+
+std::unordered_map<std::string, std::vector<std::string>>
+FindSpace::loadObjectCategories() const {
+  std::vector<std::string> candidate_paths;
+  try {
+    candidate_paths.push_back(
+        ament_index_cpp::get_package_share_directory("knowledge_bank") +
+        "/domains/objects.yaml");
+  } catch (const std::exception &ex) {
+    RCLCPP_WARN(node_->get_logger(),
+                "[FindSpace] knowledge_bank no encontrado por ament_index: %s",
+                ex.what());
+  }
+  candidate_paths.push_back("src/Knowledge/knowledge_bank/domains/objects.yaml");
+
+  std::ifstream file;
+  std::string selected_path;
+  for (const auto &path : candidate_paths) {
+    file.open(path);
+    if (file.is_open()) {
+      selected_path = path;
+      break;
+    }
+    file.clear();
+  }
+
+  std::unordered_map<std::string, std::vector<std::string>> categories;
+  if (!file.is_open()) {
+    RCLCPP_WARN(node_->get_logger(),
+                "[FindSpace] no se pudo abrir diccionario de objetos para "
+                "preferencia semantica shelf");
+    return categories;
+  }
+
+  std::string current_category;
+  std::string line;
+  while (std::getline(file, line)) {
+    const std::size_t comment = line.find('#');
+    if (comment != std::string::npos) {
+      line = line.substr(0, comment);
+    }
+
+    const auto first = line.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) {
+      continue;
+    }
+
+    const std::string trimmed = line.substr(first);
+    if (first == 0 && trimmed.back() == ':') {
+      current_category =
+          normalizeObjectToken(trimmed.substr(0, trimmed.size() - 1));
+      categories[current_category];
+      continue;
+    }
+
+    if (trimmed.rfind("- ", 0) == 0 && !current_category.empty()) {
+      std::string item = normalizeObjectToken(trimmed.substr(2));
+      if (!item.empty()) {
+        categories[current_category].push_back(item);
+      }
+    }
+  }
+
+  RCLCPP_INFO(node_->get_logger(),
+              "[FindSpace] diccionario shelf cargado desde %s categorias=%zu",
+              selected_path.c_str(), categories.size());
+  return categories;
+}
+
+std::optional<std::string> FindSpace::categoryForObject(
+    const std::string &object_name,
+    const std::unordered_map<std::string, std::vector<std::string>>
+        &categories) const {
+  const std::string normalized = normalizeObjectToken(object_name);
+  for (const auto &[category, objects] : categories) {
+    if (std::find(objects.begin(), objects.end(), normalized) != objects.end()) {
+      return category;
+    }
+  }
+  return std::nullopt;
+}
+
+std::optional<double> FindSpace::preferredShelfYFromCategory(
+    const std::string &held_category,
+    const std::vector<std::string> &category_objects) {
+  if (!owl_v2_client_->wait_for_service(1s)) {
+    RCLCPP_WARN(node_->get_logger(),
+                "[FindSpace] OWLv2 no disponible para preferencia semantica "
+                "de shelf");
+    return std::nullopt;
+  }
+
+  std::vector<std::string> queries;
+  queries.reserve(category_objects.size());
+  for (const auto &object : category_objects) {
+    if (!object.empty()) {
+      queries.push_back(object);
+    }
+  }
+
+  if (queries.empty()) {
+    return std::nullopt;
+  }
+
+  auto request =
+      std::make_shared<vision_interfaces::srv::GetDetections::Request>();
+  request->queries = queries;
+
+  auto future = owl_v2_client_->async_send_request(request);
+  if (future.wait_for(5s) != std::future_status::ready) {
+    RCLCPP_WARN(node_->get_logger(),
+                "[FindSpace] timeout OWLv2 para preferencia semantica shelf");
+    return std::nullopt;
+  }
+
+  const auto response = future.get();
+  if (!response || !response->success || response->detections.empty()) {
+    RCLCPP_WARN(node_->get_logger(),
+                "[FindSpace] OWLv2 sin detecciones para categoria shelf '%s'",
+                held_category.c_str());
+    return std::nullopt;
+  }
+
+  std::unordered_map<std::string, int> class_counts;
+  double weighted_y_sum = 0.0;
+  double weight_sum = 0.0;
+  int usable_detections = 0;
+
+  for (const auto &det : response->detections) {
+    const std::string normalized_class = normalizeObjectToken(det.class_name);
+    if (std::find(category_objects.begin(), category_objects.end(),
+                  normalized_class) == category_objects.end()) {
+      continue;
+    }
+
+    std::string sanitized = det.class_name;
+    std::replace(sanitized.begin(), sanitized.end(), ' ', '_');
+    const int instance = class_counts[sanitized]++;
+    const std::string frame = owlFrameName(det.class_name, instance);
+
+    geometry_msgs::msg::TransformStamped tf;
+    try {
+      tf = tf_buffer_->lookupTransform("base_link", frame, tf2::TimePointZero,
+                                       300ms);
+    } catch (const tf2::TransformException &ex) {
+      RCLCPP_DEBUG(node_->get_logger(),
+                   "[FindSpace] objeto shelf categoria=%s sin TF frame=%s "
+                   "error=%s",
+                   held_category.c_str(), frame.c_str(), ex.what());
+      continue;
+    }
+
+    const double y = tf.transform.translation.y;
+    if (std::fabs(y) < 0.04) {
+      continue;
+    }
+
+    const double confidence = std::max(0.05, det.confidence);
+    weighted_y_sum += y * confidence;
+    weight_sum += confidence;
+    ++usable_detections;
+    RCLCPP_INFO(node_->get_logger(),
+                "[FindSpace] objeto shelf categoria=%s detectado=%s frame=%s "
+                "y=%.3f conf=%.2f",
+                held_category.c_str(), normalized_class.c_str(), frame.c_str(),
+                y, det.confidence);
+  }
+
+  if (usable_detections == 0 || weight_sum <= 0.0) {
+    return std::nullopt;
+  }
+
+  const double mean_y = weighted_y_sum / weight_sum;
+  constexpr double kPreferredShelfY = 0.18;
+  const double preferred_y = mean_y >= 0.0 ? kPreferredShelfY
+                                           : -kPreferredShelfY;
+
+  RCLCPP_INFO(node_->get_logger(),
+              "[FindSpace] categoria shelf '%s' ubicada en lado %s "
+              "(mean_y=%.3f detecciones=%d) -> preferred_y_m=%.2f",
+              held_category.c_str(), preferred_y >= 0.0 ? "izquierdo(+Y)"
+                                                        : "derecho(-Y)",
+              mean_y, usable_detections, preferred_y);
+  return preferred_y;
 }
 
 bool FindSpace::preScanShelf(const std::shared_ptr<GoalHandle> &gh,
@@ -1143,6 +1433,26 @@ std::string FindSpace::owlFrameName(const std::string &class_name, int instance)
   std::string sanitized = class_name;
   std::replace(sanitized.begin(), sanitized.end(), ' ', '_');
   return "OWL_" + sanitized + "_" + std::to_string(instance);
+}
+
+//category 
+std::string FindSpace::normalizeObjectToken(const std::string &name) {
+  std::string normalized = name;
+  const auto first = normalized.find_first_not_of(" \t\r\n\"'");
+  if (first == std::string::npos) {
+    return "";
+  }
+  const auto last = normalized.find_last_not_of(" \t\r\n\"'");
+  normalized = normalized.substr(first, last - first + 1);
+
+  std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                 [](unsigned char c) {
+                   if (std::isspace(c) || c == '-') {
+                     return '_';
+                   }
+                   return static_cast<char>(std::tolower(c));
+                 });
+  return normalized;
 }
 
 // =========================================================
