@@ -446,7 +446,7 @@ void FindSpace::configureShelfPreference(const SpaceTarget &space_target) {
       has_hand_preference = true;
     }
   }
-
+  // Si hay un objeto en mano, intentamos usar su categoria para preferir un lado(category)
   const auto categories = loadObjectCategories();
   const auto held_object = heldObjectName();
   if (!held_object) {
@@ -543,6 +543,7 @@ void FindSpace::configureShelfPreference(const SpaceTarget &space_target) {
   }
 }
 
+//category section
 std::optional<std::string> FindSpace::heldObjectName() const {
   const json right_object =
       knowledge_->get_world_state("robot", "", "right_hand");
@@ -1434,6 +1435,7 @@ std::string FindSpace::owlFrameName(const std::string &class_name, int instance)
   return "OWL_" + sanitized + "_" + std::to_string(instance);
 }
 
+//category 
 std::string FindSpace::normalizeObjectToken(const std::string &name) {
   std::string normalized = name;
   const auto first = normalized.find_first_not_of(" \t\r\n\"'");

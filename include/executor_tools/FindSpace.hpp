@@ -105,6 +105,8 @@ private:
       const geometry_msgs::msg::TransformStamped &tf);
   void configureTablePreferenceForHeldObject();
   void configureShelfPreference(const SpaceTarget &space_target);
+  
+  //category section
   std::optional<std::string> heldObjectName() const;
   std::optional<std::string> objectNameFromId(const std::string &object_id) const;
   std::unordered_map<std::string, std::vector<std::string>>
