@@ -88,7 +88,17 @@ Result Give::run(const std::string& object_name,
     publishFeedback(gh, GiveState::WAITING, "Waiting 2 seconds");
     std::this_thread::sleep_for(2s);
 
-    // 7. Regresar el brazo a la posición de reposo
+    // 7. Cerrar la mano
+    publishFeedback(gh, GiveState::MOVING_GRIPPER, "Opening gripper");
+    bool gripper_ok = (hand == "left_hand") ? hardware_->MoveLeftGripper("close")
+                                            : hardware_->MoveRightGripper("close");
+
+    if (!gripper_ok) {
+        publishFeedback(gh, GiveState::FAILED, "gripper_close_failed");
+        return {false, "FAILED", "gripper_open_failed"};
+    }
+
+    // 8. Regresar el brazo a la posición de reposo
     publishFeedback(gh, GiveState::MOVING_ARM, "Resetting arm to resting position");
     std::this_thread::sleep_for(500ms);
 
