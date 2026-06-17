@@ -36,9 +36,9 @@ Result Approach::run(const std::string &argument,
 
   publishFeedback(gh, ApproachState::READY, argument);
 
-  // ── STEP 1: PARSEO DINÁMICO DE CATEGORÍA E ID ──────────────────
-  std::string category = "fruit";
-  std::string id = "1";
+  // ── STEP 1: PARSEO DINÁMICO DE CATEGORÍA E ID (100% Genérico) ──
+  std::string category = "";
+  std::string id = "";
   
   std::size_t sep = argument.find('_');
   if (sep != std::string::npos) {
@@ -46,10 +46,11 @@ Result Approach::run(const std::string &argument,
       id = argument.substr(sep + 1);
   } else {
       category = argument;
+      id = ""; 
   }
 
-  RCLCPP_INFO(node_->get_logger(), "[Approach] Querying Knowledge for key: %s_%s", 
-              category.c_str(), id.c_str());
+  RCLCPP_INFO(node_->get_logger(), "[Approach] Querying Knowledge for key: %s%s%s", 
+              category.c_str(), id.empty() ? "" : "_", id.c_str());
 
   // ── STEP 2: CONSULTA AL ESTADO DEL MUNDO ───────────────────────
   publishFeedback(gh, ApproachState::LOADING, argument);

@@ -11,6 +11,9 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_listener.h"
+
 enum class SaveLocState {
   READY,
   SAVING,
@@ -44,4 +47,7 @@ private:
   rclcpp::Node::SharedPtr node_;
   std::shared_ptr<Navigation> navigation_;
   PoseBuffer customer_pose_map_;
+
+  std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 };
