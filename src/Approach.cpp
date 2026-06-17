@@ -1,14 +1,12 @@
 #include "executor_tools/Approach.hpp"
-
-#include <algorithm>
+#include <nlohmann/json.hpp>
 #include <chrono>
 #include <cmath>
-#include <functional>
 #include <thread>
+#include <vector>
 
-#include "tf2/exceptions.h"
-#include "tf2/time.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+#include "navigation_tools/Navigation.hpp" 
 
 using namespace std::chrono_literals;
 
@@ -17,414 +15,161 @@ using namespace std::chrono_literals;
 // =========================================================
 Approach::Approach(const rclcpp::Node::SharedPtr &node,
                    const std::shared_ptr<Hardware> &hardware,
-                   const std::shared_ptr<Vision> &vision)
-    : node_(node), hardware_(hardware), vision_(vision) {
-  tf_buffer_ = std::make_shared<tf2_ros::Buffer>(node_->get_clock());
-  tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
-
-  pf_enable_pub_ = node_->create_publisher<std_msgs::msg::Bool>(
-      "/navigation/navigation/potential_fields/enable", 10);
-
-  pf_force_sub_ = node_->create_subscription<geometry_msgs::msg::Vector3>(
-      "/navigation/navigation/potential_fields/pf_rejection_force",
-      rclcpp::QoS(10).transient_local(),
-      std::bind(&Approach::pfForceCallback, this, std::placeholders::_1));
-
-  pf_cmd_vel_pub_ = node_->create_publisher<geometry_msgs::msg::Twist>(
-      "/hardware/base/cmd_vel", rclcpp::SensorDataQoS());
-
-  set_params_client_ = node_->create_client<rcl_interfaces::srv::SetParameters>(
-      "/navigation/potential_fields/set_parameters");
-
-  set_sm_params_client_ =
-      node_->create_client<rcl_interfaces::srv::SetParameters>(
-          "/navigation/simple_move/set_parameters");
-
-  global_goal_pub_ = node_->create_publisher<geometry_msgs::msg::PoseStamped>(
-      "/nav_control/goal", 10);
-
-  stop_nav_pub_ = node_->create_publisher<std_msgs::msg::Empty>(
-      "/navigation/navigation/stop", 10);
+                   const std::shared_ptr<Vision> &vision,
+                   const std::shared_ptr<Knowledge> &knowledge,
+                   const std::shared_ptr<Navigation> &navigation) 
+    : node_(node), hardware_(hardware), vision_(vision), 
+      knowledge_(knowledge), navigation_(navigation) // <── Asignación de la herramienta
+{
+    tf_buffer_ = std::make_shared<tf2_ros::Buffer>(node_->get_clock());
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 }
 
 // =========================================================
-// Callback de Fuerza de Campos Potenciales
-// =========================================================
-void Approach::pfForceCallback(
-    const geometry_msgs::msg::Vector3::SharedPtr msg) {
-  std::lock_guard<std::mutex> lock(force_mutex_);
-  pf_force_x_ = msg->x;
-  pf_force_y_ = msg->y;
-}
-
-// =========================================================
-// Envío de Comandos de Velocidad a la Base
-// =========================================================
-void Approach::moveRobot(double vx, double vy, double wz) {
-  hardware_->MoveBase(vx, vy, wz);
-
-  geometry_msgs::msg::Twist cmd;
-  cmd.linear.x = vx;
-  cmd.linear.y = vy;
-  cmd.angular.z = wz;
-  pf_cmd_vel_pub_->publish(cmd);
-}
-
-// =========================================================
-// Método de Ejecución Principal (FSM Reactiva)
+// run (Extracción, Proyección y Navegación Bloqueante)
 // =========================================================
 Result Approach::run(const std::string &argument,
-                     const std::shared_ptr<GoalHandle> &gh) {
+                     const std::shared_ptr<GoalHandle> &gh) 
+{
   if (!gh || !gh->is_active())
     return {false, "FAILED", "goal_handle_inactive"};
 
   publishFeedback(gh, ApproachState::READY, argument);
 
-  // ── 1. Parseo Dinámico del Objetivo (Filtro Humanos vs Objetos) ──
-  std::string target_frame = argument;
-  bool is_person = false;
-
-  if (argument == "person" || argument == "customer") {
-    target_frame = "customer";
-    is_person = true;
-  } else if (argument == "host") {
-    target_frame = "host";
-    is_person = true;
-  } else if (argument.rfind("guest_", 0) == 0) {
-    target_frame = argument; // Captura guest_1, guest_2, etc.
-    is_person = true;
-  } else if (argument.find("OWL_") == std::string::npos && argument != "object") {
-    target_frame = "OWL_" + argument + "_0";
+  // ── STEP 1: PARSEO DINÁMICO DE CATEGORÍA E ID ──────────────────
+  std::string category = "fruit";
+  std::string id = "1";
+  
+  std::size_t sep = argument.find('_');
+  if (sep != std::string::npos) {
+      category = argument.substr(0, sep);
+      id = argument.substr(sep + 1);
+  } else {
+      category = argument;
   }
 
-  RCLCPP_INFO(node_->get_logger(), "Approach starting: frame=%s (type=%s)",
-              target_frame.c_str(), is_person ? "person" : "object");
+  RCLCPP_INFO(node_->get_logger(), "[Approach] Querying Knowledge for key: %s_%s", 
+              category.c_str(), id.c_str());
 
-  publishFeedback(gh, ApproachState::LOOKING_FOR_TF, target_frame);
+  // ── STEP 2: CONSULTA AL ESTADO DEL MUNDO ───────────────────────
+  publishFeedback(gh, ApproachState::LOADING, argument);
+  
+  nlohmann::json nav_array = knowledge_->get_world_state(category, id, "navigation");
+  
+  if (nav_array.empty() || !nav_array.is_array() || nav_array.size() < 7) {
+      RCLCPP_ERROR(node_->get_logger(), 
+                   "[Approach] Empty or invalid navigation array for target: %s_%s", 
+                   category.c_str(), id.c_str());
+      publishFeedback(gh, ApproachState::FAILED, "invalid_knowledge_data");
+      return {false, "FAILED", "invalid_knowledge_data"};
+  }
 
-  // ── 2. Escaneo Seguro de la TF en el Árbol de ROS 2 (Timeout 5s) ──
-  bool tf_found = false;
-  auto lookup_start = std::chrono::steady_clock::now();
-  const auto kLookupTimeout = 5s;
+  // ── STEP 3: CONSTRUCCIÓN DEL MENSAJE LOCAL (base_link) ────────
+  geometry_msgs::msg::PoseStamped local_pose;
+  local_pose.header.frame_id = "base_link"; 
+  local_pose.header.stamp = node_->now();    
+
+  local_pose.pose.position.x = nav_array[0].get<double>();
+  local_pose.pose.position.y = nav_array[1].get<double>();
+  local_pose.pose.position.z = nav_array[2].get<double>();
+  
+  local_pose.pose.orientation.x = nav_array[3].get<double>();
+  local_pose.pose.orientation.y = nav_array[4].get<double>();
+  local_pose.pose.orientation.z = nav_array[5].get<double>();
+  local_pose.pose.orientation.w = nav_array[6].get<double>();
+
+  RCLCPP_INFO(node_->get_logger(), 
+              "[Approach] Local pose read successfully: Frontal(X): %.2fm, Lateral(Y): %.2fm", 
+              local_pose.pose.position.x, local_pose.pose.position.y);
+
+  // ── STEP 4: TRANSFORMACIÓN MATEMÁTICA A MAPA GLOBAL ───────────
+  geometry_msgs::msg::PoseStamped global_pose;
+  
+  try {
+      global_pose = tf_buffer_->transform(local_pose, "map", 200ms);
+
+      RCLCPP_INFO(node_->get_logger(), "=================================================");
+      RCLCPP_INFO(node_->get_logger(), "[Approach] TRANSFORMED SUCCESFULLY TO MAP FRAME!");
+      RCLCPP_INFO(node_->get_logger(), "-> Global Target X (Map): %.3f m", global_pose.pose.position.x);
+      RCLCPP_INFO(node_->get_logger(), "-> Global Target Y (Map): %.3f m", global_pose.pose.position.y);
+      RCLCPP_INFO(node_->get_logger(), "=================================================");
+
+  } catch (const tf2::TransformException &ex) {
+      RCLCPP_ERROR(node_->get_logger(), "[Approach] TF translation crashed: %s", ex.what());
+      publishFeedback(gh, ApproachState::FAILED, "tf_transform_error");
+      return {false, "FAILED", "tf_transform_error"};
+  }
+
+  // ── STEP 5: EJECUCIÓN ASÍNCRONA Y SEGUIMIENTO LOCAL ───────────
+  publishFeedback(gh, ApproachState::APPROACHING, "Publishing navigation goal via tool...");
+  
+  navigation_->Go(global_pose);
+
+  const double kArrivalTolerance = 0.05;
+  auto start_nav_time = std::chrono::steady_clock::now();
+  const auto kMaxNavDuration = 90s;
+
+  RCLCPP_INFO(node_->get_logger(), "[Approach] Entering tracking loop. Monitoring distance to goal...");
 
   while (gh->is_active()) {
-    try {
-      tf_buffer_->lookupTransform("base_link", target_frame,
-                                  tf2::TimePointZero, 100ms);
-      tf_found = true;
-      break;
-    } catch (const tf2::TransformException &) {
-      std::this_thread::sleep_for(100ms);
-    }
-    if (std::chrono::steady_clock::now() - lookup_start > kLookupTimeout)
-      break;
-  }
+      try {
+          auto tf_robot = tf_buffer_->lookupTransform("map", "base_link", tf2::TimePointZero, 50ms);
+          double current_rx = tf_robot.transform.translation.x;
+          double current_ry = tf_robot.transform.translation.y;
 
-  if (!tf_found) {
-    publishFeedback(gh, ApproachState::FAILED, "tf_not_found: " + target_frame);
-    return {false, "FAILED", "tf_not_found"};
-  }
+          double dx = global_pose.pose.position.x - current_rx;
+          double dy = global_pose.pose.position.y - current_ry;
+          double distance_to_goal = std::sqrt(dx * dx + dy * dy);
 
-  // ── 3. FASE A: Navegación de Larga Distancia (Solo Humanos) ──
-  if (is_person && gh->is_active()) {
-    try {
-      auto tf = tf_buffer_->lookupTransform("base_link", target_frame,
-                                            tf2::TimePointZero, 100ms);
-      const double initial_tx = tf.transform.translation.x;
-      const double initial_ty = tf.transform.translation.y;
-      const double initial_dist =
-          std::sqrt(initial_tx * initial_tx + initial_ty * initial_ty);
-
-      if (initial_dist > 1.2) {
-        RCLCPP_INFO(node_->get_logger(),
-                    "Approach: target is far (%.3f m), starting global "
-                    "empty-map navigation",
-                    initial_dist);
-
-        if (set_sm_params_client_->wait_for_service(std::chrono::milliseconds(500))) {
-          auto req = std::make_shared<rcl_interfaces::srv::SetParameters::Request>();
-          rcl_interfaces::msg::Parameter param_max_speed;
-          param_max_speed.name = "max_linear_speed";
-          param_max_speed.value.type = rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
-          param_max_speed.value.double_value = 0.3;
-          req->parameters.push_back(param_max_speed);
-          set_sm_params_client_->async_send_request(req);
-          RCLCPP_INFO(node_->get_logger(), "Approach: set simple_move max_linear_speed to 0.3 m/s");
-        }
-
-        if (set_params_client_->wait_for_service(std::chrono::milliseconds(500))) {
-          auto req = std::make_shared<rcl_interfaces::srv::SetParameters::Request>();
-          rcl_interfaces::msg::Parameter param_laser_x;
-          param_laser_x.name = "laser_max_x";
-          param_laser_x.value.type = rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
-          param_laser_x.value.double_value = 0.75;
-          req->parameters.push_back(param_laser_x);
-
-          rcl_interfaces::msg::Parameter param_cloud_x;
-          param_cloud_x.name = "cloud_max_x";
-          param_cloud_x.value.type = rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
-          param_cloud_x.value.double_value = 1.0;
-          req->parameters.push_back(param_cloud_x);
-
-          set_params_client_->async_send_request(req);
-          RCLCPP_INFO(node_->get_logger(), "Approach: set potential_fields search window");
-        }
-
-        auto last_goal_time = std::chrono::steady_clock::now() - 5s;
-
-        while (gh->is_active()) {
-          double tx = 0.0;
-          double ty = 0.0;
-          bool tf_ok = false;
-
-          try {
-            auto current_tf = tf_buffer_->lookupTransform(
-                "base_link", target_frame, tf2::TimePointZero, 100ms);
-            tx = current_tf.transform.translation.x;
-            ty = current_tf.transform.translation.y;
-            tf_ok = true;
-          } catch (const tf2::TransformException &ex) {
-            RCLCPP_WARN(node_->get_logger(),
-                        "Approach: TF lookup failed during global navigation: %s",
-                        ex.what());
-          }
-
-          if (tf_ok) {
-            const double dist = std::sqrt(tx * tx + ty * ty);
-            if (dist <= 1.0) {
-              RCLCPP_INFO(node_->get_logger(),
-                          "Approach: target reached proximity threshold "
-                          "(%.3f m <= 1.0 m), stopping global navigation",
-                          dist);
-              std_msgs::msg::Empty stop_msg;
-              stop_nav_pub_->publish(stop_msg);
+          if (distance_to_goal <= kArrivalTolerance) {
+              RCLCPP_INFO(node_->get_logger(), 
+                          "[Approach] Goal reached successfully! Distance error: %.3f m", 
+                          distance_to_goal);
               break;
-            }
-
-            auto now_time = std::chrono::steady_clock::now();
-            if (now_time - last_goal_time > 3s) {
-              try {
-                auto tf_map_target = tf_buffer_->lookupTransform(
-                    "map", target_frame, tf2::TimePointZero, 100ms);
-
-                geometry_msgs::msg::PoseStamped goal_msg;
-                goal_msg.header.frame_id = "map";
-                goal_msg.header.stamp = node_->now();
-                goal_msg.pose.position.x = tf_map_target.transform.translation.x;
-                goal_msg.pose.position.y = tf_map_target.transform.translation.y;
-                goal_msg.pose.position.z = tf_map_target.transform.translation.z;
-                goal_msg.pose.orientation = tf_map_target.transform.rotation;
-
-                global_goal_pub_->publish(goal_msg);
-                last_goal_time = now_time;
-
-                RCLCPP_INFO(node_->get_logger(),
-                            "Approach: sent global goal for %s to [%.3f, %.3f]",
-                            target_frame.c_str(), goal_msg.pose.position.x,
-                            goal_msg.pose.position.y);
-              } catch (const tf2::TransformException &ex) {
-                RCLCPP_WARN(node_->get_logger(), "Approach: map transform lookup failed: %s", ex.what());
-              }
-            }
           }
-          std::this_thread::sleep_for(100ms);
-        }
+      } 
+      catch (const tf2::TransformException &ex) {
+          RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
+                               "[Approach] Waiting for localization update: %s", ex.what());
       }
-    } catch (const tf2::TransformException &ex) {
-      RCLCPP_WARN(node_->get_logger(), "Approach: initial TF lookup failed: %s", ex.what());
-    }
+
+      if (std::chrono::steady_clock::now() - start_nav_time > kMaxNavDuration) {
+          RCLCPP_ERROR(node_->get_logger(), "[Approach] Critical Error: Navigation timeout reached!");
+          publishFeedback(gh, ApproachState::FAILED, "navigation_timeout");
+          return {false, "FAILED", "navigation_timeout"};
+      }
+
+      std::this_thread::sleep_for(100ms); 
   }
 
-  // ── 4. FASE B: Aproximación Reactiva de Corta Distancia ──
-  publishFeedback(gh, ApproachState::APPROACHING);
-
-  auto restore_after_person = [this, is_person]() {
-    if (!is_person)
-      return;
-
-    hardware_->MoveHead({0.0, 0.0});
-    RCLCPP_INFO(node_->get_logger(), "Approach: restored head position to (0.0, 0.0)");
-
-    if (set_params_client_->wait_for_service(std::chrono::milliseconds(500))) {
-      auto req = std::make_shared<rcl_interfaces::srv::SetParameters::Request>();
-      rcl_interfaces::msg::Parameter param_laser_x;
-      param_laser_x.name = "laser_max_x";
-      param_laser_x.value.type = rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
-      param_laser_x.value.double_value = 0.55;
-      req->parameters.push_back(param_laser_x);
-
-      rcl_interfaces::msg::Parameter param_cloud_x;
-      param_cloud_x.name = "cloud_max_x";
-      param_cloud_x.value.type = rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
-      param_cloud_x.value.double_value = 0.80;
-      req->parameters.push_back(param_cloud_x);
-
-      set_params_client_->async_send_request(req);
-      RCLCPP_INFO(node_->get_logger(), "Approach: restored potential_fields search windows");
-    }
-
-    if (set_sm_params_client_->wait_for_service(std::chrono::milliseconds(500))) {
-      auto req = std::make_shared<rcl_interfaces::srv::SetParameters::Request>();
-      rcl_interfaces::msg::Parameter param_max_speed;
-      param_max_speed.name = "max_linear_speed";
-      param_max_speed.value.type = rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
-      param_max_speed.value.double_value = 0.8;
-      req->parameters.push_back(param_max_speed);
-      set_sm_params_client_->async_send_request(req);
-      RCLCPP_INFO(node_->get_logger(), "Approach: restored simple_move max_linear_speed to 0.8 m/s");
-    }
-  };
-
-  if (is_person) {
-    hardware_->MoveHead({0.0, -0.4});
-    RCLCPP_INFO(node_->get_logger(), "Approach: lowered head to see close obstacles (-0.4 rad)");
+  if (!gh->is_active()) {
+      return {false, "FAILED", "goal_cancelled"};
   }
 
-  const double kTargetDist = 0.5;
-  const double kDistTol = 0.05;
-  const double kAngleTol = 0.1;
-  const double kYAlignTol = 0.03;
-
-  const double kKpX = 0.4;
-  const double kKpY = 0.4;
-  const double kKpTheta = 0.8;
-
-  const double kMaxLinVel = 0.25;
-  const double kMaxAngVel = 0.5;
-
-  auto start_time = std::chrono::steady_clock::now();
-  const auto kMaxDuration = 120s;
-
-  // Ciclo reactivo de alta frecuencia (20 Hz)
-  while (gh->is_active()) {
-    double tx = 0.0;
-    double ty = 0.0;
-
-    try {
-      auto tf = tf_buffer_->lookupTransform("base_link", target_frame,
-                                            tf2::TimePointZero, 100ms);
-      tx = tf.transform.translation.x;
-      ty = tf.transform.translation.y;
-    } catch (const tf2::TransformException &ex) {
-      RCLCPP_WARN(node_->get_logger(), "Approach: TF lookup failed: %s", ex.what());
-      std::this_thread::sleep_for(50ms);
-      continue;
-    }
-
-    if (is_person) {
-      const double dist = std::sqrt(tx * tx + ty * ty);
-      const double angle = std::atan2(ty, tx);
-      const double dist_err = dist - kTargetDist;
-
-      if (std::abs(dist_err) <= kDistTol && std::abs(angle) <= kAngleTol) {
-        moveRobot(0.0, 0.0, 0.0);
-        publishFeedback(gh, ApproachState::SUCCESS);
-        restore_after_person();
-        return {true, "SUCCESS", "approached_person"};
-      }
-
-      double rep_x = 0.0;
-      double rep_y = 0.0;
-
-      // Nota: Descomentar este bloque si deseas activar el lazo con potential_fields
-      /*
-      {
-        std::lock_guard<std::mutex> lock(force_mutex_);
-        rep_x = pf_force_x_;
-        rep_y = pf_force_y_;
-      }
-      */
-
-      const double ux = tx / dist;
-      const double uy = ty / dist;
-      const double att_mag = std::min(dist_err, 0.3);
-      const double att_x = att_mag * ux;
-      const double att_y = att_mag * uy;
-
-      const double total_x = att_x + rep_x;
-      const double total_y = att_y + rep_y;
-      const double net_angle = std::atan2(total_y, total_x);
-
-      RCLCPP_INFO(node_->get_logger(),
-                  "Approach: dist_err=%.3f, att=[%.3f, %.3f], rep=[%.3f, %.3f], net=[%.3f, %.3f], net_angle=%.3f",
-                  dist_err, att_x, att_y, rep_x, rep_y, total_x, total_y, net_angle);
-
-      double vx = 0.0;
-      double vy = 0.0;
-      double wz = 0.0;
-
-      if (std::abs(net_angle) <= 0.25) {
-        vx = kKpX * total_x;
-        wz = kKpTheta * net_angle;
-      } else {
-        wz = kKpTheta * net_angle;
-      }
-
-      vx = std::clamp(vx, 0.0, kMaxLinVel);
-      wz = std::clamp(wz, -kMaxAngVel, kMaxAngVel);
-
-      moveRobot(vx, vy, wz);
-    } else {
-      // Rama de alineación de Manipulación de Objetos (Desplazamiento Lateral)
-      const double y_err = ty;
-
-      if (std::abs(y_err) <= kYAlignTol) {
-        moveRobot(0.0, 0.0, 0.0);
-        publishFeedback(gh, ApproachState::SUCCESS);
-        restore_after_person();
-        return {true, "SUCCESS", "aligned_object"};
-      }
-
-      const double vy = std::clamp(kKpY * y_err, -kMaxLinVel, kMaxLinVel);
-      moveRobot(0.0, vy, 0.0);
-    }
-
-    if (std::chrono::steady_clock::now() - start_time > kMaxDuration) {
-      moveRobot(0.0, 0.0, 0.0);
-      publishFeedback(gh, ApproachState::FAILED, "timeout");
-      restore_after_person();
-      return {false, "FAILED", "timeout"};
-    }
-
-    std::this_thread::sleep_for(50ms);
-  }
-
-  moveRobot(0.0, 0.0, 0.0);
-  publishFeedback(gh, ApproachState::FAILED, "goal_cancelled");
-  restore_after_person();
-  return {false, "FAILED", "goal_cancelled"};
+  publishFeedback(gh, ApproachState::SUCCESS, "arrived_successfully");
+  return {true, "SUCCESS", "arrived_successfully"};
 }
 
 // =========================================================
-// Publicación de Feedback de la Acción
+// Métodos Auxiliares
 // =========================================================
-void Approach::publishFeedback(const std::shared_ptr<GoalHandle> &gh,
-                               ApproachState state, const std::string &detail) {
-  if (!gh || !gh->is_active())
-    return;
-
-  std::string msg = "[approach] " + stateName(state);
-  if (!detail.empty())
-    msg += ": " + detail;
-
-  auto fb = std::make_shared<ExecuteTask::Feedback>();
-  fb->feedback.message = msg;
-  gh->publish_feedback(fb);
-
-  RCLCPP_INFO(node_->get_logger(), "%s", msg.c_str());
+void Approach::publishFeedback(const std::shared_ptr<GoalHandle>& gh, ApproachState state, const std::string& detail) {
+    if (!gh || !gh->is_active()) return;
+    std::string msg = "[approach] " + stateName(state);
+    if (!detail.empty()) msg += ": " + detail;
+    auto fb = std::make_shared<ExecuteTask::Feedback>();
+    fb->feedback.message = msg;
+    gh->publish_feedback(fb);
+    RCLCPP_INFO(node_->get_logger(), "%s", msg.c_str());
 }
 
-// =========================================================
-// Mapeo Textual de Estados de la FSM
-// =========================================================
 std::string Approach::stateName(ApproachState s) {
-  switch (s) {
-    case ApproachState::READY:           return "READY";
-    case ApproachState::LOOKING_FOR_TF:  return "LOOKING_FOR_TF";
-    case ApproachState::APPROACHING:     return "APPROACHING";
-    case ApproachState::STABILIZING:     return "STABILIZING";
-    case ApproachState::SUCCESS:         return "SUCCESS";
-    case ApproachState::FAILED:          return "FAILED";
-    default:                             return "UNKNOWN";
-  }
+    switch (s) {
+        case ApproachState::READY:       return "READY";
+        case ApproachState::LOADING:     return "LOADING";
+        case ApproachState::APPROACHING: return "APPROACHING";
+        case ApproachState::SUCCESS:     return "SUCCESS";
+        case ApproachState::FAILED:      return "FAILED";
+        default:                         return "UNKNOWN";
+    }
 }

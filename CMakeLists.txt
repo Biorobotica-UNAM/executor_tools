@@ -47,6 +47,7 @@ add_library(${PROJECT_NAME}
   src/Listen.cpp
   src/FindPose.cpp
   src/Analyze.cpp
+  src/SaveLoc.cpp
 )
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)

@@ -48,9 +48,10 @@ std::vector<Take::MotorStage> Take::approachMotorStages() const
     //     {"motor_5_wrist", {5}, 1},
     // };
     return {
-        {"shoulder_elbow", {0, 3}, 3},
-        {"wrist", {5}, 2},
-    };
+		{"arm", {1, 2, 3, 4}, 8},
+		{"wrist", {5, 6}, 5},
+		{"torso", {0}, 5},
+	};
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -76,11 +77,39 @@ std::vector<Take::ApproachPoseCandidate> Take::approachPoseCandidates() const
     // Orden recomendado: de menos invasivo a mas separado/alto. La primera pose
     // que planea se usa para ejecutar, y las siguientes ya no se intentan.
     return {
-        {"vision_nominal_front", 0.08, 0.00, 0.08},
-        {"front_slightly_higher", 0.08, 0.00, 0.09},
-        {"front_high_clearance", 0.08, 0.00, 0.10},
-        {"farther_high_clearance", 0.08, 0.00, 0.11},
+        {"vision_nominal_front", 0.01, 0.00, 0.02},
+        {"front_slightly_higher", 0.01, 0.00, 0.03},
+        {"front_high_clearance", 0.02, 0.00, 0.04},
+        {"farther_high_clearance", 0.02, 0.00, 0.05},
     };
+}
+
+// ─────────────────────────────────────────────────────────────
+//  moveBase
+// ─────────────────────────────────────────────────────────────
+bool Take::moveBase(double distance_m,
+                     const std::shared_ptr<GoalHandle>& gh)
+{
+    const double sign       = (distance_m >= 0.0) ? 1.0 : -1.0;
+    const double duration_s = std::abs(distance_m) / MOVE_LINEAR_SPEED;
+
+    rclcpp::Rate rate(30.0);
+    const auto   start = node_->now();
+
+    while (rclcpp::ok() &&
+           (node_->now() - start).seconds() < duration_s)
+    {
+        if (!gh->is_active())
+        {
+            hardware_->MoveBase(0.0, 0.0, 0.0);
+            return false;
+        }
+        hardware_->MoveBase(sign * MOVE_LINEAR_SPEED, 0.0, 0.0);
+        rate.sleep();
+    }
+
+    hardware_->MoveBase(0.0, 0.0, 0.0);
+    return true;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -248,7 +277,7 @@ Result Take::run(
     // ── OPENNING_GRIPPER ──────────────────────────────────────
     publishFeedback(gh, TakeState::OPENNING_GRIPPER);
 
-    bool gripper_ok = (arm_group_ == "left_arm_group")
+    /*bool gripper_ok = (arm_group_ == "left_arm_group")
         ? hardware_->MoveLeftGripper("open")
         : hardware_->MoveRightGripper("open");
 
@@ -256,7 +285,7 @@ Result Take::run(
     {
         publishFeedback(gh, TakeState::OPENNING_GRIPPER, "gripper_open_failed");
         return {false, "FAILED", "gripper_open_failed"};
-    }
+    }*/
 
     // ── PLANNING_EXTEND ───────────────────────────────────────
     publishFeedback(gh, TakeState::PLANNING_EXTEND);
@@ -368,10 +397,16 @@ Result Take::run(
     if (!gh->is_active())
         return {false, "FAILED", "goal_cancelled"};
 
+    // ── MOVING_FORWARD ───────────────────────────────────────
+    publishFeedback(gh, TakeState::MOVING_FORWARD);
+
+    if (!moveBase(MOVE_DISTANCE_M, gh))
+        return {false, "FAILED", "goal_cancelled_during_moving_forward"};
+
     // ── CLOSING_GRIPPER ───────────────────────────────────────
     publishFeedback(gh, TakeState::CLOSING_GRIPPER);
 
-    gripper_ok = (arm_group_ == "left_arm_group")
+    /*gripper_ok = (arm_group_ == "left_arm_group")
         ? hardware_->MoveLeftGripper("close")
         : hardware_->MoveRightGripper("close");
 
@@ -382,7 +417,7 @@ Result Take::run(
     }
 
     if (!gh->is_active())
-        return {false, "FAILED", "goal_cancelled"};
+        return {false, "FAILED", "goal_cancelled"};*/
     
 
     // ── REPORTING_OCCUPANCY ───────────────────────────────────
@@ -397,6 +432,12 @@ Result Take::run(
         publishFeedback(gh, TakeState::FAILED, "report_object_failed");
         return {false, "FAILED", "report_object_failed"};
     }
+
+	// ── MOVING_BACKWARD ──────────────────────────────────────────
+    publishFeedback(gh, TakeState::MOVING_BACKWARD);
+
+    if (!moveBase(-MOVE_DISTANCE_M, gh))
+        return {false, "FAILED", "goal_cancelled_during_moving_backward"};
 
     // ── PLANNING_RETRACT ──────────────────────────────────────
     publishFeedback(gh, TakeState::PLANNING_RETRACT);
@@ -784,7 +825,7 @@ std::size_t Take::maxRemainingApproachBlocks() const
     // de las etapas manuales. No controla los waypoints por motor; eso se hace
     // en approachMotorStages(). Subirlo conserva mas detalle de la trayectoria
     // planeada; bajarlo hace el acercamiento mas directo.
-    return 4;
+    return 3;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -794,19 +835,18 @@ std::string Take::motorJointName(std::size_t motor) const
 {
     const bool left = arm_group_ == "left_arm_group";
 
-    // Mapa intencional para las pruebas actuales de Take. Aqui dejamos claro
-    // que el "motor 5" solicitado se trata como muneca aunque el modelo tenga
-    // tambien un joint de mano/gripper.
-    switch (motor)
-    {
-        case 0: return left ? "lf_shoulder_joint" : "rf_shoulder_joint";
-        case 1: return left ? "ls_shoulder_joint" : "rs_shoulder_joint";
-        case 2: return left ? "l_arm_twist_joint" : "r_arm_twist_joint";
-        case 3: return left ? "l_elbow_joint" : "r_elbow_joint";
-        case 4: return left ? "l_hand_joint" : "r_hand_joint";
-        case 5: return left ? "l_wrist_joint" : "r_wrist_joint";
-        default: return "";
-    }
+	switch (motor)
+	{
+		case 0: return "torso_joint";
+		case 1: return left ? "lf_shoulder_joint" : "rf_shoulder_joint";
+		case 2: return left ? "ls_shoulder_joint" : "rs_shoulder_joint";
+		case 3: return left ? "l_arm_twist_joint" : "r_arm_twist_joint";
+		case 4: return left ? "l_elbow_joint" : "r_elbow_joint";
+		case 5: return left ? "l_hand_joint" : "r_hand_joint";
+		case 6: return left ? "l_wrist_joint" : "r_wrist_joint";
+
+		default: return "";
+	}
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -922,8 +962,10 @@ std::string Take::stateName(TakeState s)
         case TakeState::OPENNING_GRIPPER:    return "OPENNING_GRIPPER";
         case TakeState::PLANNING_EXTEND:     return "PLANNING_EXTEND";
         case TakeState::EXECUTING_EXTEND:    return "EXECUTING_EXTEND";
+		case TakeState::MOVING_FORWARD:     return "MOVING_FORWARD";
         case TakeState::CLOSING_GRIPPER:     return "CLOSING_GRIPPER";
         case TakeState::REPORTING_OCCUPANCY: return "REPORTING_OCCUPANCY";
+		case TakeState::MOVING_BACKWARD:        return "MOVING_BACKWARD";
         case TakeState::PLANNING_RETRACT:    return "PLANNING_RETRACT";
         case TakeState::EXECUTING_RETRACT:   return "EXECUTING_RETRACT";
         case TakeState::PREPARING_TRANSPORT: return "PREPARING_TRANSPORT";

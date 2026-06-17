@@ -32,8 +32,10 @@ enum class TakeState
     OPENNING_GRIPPER,
     PLANNING_EXTEND,
     EXECUTING_EXTEND,
+	MOVING_FORWARD,
     CLOSING_GRIPPER,
     REPORTING_OCCUPANCY,
+	MOVING_BACKWARD,
     PLANNING_RETRACT,
     EXECUTING_RETRACT,
     PREPARING_TRANSPORT,
@@ -66,10 +68,6 @@ public:
 private:
     struct MotorStage
     {
-        // Configura una etapa manual del acercamiento:
-        // - label: nombre legible para logs.
-        // - motors: indices fisicos/logicos que se adelantan juntos.
-        // - waypoints: cantidad de pasos interpolados para llegar al valor final.
         std::string label;
         std::vector<std::size_t> motors;
         std::size_t waypoints;
@@ -77,11 +75,6 @@ private:
 
     struct ApproachPoseCandidate
     {
-        // Configura una pose candidata para la planeacion de acercamiento:
-        // - label: nombre legible para logs.
-        // - dx/dy/dz: offsets en base_link aplicados sobre la pose detectada.
-        // Estos candidatos compensan ruido de vision y metas IK demasiado
-        // cerradas sin modificar la pose original usada para excluir el objeto.
         std::string label;
         double dx;
         double dy;
@@ -130,17 +123,6 @@ private:
         const std::string& left_obj,
         double y_coord) const;
 
-    // ─────────────────────────────────────────────────────────────
-    //  selectTip
-    //
-    //  Returns the appropriate kinematic tip link based on the
-    //  object name and the currently selected arm_group_.
-    //
-    //  Decision rule:
-    //    - Object in PINCH_OBJECTS  → use *_pinch_object_link
-    //    - Everything else          → use *_grab_object_link
-    //      (grab is the safer default for unknown objects)
-    // ─────────────────────────────────────────────────────────────
     std::string selectTip(const std::string& object_name) const;
 
     PoseStamped retractPose(const std::string& arm) const;
@@ -157,6 +139,8 @@ private:
 
     std::vector<ApproachPoseCandidate> approachPoseCandidates() const;
 
+	bool moveBase(double distance_m, const std::shared_ptr<GoalHandle>& gh);
+
     bool buildReverseTrajectory(
         const std::vector<std::string>& joint_names,
         const std::vector<double>& source_waypoints,
@@ -172,6 +156,10 @@ private:
     // ── Arm poses ─────────────────────────────────────────────
     static constexpr std::array<double, 6> PREPARE_POSE   = {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
     static constexpr std::array<double, 6> TRANSPORT_POSE = {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
+
+    // ── Base movement ─────────────────────────────────────────
+	static constexpr double MOVE_DISTANCE_M   = 0.10;
+	static constexpr double MOVE_LINEAR_SPEED = 0.05;
 
     // ── Dependencies ──────────────────────────────────────────
     rclcpp::Node::SharedPtr       node_;
