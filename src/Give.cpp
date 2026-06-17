@@ -90,7 +90,7 @@ Result Give::run(const std::string& object_name,
 
     // 7. Cerrar la mano
     publishFeedback(gh, GiveState::MOVING_GRIPPER, "Opening gripper");
-    bool gripper_ok = (hand == "left_hand") ? hardware_->MoveLeftGripper("close")
+    gripper_ok = (hand == "left_hand") ? hardware_->MoveLeftGripper("close")
                                             : hardware_->MoveRightGripper("close");
 
     if (!gripper_ok) {
