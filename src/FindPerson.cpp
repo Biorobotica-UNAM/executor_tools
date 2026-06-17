@@ -438,6 +438,16 @@ void FindPerson::updatePersonState(const std::string &category,
                  category.c_str(), index.c_str());
   }
 
+  const bool navigation_frame_ok = knowledge_->update_world_state(
+      category, index, "navigation_frame",
+      nav.header.frame_id.empty() ? "base_link" : nav.header.frame_id);
+  update_ok = update_ok && navigation_frame_ok;
+  if (!navigation_frame_ok) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "[FindPerson] Failed to update knowledge: %s_%s navigation_frame",
+                 category.c_str(), index.c_str());
+  }
+
   if (update_ok) {
     RCLCPP_INFO(node_->get_logger(),
                 "[FindPerson] Knowledge updated for %s_%s as '%s'",

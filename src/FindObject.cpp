@@ -202,6 +202,9 @@ void FindObject::updateObjectState(
                                  manipulation.dump());
   knowledge_->update_world_state(category, index, "navigation",
                                  navigation.dump());
+  knowledge_->update_world_state(
+      category, index, "navigation_frame",
+      nav.header.frame_id.empty() ? "base_link" : nav.header.frame_id);
 }
 
 // ─────────────────────────────────────────────────────────────
