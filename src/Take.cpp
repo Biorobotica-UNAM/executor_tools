@@ -48,9 +48,9 @@ std::vector<Take::MotorStage> Take::approachMotorStages() const
     //     {"motor_5_wrist", {5}, 1},
     // };
     return {
-		{"arm", {1, 2, 3, 4}, 1},
-		{"wrist", {5, 6}, 1},
-		{"torso", {0}, 1},
+		{"arm", {1, 2, 3, 4}, 8},
+		{"wrist", {5, 6}, 5},
+		{"torso", {0}, 5},
 	};
 }
 
