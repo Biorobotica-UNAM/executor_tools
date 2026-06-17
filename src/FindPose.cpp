@@ -126,7 +126,7 @@ void FindPose::updateHumanPose(const std::string &action_type,
                                const std::string &direction,
                                const geometry_msgs::msg::PointStamped &point,
                                const geometry_msgs::msg::PoseStamped &nav) {
-  const std::string category = "detected_human";
+  const std::string category = "customer";
   const std::string id = "1";
 
   nlohmann::json position = {point.point.x, point.point.y, point.point.z};
