@@ -8,6 +8,7 @@
 #include "executor_interfaces/action/execute_task.hpp"
 #include "executor_tools/Result.hpp"
 #include "geometry_msgs/msg/point_stamped.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
 #include "hardware_tools/Hardware.hpp"
 #include "hri_tools/HRI.hpp"
 #include "knowledge_tools/Knowledge.hpp"
@@ -41,7 +42,8 @@ public:
 private:
   void updateHumanPose(const std::string &action_type,
                        const std::string &direction,
-                       const geometry_msgs::msg::PointStamped &point);
+                       const geometry_msgs::msg::PointStamped &point,
+                       const geometry_msgs::msg::PoseStamped &nav);
 
   void publishFeedback(const std::shared_ptr<GoalHandle> &gh,
                        FindPoseState state, const std::string &detail = "");
