@@ -159,17 +159,17 @@ void FindPose::updateHumanPose(const std::string &action_type,
   const auto &nq = nav.pose.orientation;
   nlohmann::json navigation = {np.x, np.y, np.z, nq.x, nq.y, nq.z, nq.w};
 
-  knowledge_->update_world_state(category, index, "action", action_type);
-  knowledge_->update_world_state(category, index, "direction_zone", direction);
-  knowledge_->update_world_state(category, index, "frame_id",
-                                 point.header.frame_id.empty() ? "base_link"
-                                                               : point.header.frame_id);
-  knowledge_->update_world_state(category, index, "position", position.dump());
+  //knowledge_->update_world_state(category, index, "action", action_type);
+  //knowledge_->update_world_state(category, index, "direction_zone", direction);
+  //knowledge_->update_world_state(category, index, "frame_id",
+                                 //point.header.frame_id.empty() ? "base_link"
+                                                               //: point.header.frame_id);
+  //knowledge_->update_world_state(category, index, "position", position.dump());
   knowledge_->update_world_state(category, index, "navigation",
                                  navigation.dump());
-  knowledge_->update_world_state(
-      category, index, "navigation_frame",
-      nav.header.frame_id.empty() ? "base_link" : nav.header.frame_id);
+  //knowledge_->update_world_state(
+      //category, index, "navigation_frame",
+      //nav.header.frame_id.empty() ? "base_link" : nav.header.frame_id);
 }
 
 void FindPose::updateCustomerPoseBuffer(
