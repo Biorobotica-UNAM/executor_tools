@@ -46,7 +46,11 @@ public:
              const std::shared_ptr<GoalHandle> &gh);
 
 private:
+  bool parseArgument(const std::string &argument, std::string &out_action,
+                     std::string &out_index) const;
+
   void updateHumanPose(const std::string &action_type,
+                       const std::string &index,
                        const std::string &direction,
                        const geometry_msgs::msg::PointStamped &point,
                        const geometry_msgs::msg::PoseStamped &nav);
