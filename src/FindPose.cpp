@@ -6,6 +6,10 @@
 #include <string>
 #include <thread>
 
+#include "tf2/exceptions.h"
+#include "tf2/time.h"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+
 using namespace std::chrono_literals;
 
 // ─────────────────────────────────────────────────────────────
@@ -15,8 +19,16 @@ using namespace std::chrono_literals;
 FindPose::FindPose(const rclcpp::Node::SharedPtr &node,
                    const std::shared_ptr<Hardware> &hardware,
                    const std::shared_ptr<HRI> &hri,
-                   const std::shared_ptr<Knowledge> &knowledge)
-    : node_(node), hardware_(hardware), hri_(hri), knowledge_(knowledge) {}
+                   const std::shared_ptr<Knowledge> &knowledge,
+                   const PoseBuffer &customer_pose_map)
+    : node_(node),
+      hardware_(hardware),
+      hri_(hri),
+      knowledge_(knowledge),
+      customer_pose_map_(customer_pose_map) {
+  tf_buffer_ = std::make_unique<tf2_ros::Buffer>(node_->get_clock());
+  tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
+}
 
 // ─────────────────────────────────────────────────────────────
 //  run
@@ -60,6 +72,7 @@ Result FindPose::run(const std::string &argument,
 
       publishFeedback(gh, FindPoseState::UPDATING, out_direction);
       updateHumanPose(argument, out_direction, out_point);
+      updateCustomerPoseBuffer(out_point);
 
       publishFeedback(gh, FindPoseState::SUCCESS, out_direction);
       return {true, "SUCCESS",
@@ -88,6 +101,49 @@ void FindPose::updateHumanPose(const std::string &action_type,
   knowledge_->update_world_state(category, id, "frame_id",
                                  point.header.frame_id);
   knowledge_->update_world_state(category, id, "position", position.dump());
+}
+
+void FindPose::updateCustomerPoseBuffer(
+    const geometry_msgs::msg::PointStamped &point) {
+  if (!customer_pose_map_) {
+    return;
+  }
+
+  geometry_msgs::msg::PointStamped point_in_map = point;
+  if (point_in_map.header.frame_id.empty()) {
+    point_in_map.header.frame_id = "base_link";
+  }
+
+  try {
+    if (point_in_map.header.frame_id != "map") {
+      const auto transform = tf_buffer_->lookupTransform(
+          "map", point_in_map.header.frame_id, tf2::TimePointZero, 500ms);
+      geometry_msgs::msg::PointStamped transformed_point;
+      tf2::doTransform(point_in_map, transformed_point, transform);
+      point_in_map = transformed_point;
+    }
+
+    geometry_msgs::msg::PoseStamped pose;
+    pose.header = point_in_map.header;
+    pose.header.stamp = node_->now();
+    pose.pose.position = point_in_map.point;
+    pose.pose.position.z = 0.0;
+    pose.pose.orientation.w = 1.0;
+
+    *customer_pose_map_ = pose;
+
+    RCLCPP_INFO(node_->get_logger(),
+                "[find_pose] buffered customer pose in map: [%.3f %.3f %.3f]",
+                pose.pose.position.x,
+                pose.pose.position.y,
+                pose.pose.position.z);
+  } catch (const tf2::TransformException &ex) {
+    customer_pose_map_->reset();
+    RCLCPP_WARN(node_->get_logger(),
+                "[find_pose] could not transform detected point from '%s' to map: %s",
+                point_in_map.header.frame_id.c_str(),
+                ex.what());
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
