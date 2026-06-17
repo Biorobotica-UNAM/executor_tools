@@ -17,8 +17,10 @@ using namespace std::chrono_literals;
 // =========================================================
 Approach::Approach(const rclcpp::Node::SharedPtr &node,
                    const std::shared_ptr<Hardware> &hardware,
-                   const std::shared_ptr<Vision> &vision)
-    : node_(node), hardware_(hardware), vision_(vision) {
+                   const std::shared_ptr<Vision> &vision,
+                   const std::shared_ptr<Knowledge> &knowledge) 
+    : node_(node), hardware_(hardware), vision_(vision), knowledge_(knowledge) {
+
   tf_buffer_ = std::make_shared<tf2_ros::Buffer>(node_->get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
@@ -295,6 +297,10 @@ Result Approach::run(const std::string &argument,
   auto start_time = std::chrono::steady_clock::now();
   const auto kMaxDuration = 120s;
 
+  bool checked_hands = false;
+  double y_offset = 0.0;
+  const double kTargetDistObj = 0.55;
+
   // Ciclo reactivo de alta frecuencia (20 Hz)
   while (gh->is_active()) {
     double tx = 0.0;
@@ -365,18 +371,50 @@ Result Approach::run(const std::string &argument,
 
       moveRobot(vx, vy, wz);
     } else {
-      // Rama de alineación de Manipulación de Objetos (Desplazamiento Lateral)
-      const double y_err = ty;
+      // =================================================================
+      // RAMA DE OBJETO CONFIGURABLE SEGÚN MANO LIBRE
+      // =================================================================
+      const double x_err = tx - kTargetDistObj;
 
-      if (std::abs(y_err) <= kYAlignTol) {
+      if (!checked_hands && tx <= 0.75) {
+        RCLCPP_INFO(node_->get_logger(), "[Approach] Close to object (%.2fm). Verifying hand vacancy...", tx);
+
+        nlohmann::json left_object  = knowledge_->get_world_state("robot", "", "left_hand");
+        nlohmann::json right_object = knowledge_->get_world_state("robot", "", "right_hand");
+
+        std::string left_val  = left_object.is_string() ? left_object.get<std::string>() : "";
+        std::string right_val = right_object.is_string() ? right_object.get<std::string>() : "";
+
+        if (right_val == "empty" || right_val.empty()) {
+            RCLCPP_INFO(node_->get_logger(), "[Approach] Right hand is empty! Shifting robot 15cm LEFT.");
+            y_offset = -0.15; 
+        }
+        else if (left_val == "empty" || left_val.empty()) {
+            RCLCPP_INFO(node_->get_logger(), "[Approach] Left hand is empty! Shifting robot 15cm RIGHT.");
+            y_offset = 0.15;
+        }
+        else {
+            RCLCPP_WARN(node_->get_logger(), "[Approach] Both hands are busy or data malformed! Staying centered.");
+            y_offset = 0.0;
+        }
+        checked_hands = true;
+      }
+
+      const double y_err = ty - y_offset;
+
+      if (std::abs(x_err) <= kDistTol && std::abs(y_err) <= kYAlignTol) {
         moveRobot(0.0, 0.0, 0.0);
         publishFeedback(gh, ApproachState::SUCCESS);
         restore_after_person();
-        return {true, "SUCCESS", "aligned_object"};
+        return {true, "SUCCESS", "aligned_object_with_arm_offset"};
       }
 
-      const double vy = std::clamp(kKpY * y_err, -kMaxLinVel, kMaxLinVel);
-      moveRobot(0.0, vy, 0.0);
+      double vx = std::clamp(kKpX * x_err, -kMaxLinVel, kMaxLinVel);
+      double vy = std::clamp(kKpY * y_err, -kMaxLinVel, kMaxLinVel);
+
+      if (vx < 0.0) vx = 0.0; 
+
+      moveRobot(vx, vy, 0.0); 
     }
 
     if (std::chrono::steady_clock::now() - start_time > kMaxDuration) {
