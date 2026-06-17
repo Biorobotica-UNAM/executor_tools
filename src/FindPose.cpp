@@ -2,6 +2,7 @@
 #include "executor_tools/Result.hpp"
 
 #include <chrono>
+#include <cmath>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <thread>
@@ -11,6 +12,39 @@
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
 using namespace std::chrono_literals;
+
+namespace {
+
+geometry_msgs::msg::PoseStamped
+navigationPoseFromPoint(const geometry_msgs::msg::PointStamped &point,
+                        double offset) {
+  const double px = point.point.x;
+  const double py = point.point.y;
+  const double dist = std::sqrt(px * px + py * py);
+
+  double nav_x = px;
+  double nav_y = py;
+  if (dist > offset) {
+    const double ratio = (dist - offset) / dist;
+    nav_x = px * ratio;
+    nav_y = py * ratio;
+  }
+
+  const double yaw = std::atan2(py, px);
+
+  geometry_msgs::msg::PoseStamped nav;
+  nav.header = point.header;
+  nav.pose.position.x = nav_x;
+  nav.pose.position.y = nav_y;
+  nav.pose.position.z = 0.0;
+  nav.pose.orientation.x = 0.0;
+  nav.pose.orientation.y = 0.0;
+  nav.pose.orientation.z = std::sin(yaw / 2.0);
+  nav.pose.orientation.w = std::cos(yaw / 2.0);
+  return nav;
+}
+
+} // namespace
 
 // ─────────────────────────────────────────────────────────────
 //  Constructor
@@ -71,8 +105,8 @@ Result FindPose::run(const std::string &argument,
       std::this_thread::sleep_for(1500ms);
 
       publishFeedback(gh, FindPoseState::UPDATING, out_direction);
-      updateHumanPose(argument, out_direction, out_point);
-      updateCustomerPoseBuffer(out_point);
+      const auto nav = navigationPoseFromPoint(out_point, 0.7);
+      updateHumanPose(argument, out_direction, out_point, nav);
 
       publishFeedback(gh, FindPoseState::SUCCESS, out_direction);
       return {true, "SUCCESS",
@@ -90,17 +124,27 @@ Result FindPose::run(const std::string &argument,
 
 void FindPose::updateHumanPose(const std::string &action_type,
                                const std::string &direction,
-                               const geometry_msgs::msg::PointStamped &point) {
+                               const geometry_msgs::msg::PointStamped &point,
+                               const geometry_msgs::msg::PoseStamped &nav) {
   const std::string category = "detected_human";
   const std::string id = "1";
 
   nlohmann::json position = {point.point.x, point.point.y, point.point.z};
+  const auto &np = nav.pose.position;
+  const auto &nq = nav.pose.orientation;
+  nlohmann::json navigation = {np.x, np.y, np.z, nq.x, nq.y, nq.z, nq.w};
 
   knowledge_->update_world_state(category, id, "action", action_type);
   knowledge_->update_world_state(category, id, "direction_zone", direction);
   knowledge_->update_world_state(category, id, "frame_id",
-                                 point.header.frame_id);
+                                 point.header.frame_id.empty() ? "base_link"
+                                                               : point.header.frame_id);
   knowledge_->update_world_state(category, id, "position", position.dump());
+  knowledge_->update_world_state(category, id, "navigation",
+                                 navigation.dump());
+  knowledge_->update_world_state(
+      category, id, "navigation_frame",
+      nav.header.frame_id.empty() ? "base_link" : nav.header.frame_id);
 }
 
 void FindPose::updateCustomerPoseBuffer(

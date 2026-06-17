@@ -48,7 +48,8 @@ public:
 private:
   void updateHumanPose(const std::string &action_type,
                        const std::string &direction,
-                       const geometry_msgs::msg::PointStamped &point);
+                       const geometry_msgs::msg::PointStamped &point,
+                       const geometry_msgs::msg::PoseStamped &nav);
 
   void updateCustomerPoseBuffer(
       const geometry_msgs::msg::PointStamped &point);
