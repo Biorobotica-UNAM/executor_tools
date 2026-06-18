@@ -38,6 +38,10 @@ Result FindObject::run(const std::string &argument,
     return {false, "FAILED", "invalid_argument"};
   }
 
+  const std::string reconstructerd_legacy_arg = query_name + "_" + object_index;
+  const std::string vision_query =
+      (reconstructerd_legacy_arg == argument) ? query_name : argument;
+
   for (const auto &[pan, tilt] : scan_poses_) {
     if (!gh->is_active())
       return {false, "FAILED", "goal_cancelled"};
@@ -77,7 +81,7 @@ Result FindObject::run(const std::string &argument,
       geometry_msgs::msg::PoseStamped object_pose, object_nav;
       std::string detected_name;
 
-      if (vision_->GetOwlPose(query_name, object_pose, object_nav,
+      if (vision_->GetOwlPose(vision_query, object_pose, object_nav,
                               detected_name)) {
         publishFeedback(gh, FindObjectState::LOOKING_AT_TARGET, detected_name);
 
@@ -95,7 +99,7 @@ Result FindObject::run(const std::string &argument,
         publishFeedback(gh, FindObjectState::DETECTING,
                         detected_name + "_centered");
 
-        if (!refreshCenteredObjectPose(query_name, centered_object_pose,
+        if (!refreshCenteredObjectPose(vision_query, centered_object_pose,
                                        centered_object_nav,
                                        centered_detected_name, gh)) {
           publishFeedback(gh, FindObjectState::FAILED,
@@ -113,8 +117,8 @@ Result FindObject::run(const std::string &argument,
     }
   }
 
-  publishFeedback(gh, FindObjectState::FAILED, query_name);
-  return {false, "FAILED", query_name + "_not_found"};
+  publishFeedback(gh, FindObjectState::FAILED, vision_query);
+  return {false, "FAILED", vision_query + "_not_found"};
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -170,24 +174,64 @@ bool FindObject::refreshCenteredObjectPose(
 bool FindObject::parseArgument(const std::string &argument,
                                std::string &out_name,
                                std::string &out_index) const {
+  // ── 1) Formato clasico "categoria_indice" (ej. "fruits_1", "seat_1")
+  // Solo cuenta como indice si el sufijo tras el ultimo '_' es numerico;
+  // si no lo es (p.ej. "juice_pack"), no es un indice valido y el
+  // argumento se trata como nombre suelto en (2).
   const std::size_t sep = argument.rfind('_');
 
-  if (sep == std::string::npos || sep == 0 || sep + 1 == argument.size())
-    return false;
+  if (sep != std::string::npos && sep != 0 && sep + 1 != argument.size()) {
+    const std::string candidate_index = argument.substr(sep + 1);
+    const bool index_is_numeric =
+        std::all_of(candidate_index.begin(), candidate_index.end(),
+                    [](unsigned char c) { return std::isdigit(c); });
 
-  out_name = argument.substr(0, sep);
-  out_index = argument.substr(sep + 1);
-  return true;
+    if (index_is_numeric) {
+      out_name = argument.substr(0, sep);
+      out_index = candidate_index;
+      return true;
+    }
+  }
+
+  // ── 2) Nombre de objeto suelto (ej. "apple", "knife") ──────────────
+  // Se recorren las categorias de objetos del world state hasta
+  // encontrar una entrada cuyo campo "name" coincida exactamente.
+  // "objects" va primero porque es la categoria que CLIPS usa para
+  // planear.
+  static const std::vector<std::string> kNameSearchCategories = {"objects"};
+
+  for (const auto &category : kNameSearchCategories) {
+    for (int i = 1; i <= 200; ++i) {
+      const std::string index_str = std::to_string(i);
+      const nlohmann::json name_json =
+          knowledge_->get_world_state(category, index_str, "name");
+
+      if (name_json.empty())
+        break; // numeracion contigua: no hay mas entradas aqui
+
+      const std::string entry_name =
+          name_json.is_string() ? name_json.get<std::string>() : "";
+
+      if (entry_name == argument) {
+        out_name = category;
+        out_index = index_str;
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────
 //  updateObjectState
 // ─────────────────────────────────────────────────────────────
 
-void FindObject::updateObjectState(
-    const std::string &category, const std::string &index,
-    const std::string &name, const geometry_msgs::msg::PoseStamped &pose,
-    const geometry_msgs::msg::PoseStamped &nav) {
+void FindObject::updateObjectState(const std::string &category,
+                                   const std::string &index,
+                                   const std::string &name,
+                                   const geometry_msgs::msg::PoseStamped &pose,
+                                   const geometry_msgs::msg::PoseStamped &nav) {
   const auto &p = pose.pose.position;
   const auto &q = pose.pose.orientation;
 
