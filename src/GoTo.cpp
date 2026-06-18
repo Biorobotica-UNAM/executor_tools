@@ -4,8 +4,9 @@
 // Constructor
 // =========================================================
 GoTo::GoTo(const rclcpp::Node::SharedPtr&     node,
+		   const std::shared_ptr<Hardware>&   hardware,
            const std::shared_ptr<Navigation>& navigation)
-: node_(node), navigation_(navigation)
+: node_(node), hardware_(hardware), navigation_(navigation)
 {}
 
 // =========================================================
@@ -19,6 +20,14 @@ Result GoTo::run(const std::string&                 location_name,
 
     // ── READY ─────────────────────────────────────────────
     publishFeedback(gh, GoToState::READY, location_name);
+
+	// ── MOVING_TORSO ─────────────────────────────────────
+    publishFeedback(gh, GoToState::MOVING_TORSO);
+    bool torso_moved = hardware_->MoveTorso(0.3);
+    if (!torso_moved) {
+        publishFeedback(gh, GoToState::FAILED, "move_torso_failed");
+        return {false, "FAILED", "move_torso_failed"};
+    }
 
     // ── NAVIGATING ────────────────────────────────────────
     publishFeedback(gh, GoToState::NAVIGATING, location_name);
@@ -61,6 +70,7 @@ std::string GoTo::stateName(GoToState s)
 {
     switch (s) {
         case GoToState::READY:      return "READY";
+		case GoToState::MOVING_TORSO: return "MOVING_TORSO";
         case GoToState::NAVIGATING: return "NAVIGATING";
         case GoToState::SUCCESS:    return "SUCCESS";
         case GoToState::FAILED:     return "FAILED";
