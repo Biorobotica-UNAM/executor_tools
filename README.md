@@ -21,6 +21,45 @@ The package follows a standard ROS 2 C++ structure, separating interface definit
     * `Check`: Hardware status monitoring.
     * `Save`: Data persistence during tasks.
 
+## Manipulacion: VisualGraspApproach
+
+`Take.cpp` delega la estrategia fina de agarre a `VisualGraspApproach`.
+La intencion es que `Take` conserve la maquina de estados de la accion, pero
+que los detalles de pregrasp, candidatos, AprilTag/TF visual, avance final y
+retract corto vivan en una clase aparte.
+
+Flujo actual:
+
+1. Elegir candidatos `FRONT` y dejar candidatos `TOP` preparados para cuando
+   exista `PlanCartesianPath`.
+2. Planear pregrasp con `manipulation_planner`, que usa MoveIt + OMPL +
+   RRTConnect.
+3. Ejecutar la trayectoria de pregrasp.
+4. Intentar correccion visual `FRONT` usando el TF del marcador del gripper.
+5. Si no hay TF visual disponible, mantener el fallback probado: avance fijo
+   de base.
+6. Guardar la distancia real avanzada para retroceder exactamente lo mismo.
+7. Construir retract invirtiendo la trayectoria de pregrasp.
+
+Parametros principales:
+
+* `visual_grasp.use_visual_servo`
+* `visual_grasp.use_base_final_approach`
+* `visual_grasp.use_cartesian_final_approach`
+* `visual_grasp.base_final_approach_distance_m`
+* `visual_grasp.base_final_approach_speed_mps`
+* `visual_grasp.visual_max_attempts`
+* `visual_grasp.visual_max_total_correction_m`
+* `visual_grasp.right_marker_frame`
+* `visual_grasp.left_marker_frame`
+* `visual_grasp.right_marker_to_tcp_xyz`
+* `visual_grasp.left_marker_to_tcp_xyz`
+
+Mientras `PlanCartesianPath` no exista, los candidatos `TOP` se omiten para no
+intentar un agarre superior usando solo la base. El robot normalmente queda a
+unos 30-50 cm de la mesa; por eso el fallback de base se mantiene parametrico y
+limitado para probar avances finales sin recompilar.
+
 ---
 
 ## Knowledge Management & Filtering

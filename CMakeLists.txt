@@ -6,6 +6,7 @@ project(executor_tools)
 # -----------------------------
 find_package(ament_cmake REQUIRED)
 find_package(ament_index_cpp REQUIRED)
+find_package(actionlib_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(executor_interfaces REQUIRED)
@@ -44,6 +45,7 @@ add_library(${PROJECT_NAME}
   src/Receive.cpp
   src/Follow.cpp
   src/Take.cpp
+  src/VisualGraspApproach.cpp
   src/Listen.cpp
   src/FindPose.cpp
   src/Analyze.cpp
@@ -61,6 +63,7 @@ target_include_directories(${PROJECT_NAME}
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   ament_index_cpp
+  actionlib_msgs
   rclcpp_action
   executor_interfaces
   geometry_msgs
@@ -107,6 +110,7 @@ ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 
 ament_export_dependencies(
   rclcpp
+  actionlib_msgs
   rclcpp_action
   executor_interfaces
   geometry_msgs

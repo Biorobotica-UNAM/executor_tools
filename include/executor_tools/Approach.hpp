@@ -2,8 +2,10 @@
 #define EXECUTOR_TOOLS__APPROACH_HPP_
 
 #include <memory>
+#include <mutex>
 #include <string>
 
+#include "actionlib_msgs/msg/goal_status.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "tf2_ros/buffer.h"
@@ -43,11 +45,26 @@ public:
                const std::shared_ptr<GoalHandle> &gh);
 
 private:
+    struct NavigationStatusSnapshot {
+        bool has_status{false};
+        bool done{false};
+        bool success{false};
+        int code{-1};
+        std::string text;
+    };
+
     void publishFeedback(const std::shared_ptr<GoalHandle> &gh, 
                          ApproachState state, 
                          const std::string &detail = "");
     
     std::string stateName(ApproachState s);
+    static const char *navigationStatusName(int status);
+    static bool isTerminalNavigationStatus(int status);
+
+    void resetNavigationStatus();
+    NavigationStatusSnapshot navigationStatusSnapshot();
+    void navigationStatusCallback(
+        const actionlib_msgs::msg::GoalStatus::SharedPtr msg);
 
     rclcpp::Node::SharedPtr node_;
     std::shared_ptr<Hardware> hardware_;
@@ -57,6 +74,19 @@ private:
 
     std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+
+    rclcpp::Subscription<
+        actionlib_msgs::msg::GoalStatus>::SharedPtr
+            navigation_status_sub_;
+
+    std::mutex navigation_status_mutex_;
+    bool waiting_navigation_status_{false};
+    bool seen_navigation_progress_{false};
+    bool navigation_done_{false};
+    bool navigation_success_{false};
+    bool has_navigation_status_{false};
+    int navigation_status_code_{-1};
+    std::string navigation_status_text_;
 };
 
 #endif

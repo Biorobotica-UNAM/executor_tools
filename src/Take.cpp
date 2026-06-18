@@ -1,13 +1,5 @@
 #include "executor_tools/Take.hpp"
 
-#include <algorithm>
-#include <chrono>
-#include <cmath>
-#include <thread>
-#include <functional>
-
-using namespace std::chrono_literals;
-
 // ─────────────────────────────────────────────────────────────
 //  Constructor
 // ─────────────────────────────────────────────────────────────
@@ -21,96 +13,10 @@ Take::Take(
   manipulation_(manipulation),
   hardware_(hardware),
   knowledge_(knowledge),
-  hri_(hri)
+  hri_(hri),
+  visual_grasp_approach_(
+      std::make_unique<VisualGraspApproach>(node, manipulation, hardware))
 {}
-
-// ─────────────────────────────────────────────────────────────
-//  approachMotorStages
-// ─────────────────────────────────────────────────────────────
-std::vector<Take::MotorStage> Take::approachMotorStages() const
-{
-    // Para cambiar el orden del acercamiento, modifica solo esta lista.
-    // Cada entrada es una etapa; los motores dentro de la misma etapa se
-    // adelantan juntos. El ultimo dato indica cuantos waypoints interpolados
-    // usara esa etapa para llegar al valor final que calculo MoveIt.
-    //
-    // Datos que ocupa cada etapa:
-    // - label: aparece en logs para identificar la prueba.
-    // - motors: indices fisicos/logicos, traducidos por motorJointName().
-    // - waypoints: pasos intermedios; mas pasos = movimiento mas gradual.
-    //
-    // Ejemplos utiles:
-    //   { "shoulder_elbow", {0, 3}, 3 }, { "wrist", {5}, 2 }
-    //   { "shoulder", {0}, 2 }, { "elbow_wrist", {3, 5}, 3 }
-    // return {
-    //     {"motor_0_shoulder", {0}, 1},
-    //     {"motor_3_elbow", {3}, 1},
-    //     {"motor_5_wrist", {5}, 1},
-    // };
-    return {
-		{"arm", {1, 2, 3, 4}, 8},
-		{"wrist", {5, 6}, 5},
-		{"torso", {0}, 5},
-	};
-}
-
-// ─────────────────────────────────────────────────────────────
-//  approachPoseCandidates
-// ─────────────────────────────────────────────────────────────
-std::vector<Take::ApproachPoseCandidate> Take::approachPoseCandidates() const
-{
-    // Lista ordenada de metas de acercamiento para Take.
-    //
-    // La pose base viene de vision y representa el centro/punto de agarre del
-    // objeto en base_link. Cada candidato aplica un offset pequeno sobre esa
-    // pose antes de pedirle un plan a MoveIt.
-    //
-    // Que se busca con cada dato:
-    // - dx: aleja la mano hacia el frente del robot para no pedir una meta tan
-    //   metida en el objeto. Si MoveIt no puede samplear IK, aumentar dx suele
-    //   dar mas espacio al brazo.
-    // - dy: ajuste lateral fino. Normalmente queda en 0.0 para no cambiar de
-    //   lado el agarre; puede servir si un brazo queda muy cruzado.
-    // - dz: sube un poco la meta. Ayuda cuando la mesa, el borde del objeto o
-    //   una orientacion de top grasp dejan la mano demasiado pegada.
-    //
-    // Orden recomendado: de menos invasivo a mas separado/alto. La primera pose
-    // que planea se usa para ejecutar, y las siguientes ya no se intentan.
-    return {
-        {"vision_nominal_front", 0.01, 0.00, 0.02},
-        {"front_slightly_higher", 0.01, 0.00, 0.03},
-        {"front_high_clearance", 0.02, 0.00, 0.04},
-        {"farther_high_clearance", 0.02, 0.00, 0.05},
-    };
-}
-
-// ─────────────────────────────────────────────────────────────
-//  moveBase
-// ─────────────────────────────────────────────────────────────
-bool Take::moveBase(double distance_m,
-                     const std::shared_ptr<GoalHandle>& gh)
-{
-    const double sign       = (distance_m >= 0.0) ? 1.0 : -1.0;
-    const double duration_s = std::abs(distance_m) / MOVE_LINEAR_SPEED;
-
-    rclcpp::Rate rate(30.0);
-    const auto   start = node_->now();
-
-    while (rclcpp::ok() &&
-           (node_->now() - start).seconds() < duration_s)
-    {
-        if (!gh->is_active())
-        {
-            hardware_->MoveBase(0.0, 0.0, 0.0);
-            return false;
-        }
-        hardware_->MoveBase(sign * MOVE_LINEAR_SPEED, 0.0, 0.0);
-        rate.sleep();
-    }
-
-    hardware_->MoveBase(0.0, 0.0, 0.0);
-    return true;
-}
 
 // ─────────────────────────────────────────────────────────────
 //  run
@@ -319,68 +225,20 @@ Result Take::run(
     if (!hri_->Say("Planning trajectory"))
         publishFeedback(gh, TakeState::PLANNING_EXTEND, "say_failed");
 
-    // Durante el acercamiento, la vision puede entregar una pose correcta para
-    // el objeto pero demasiado estricta para IK/MoveIt. Probamos una lista de
-    // pregrasp candidates con offsets pequenos, manteniendo object_exclusion_pose
-    // como el centro real del objeto para no borrar mesa u otros obstaculos.
-    bool ok = false;
-    const auto pose_candidates = approachPoseCandidates();
-    for (std::size_t i = 0; i < pose_candidates.size(); ++i)
-    {
-        const auto& candidate = pose_candidates[i];
-        auto candidate_pose = object_exclusion_pose;
-        candidate_pose.pose.position.x += candidate.dx;
-        candidate_pose.pose.position.y += candidate.dy;
-        candidate_pose.pose.position.z += candidate.dz;
+    auto grasp_plan = visual_grasp_approach_->planPregrasp(
+        object_name,
+        object_exclusion_pose,
+        arm_group_,
+        tip);
 
-        RCLCPP_INFO(node_->get_logger(),
-            "Trying take approach candidate %zu/%zu '%s': offset=[%.3f %.3f %.3f] target=[%.3f %.3f %.3f] orientation=[%.3f %.3f %.3f %.3f]",
-            i + 1,
-            pose_candidates.size(),
-            candidate.label.c_str(),
-            candidate.dx,
-            candidate.dy,
-            candidate.dz,
-            candidate_pose.pose.position.x,
-            candidate_pose.pose.position.y,
-            candidate_pose.pose.position.z,
-            candidate_pose.pose.orientation.x,
-            candidate_pose.pose.orientation.y,
-            candidate_pose.pose.orientation.z,
-            candidate_pose.pose.orientation.w);
+    if (!grasp_plan.success)
+        return {false, "FAILED", grasp_plan.message};
 
-        ok = manipulation_->PlanTrajectory(
-                candidate_pose, arm_group_, tip,
-                joint_names_, waypoints_, msg,
-                true, object_exclusion_pose, 0.14, 0.24);
-
-        if (ok)
-        {
-            target_pose = candidate_pose;
-            RCLCPP_INFO(node_->get_logger(),
-                "Take approach candidate accepted: '%s'",
-                candidate.label.c_str());
-            break;
-        }
-
-        RCLCPP_WARN(node_->get_logger(),
-            "Take approach candidate failed: '%s' planner_message='%s'",
-            candidate.label.c_str(),
-            msg.c_str());
-
-        if (!gh->is_active())
-            return {false, "FAILED", "goal_cancelled"};
-    }
-
-    if (!ok)
-        return {false, "FAILED", msg};
-
-    // Reordenamos el inicio del acercamiento: primero hombro, luego codo,
-    // luego muneca, y despues el resto de la trayectoria planeada. Asi la mano
-    // no rota hasta el final ni inicia sola antes de acomodar el brazo.
-    orderApproachJointSequence(joint_names_, waypoints_);
-    const auto approach_joint_names = joint_names_;
-    const auto approach_waypoints = waypoints_;
+    target_pose = grasp_plan.grasp_pose;
+    joint_names_ = grasp_plan.joint_names;
+    waypoints_ = grasp_plan.waypoints;
+    const auto approach_joint_names = grasp_plan.joint_names;
+    const auto approach_waypoints = grasp_plan.waypoints;
 
     if (!gh->is_active())
         return {false, "FAILED", "goal_cancelled"};
@@ -388,11 +246,11 @@ Result Take::run(
     // ── EXECUTING_EXTEND ──────────────────────────────────────
     publishFeedback(gh, TakeState::EXECUTING_EXTEND);
 
-    ok = manipulation_->FollowTrajectory(
-                arm_group_, joint_names_, waypoints_, msg);
+    bool ok = visual_grasp_approach_->executePregrasp(
+                arm_group_, grasp_plan);
 
     if (!ok)
-        return {false, "FAILED", msg};
+        return {false, "FAILED", grasp_plan.message};
 
     if (!gh->is_active())
         return {false, "FAILED", "goal_cancelled"};
@@ -400,8 +258,14 @@ Result Take::run(
     // ── MOVING_FORWARD ───────────────────────────────────────
     publishFeedback(gh, TakeState::MOVING_FORWARD);
 
-    if (!moveBase(MOVE_DISTANCE_M, gh))
-        return {false, "FAILED", "goal_cancelled_during_moving_forward"};
+    ok = visual_grasp_approach_->executeFinalApproach(
+            arm_group_,
+            tip,
+            grasp_plan,
+            [gh]() { return gh && gh->is_active(); });
+
+    if (!ok)
+        return {false, "FAILED", grasp_plan.message};
 
     // ── CLOSING_GRIPPER ───────────────────────────────────────
     publishFeedback(gh, TakeState::CLOSING_GRIPPER);
@@ -436,8 +300,12 @@ Result Take::run(
 	// ── MOVING_BACKWARD ──────────────────────────────────────────
     publishFeedback(gh, TakeState::MOVING_BACKWARD);
 
-    if (!moveBase(-MOVE_DISTANCE_M, gh))
-        return {false, "FAILED", "goal_cancelled_during_moving_backward"};
+    if (!visual_grasp_approach_->retreatFinalApproach(
+            grasp_plan,
+            [gh]() { return gh && gh->is_active(); }))
+    {
+        return {false, "FAILED", grasp_plan.message};
+    }
 
     // ── PLANNING_RETRACT ──────────────────────────────────────
     publishFeedback(gh, TakeState::PLANNING_RETRACT);
@@ -448,7 +316,8 @@ Result Take::run(
         publishFeedback(gh, TakeState::PLANNING_RETRACT, "say_failed");
 
     std::vector<double> reverse_waypoints;
-    ok = buildReverseTrajectory(
+    ok = visual_grasp_approach_->buildReverseTrajectory(
+            arm_group_,
             approach_joint_names,
             approach_waypoints,
             reverse_waypoints);
@@ -628,302 +497,6 @@ geometry_msgs::msg::PoseStamped Take::retractPose(
     pose.pose.orientation.z =  0.0;
     pose.pose.orientation.w =  0.707;
     return pose;
-}
-
-// ─────────────────────────────────────────────────────────────
-//  orderApproachJointSequence
-// ─────────────────────────────────────────────────────────────
-bool Take::orderApproachJointSequence(
-    const std::vector<std::string>& joint_names,
-    std::vector<double>& waypoints) const
-{
-    if (joint_names.empty() || waypoints.empty())
-    {
-        RCLCPP_WARN(node_->get_logger(),
-            "Cannot order approach joints: empty trajectory.");
-        return false;
-    }
-
-    const std::size_t block_size = joint_names.size();
-    if (waypoints.size() % block_size != 0)
-    {
-        RCLCPP_WARN(node_->get_logger(),
-            "Cannot order approach joints: %zu waypoint values are not a multiple of %zu joints.",
-            waypoints.size(), block_size);
-        return false;
-    }
-
-    const std::size_t blocks = waypoints.size() / block_size;
-    if (blocks < 2)
-    {
-        RCLCPP_WARN(node_->get_logger(),
-            "Cannot order approach joints: only %zu block(s) available.",
-            blocks);
-        return false;
-    }
-
-    struct ResolvedStage
-    {
-        std::string label;
-        std::vector<std::size_t> joint_indices;
-        std::vector<std::string> joint_names;
-        std::size_t waypoints{1};
-    };
-
-    const auto motor_stages = approachMotorStages();
-    std::vector<ResolvedStage> resolved_stages;
-    resolved_stages.reserve(motor_stages.size());
-
-    for (const auto& stage : motor_stages)
-    {
-        ResolvedStage resolved;
-        resolved.label = stage.label;
-        resolved.waypoints = stage.waypoints;
-
-        if (resolved.waypoints == 0)
-        {
-            RCLCPP_WARN(node_->get_logger(),
-                "Cannot order approach joints: stage '%s' has zero waypoints.",
-                stage.label.c_str());
-            return false;
-        }
-
-        for (const auto motor : stage.motors)
-        {
-            const std::string joint_name = motorJointName(motor);
-            if (joint_name.empty())
-            {
-                RCLCPP_WARN(node_->get_logger(),
-                    "Cannot order approach joints: motor %zu has no joint mapping.",
-                    motor);
-                return false;
-            }
-
-            const auto it = std::find(joint_names.begin(), joint_names.end(), joint_name);
-            if (it == joint_names.end())
-            {
-                RCLCPP_WARN(node_->get_logger(),
-                    "Cannot order approach joints: joint '%s' for motor %zu is not present in trajectory.",
-                    joint_name.c_str(),
-                    motor);
-                return false;
-            }
-
-            resolved.joint_indices.push_back(
-                static_cast<std::size_t>(std::distance(joint_names.begin(), it)));
-            resolved.joint_names.push_back(joint_name);
-        }
-
-        if (resolved.joint_indices.empty())
-        {
-            RCLCPP_WARN(node_->get_logger(),
-                "Cannot order approach joints: stage '%s' has no motors.",
-                stage.label.c_str());
-            return false;
-        }
-
-        resolved_stages.push_back(resolved);
-    }
-
-    const auto initial_first = waypoints.begin();
-    const auto initial_last = initial_first + block_size;
-    const auto final_first = waypoints.begin() + (blocks - 1) * block_size;
-
-    std::vector<double> initial_block(initial_first, initial_last);
-    std::vector<double> final_block(final_first, final_first + block_size);
-    const std::size_t max_remaining_blocks = maxRemainingApproachBlocks();
-
-    std::vector<double> ordered_waypoints;
-    std::size_t configured_stage_waypoints = 0;
-    for (const auto& stage : resolved_stages)
-        configured_stage_waypoints += stage.waypoints;
-    ordered_waypoints.reserve(
-        (configured_stage_waypoints + max_remaining_blocks) * block_size);
-
-    std::vector<double> staged_block = initial_block;
-    for (std::size_t i = 0; i < resolved_stages.size(); ++i)
-    {
-        const auto& stage = resolved_stages[i];
-        const auto stage_start_block = staged_block;
-
-        // Cada etapa interpola solo sus motores desde el valor actual hasta el
-        // valor final del ultimo bloque planeado por MoveIt. Los demas motores
-        // conservan el valor acumulado por etapas previas.
-        for (std::size_t step = 1; step <= stage.waypoints; ++step)
-        {
-            const double ratio =
-                static_cast<double>(step) / static_cast<double>(stage.waypoints);
-            for (const auto joint_index : stage.joint_indices)
-            {
-                const double start = stage_start_block[joint_index];
-                const double goal = final_block[joint_index];
-                staged_block[joint_index] = start + ratio * (goal - start);
-            }
-            ordered_waypoints.insert(
-                ordered_waypoints.end(), staged_block.begin(), staged_block.end());
-        }
-
-        for (std::size_t j = 0; j < stage.joint_indices.size(); ++j)
-        {
-            const std::size_t joint_index = stage.joint_indices[j];
-            RCLCPP_INFO(node_->get_logger(),
-                "Approach joint order stage %zu/%zu: %s joint=%s waypoints=%zu initial=%.3f final=%.3f delta=%.3f",
-                i + 1,
-                resolved_stages.size(),
-                stage.label.c_str(),
-                stage.joint_names[j].c_str(),
-                stage.waypoints,
-                stage_start_block[joint_index],
-                final_block[joint_index],
-                final_block[joint_index] - stage_start_block[joint_index]);
-        }
-    }
-
-    const std::size_t remaining_blocks = blocks - 1;
-    const std::size_t kept_remaining_blocks =
-        std::min(remaining_blocks, max_remaining_blocks);
-
-    for (std::size_t kept = 1; kept <= kept_remaining_blocks; ++kept)
-    {
-        std::size_t block = 1;
-        if (kept_remaining_blocks > 1)
-        {
-            block = 1 + ((kept - 1) * (remaining_blocks - 1)) /
-                          (kept_remaining_blocks - 1);
-        }
-
-        std::vector<double> ordered_block(
-            waypoints.begin() + block * block_size,
-            waypoints.begin() + (block + 1) * block_size);
-        for (const auto& stage : resolved_stages)
-            for (const std::size_t joint_index : stage.joint_indices)
-                ordered_block[joint_index] = final_block[joint_index];
-        ordered_waypoints.insert(
-            ordered_waypoints.end(), ordered_block.begin(), ordered_block.end());
-    }
-
-    const std::size_t ordered_blocks = ordered_waypoints.size() / block_size;
-    waypoints = std::move(ordered_waypoints);
-    RCLCPP_INFO(node_->get_logger(),
-        "Approach trajectory reordered: original_blocks=%zu ordered_blocks=%zu configured_stages=%zu stage_waypoints=%zu kept_remaining=%zu/%zu. Retract reverse will use the opposite order.",
-        blocks,
-        ordered_blocks,
-        resolved_stages.size(),
-        configured_stage_waypoints,
-        kept_remaining_blocks,
-        remaining_blocks);
-
-    return true;
-}
-
-// ─────────────────────────────────────────────────────────────
-//  maxRemainingApproachBlocks
-// ─────────────────────────────────────────────────────────────
-std::size_t Take::maxRemainingApproachBlocks() const
-{
-    // Cantidad maxima de bloques originales de MoveIt que se conservan DESPUES
-    // de las etapas manuales. No controla los waypoints por motor; eso se hace
-    // en approachMotorStages(). Subirlo conserva mas detalle de la trayectoria
-    // planeada; bajarlo hace el acercamiento mas directo.
-    return 3;
-}
-
-// ─────────────────────────────────────────────────────────────
-//  motorJointName
-// ─────────────────────────────────────────────────────────────
-std::string Take::motorJointName(std::size_t motor) const
-{
-    const bool left = arm_group_ == "left_arm_group";
-
-	switch (motor)
-	{
-		case 0: return "torso_joint";
-		case 1: return left ? "lf_shoulder_joint" : "rf_shoulder_joint";
-		case 2: return left ? "ls_shoulder_joint" : "rs_shoulder_joint";
-		case 3: return left ? "l_arm_twist_joint" : "r_arm_twist_joint";
-		case 4: return left ? "l_elbow_joint" : "r_elbow_joint";
-		case 5: return left ? "l_hand_joint" : "r_hand_joint";
-		case 6: return left ? "l_wrist_joint" : "r_wrist_joint";
-
-		default: return "";
-	}
-}
-
-// ─────────────────────────────────────────────────────────────
-//  buildReverseTrajectory
-// ─────────────────────────────────────────────────────────────
-bool Take::buildReverseTrajectory(
-    const std::vector<std::string>& joint_names,
-    const std::vector<double>& source_waypoints,
-    std::vector<double>& reversed_waypoints) const
-{
-    reversed_waypoints.clear();
-
-    if (joint_names.empty() || source_waypoints.empty())
-    {
-        RCLCPP_WARN(node_->get_logger(),
-            "Cannot build reverse trajectory: empty joint list or waypoints.");
-        return false;
-    }
-
-    const std::size_t block_size = joint_names.size();
-    if (source_waypoints.size() % block_size != 0)
-    {
-        RCLCPP_WARN(node_->get_logger(),
-            "Cannot build reverse trajectory: %zu waypoint values are not a multiple of %zu joints.",
-            source_waypoints.size(), block_size);
-        return false;
-    }
-
-    const std::size_t blocks = source_waypoints.size() / block_size;
-    if (blocks < 2)
-    {
-        RCLCPP_WARN(node_->get_logger(),
-            "Cannot build reverse trajectory: only %zu block(s) available.",
-            blocks);
-        return false;
-    }
-
-    reversed_waypoints.reserve(source_waypoints.size());
-    for (std::size_t reverse_block = blocks; reverse_block > 0; --reverse_block)
-    {
-        const std::size_t source_block = reverse_block - 1;
-        const auto first = source_waypoints.begin() + source_block * block_size;
-        const auto last = first + block_size;
-        reversed_waypoints.insert(reversed_waypoints.end(), first, last);
-    }
-
-    const std::string wrist_joint =
-        (arm_group_ == "left_arm_group") ? "l_wrist_joint" : "r_wrist_joint";
-    const auto wrist_it =
-        std::find(joint_names.begin(), joint_names.end(), wrist_joint);
-
-    if (wrist_it != joint_names.end())
-    {
-        const std::size_t wrist_index =
-            static_cast<std::size_t>(std::distance(joint_names.begin(), wrist_it));
-        const double retract_start_wrist = reversed_waypoints[wrist_index];
-        const double retract_end_wrist =
-            reversed_waypoints[(blocks - 1) * block_size + wrist_index];
-
-        RCLCPP_INFO(node_->get_logger(),
-            "Built reversed approach retract: blocks=%zu joints=%zu wrist=%s start=%.3f end=%.3f",
-            blocks,
-            block_size,
-            wrist_joint.c_str(),
-            retract_start_wrist,
-            retract_end_wrist);
-    }
-    else
-    {
-        RCLCPP_INFO(node_->get_logger(),
-            "Built reversed approach retract: blocks=%zu joints=%zu wrist_joint_not_found=%s",
-            blocks,
-            block_size,
-            wrist_joint.c_str());
-    }
-
-    return true;
 }
 
 // ─────────────────────────────────────────────────────────────

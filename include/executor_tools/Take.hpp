@@ -15,6 +15,7 @@
 
 #include "executor_interfaces/action/execute_task.hpp"
 #include "executor_tools/Result.hpp"
+#include "executor_tools/VisualGraspApproach.hpp"
 #include "manipulation_tools/Manipulation.hpp"
 #include "knowledge_tools/Knowledge.hpp"
 #include "hardware_tools/Hardware.hpp"
@@ -66,21 +67,6 @@ public:
         const std::shared_ptr<GoalHandle>& gh);
 
 private:
-    struct MotorStage
-    {
-        std::string label;
-        std::vector<std::size_t> motors;
-        std::size_t waypoints;
-    };
-
-    struct ApproachPoseCandidate
-    {
-        std::string label;
-        double dx;
-        double dy;
-        double dz;
-    };
-
     // ── Grasp-type classification ──────────────────────────────
 
 	inline static const std::unordered_set<std::string> PINCH_OBJECTS = {
@@ -127,25 +113,6 @@ private:
 
     PoseStamped retractPose(const std::string& arm) const;
 
-    bool orderApproachJointSequence(
-        const std::vector<std::string>& joint_names,
-        std::vector<double>& waypoints) const;
-
-    std::vector<MotorStage> approachMotorStages() const;
-
-    std::size_t maxRemainingApproachBlocks() const;
-
-    std::string motorJointName(std::size_t motor) const;
-
-    std::vector<ApproachPoseCandidate> approachPoseCandidates() const;
-
-	bool moveBase(double distance_m, const std::shared_ptr<GoalHandle>& gh);
-
-    bool buildReverseTrajectory(
-        const std::vector<std::string>& joint_names,
-        const std::vector<double>& source_waypoints,
-        std::vector<double>& reversed_waypoints) const;
-
     void publishFeedback(
         const std::shared_ptr<GoalHandle>& gh,
         TakeState                          state,
@@ -157,16 +124,13 @@ private:
     static constexpr std::array<double, 6> PREPARE_POSE   = {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
     static constexpr std::array<double, 6> TRANSPORT_POSE = {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
 
-    // ── Base movement ─────────────────────────────────────────
-	static constexpr double MOVE_DISTANCE_M   = 0.10;
-	static constexpr double MOVE_LINEAR_SPEED = 0.05;
-
     // ── Dependencies ──────────────────────────────────────────
     rclcpp::Node::SharedPtr       node_;
     std::shared_ptr<Manipulation> manipulation_;
     std::shared_ptr<Hardware>     hardware_;
     std::shared_ptr<Knowledge>    knowledge_;
     std::shared_ptr<HRI>          hri_;
+    std::unique_ptr<VisualGraspApproach> visual_grasp_approach_;
 
     // ── Per-run state ─────────────────────────────────────────
     std::string              arm_group_;

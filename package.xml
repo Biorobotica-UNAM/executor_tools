@@ -11,6 +11,7 @@
 
   <!-- C++ / Build -->
   <depend>ament_index_cpp</depend>
+  <depend>actionlib_msgs</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_action</depend>
   <depend>geometry_msgs</depend>
