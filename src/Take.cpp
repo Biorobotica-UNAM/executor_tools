@@ -516,11 +516,7 @@ bool Take::parseArgument(const std::string &argument, std::string &out_name,
   // encontrar una entrada cuyo campo "name" coincida exactamente.
   // "objects" va primero porque es la categoria que CLIPS usa
   // para planear.
-  static const std::vector<std::string> kNameSearchCategories = {
-      "objects", "fruits",  "tableware",      "cutlery",
-      "trash",   "grocery", "bowl",           "spoon",
-      "mlik",    "cereal",  "dishwasher_tab", "floor_objects",
-  };
+  static const std::vector<std::string> kNameSearchCategories = {"objects"};
 
   for (const auto &category : kNameSearchCategories) {
     for (int i = 1; i <= 200; ++i) {
