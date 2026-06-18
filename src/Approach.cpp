@@ -23,7 +23,7 @@ Approach::Approach(const rclcpp::Node::SharedPtr &node,
                    const std::shared_ptr<Knowledge> &knowledge,
                    const std::shared_ptr<Navigation> &navigation) 
     : node_(node), hardware_(hardware), vision_(vision), 
-      knowledge_(knowledge), navigation_(navigation) // <── Asignación de la herramienta
+      knowledge_(knowledge), navigation_(navigation)
 {
     tf_buffer_ = std::make_shared<tf2_ros::Buffer>(node_->get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
@@ -157,6 +157,25 @@ Result Approach::run(const std::string &argument,
   // ── STEP 5: EJECUCIÓN ASÍNCRONA Y FEEDBACK DE NAVEGACIÓN ─────
   publishFeedback(gh, ApproachState::APPROACHING, "Publishing navigation goal via tool...");
 
+  RCLCPP_INFO(
+    node_->get_logger(),
+    "[Approach] Sending navigation goal:"
+    "\n  frame_id = %s"
+    "\n  stamp    = %.3f"
+    "\n  x        = %.3f"
+    "\n  y        = %.3f"
+    "\n  z        = %.3f"
+    "\n  qx qy qz qw = %.3f %.3f %.3f %.3f",
+    global_pose.header.frame_id.c_str(),
+    rclcpp::Time(global_pose.header.stamp).seconds(),
+    global_pose.pose.position.x,
+    global_pose.pose.position.y,
+    global_pose.pose.position.z,
+    global_pose.pose.orientation.x,
+    global_pose.pose.orientation.y,
+    global_pose.pose.orientation.z,
+    global_pose.pose.orientation.w);
+
   resetNavigationStatus();
   navigation_->Go(global_pose);
 
@@ -187,6 +206,16 @@ Result Approach::run(const std::string &argument,
 
       if (nav_status.done) {
           {
+              RCLCPP_INFO(
+              node_->get_logger(),
+              "[Approach] nav_status.done=true"
+              " code=%d (%s)"
+              " success=%d"
+              " text='%s'",
+              nav_status.code,
+              navigationStatusName(nav_status.code),
+              nav_status.success,
+              nav_status.text.c_str());
               std::lock_guard<std::mutex> lock(navigation_status_mutex_);
               waiting_navigation_status_ = false;
           }
@@ -248,12 +277,23 @@ Result Approach::run(const std::string &argument,
 
           if (distance_to_goal <= kArrivalTolerance) {
               {
+                  RCLCPP_INFO(
+                  node_->get_logger(),
+                  "[Approach] TF check:"
+                  " distance=%.4f"
+                  " tolerance=%.4f",
+                  distance_to_goal,
+                  kArrivalTolerance);
                   std::lock_guard<std::mutex> lock(navigation_status_mutex_);
                   waiting_navigation_status_ = false;
               }
-              RCLCPP_INFO(node_->get_logger(), 
-                          "[Approach] Goal reached by TF fallback. Distance error: %.3f m", 
-                          distance_to_goal);
+              RCLCPP_ERROR(
+              node_->get_logger(),
+              "[Approach] EXITING BY TF FALLBACK!"
+              " distance=%.4f"
+              " tolerance=%.4f",
+              distance_to_goal,
+              kArrivalTolerance);
               publishFeedback(gh, ApproachState::SUCCESS, "arrived_by_tf_fallback");
               return {true, "SUCCESS", "arrived_by_tf_fallback"};
           }
@@ -364,9 +404,30 @@ void Approach::navigationStatusCallback(
     const actionlib_msgs::msg::GoalStatus::SharedPtr msg) {
     std::lock_guard<std::mutex> lock(navigation_status_mutex_);
 
-    if (!waiting_navigation_status_) {
+    // FIX: si ya completamos (done_=true), ignorar mensajes posteriores.
+    // Sin esta guarda, el idle PENDING que publica el nav después de un
+    // SUCCEEDED/ABORTED sobreescribe code_ y text_ antes de que el main
+    // loop tome el snapshot, produciendo resultados con status incorrecto.
+    if (!waiting_navigation_status_ || navigation_done_) {
         return;
     }
+
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "[Approach] navigationStatusCallback:"
+        " status=%d (%s)"
+        " waiting=%d"
+        " seen_progress=%d"
+        " done=%d"
+        " success=%d"
+        " text='%s'",
+        msg->status,
+        navigationStatusName(msg->status),
+        waiting_navigation_status_,
+        seen_navigation_progress_,
+        navigation_done_,
+        navigation_success_,
+        msg->text.c_str());
 
     has_navigation_status_ = true;
     navigation_status_code_ = msg->status;
