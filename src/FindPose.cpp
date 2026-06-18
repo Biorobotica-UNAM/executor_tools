@@ -111,6 +111,7 @@ Result FindPose::run(const std::string &argument,
       publishFeedback(gh, FindPoseState::UPDATING, out_direction);
       const auto nav = navigationPoseFromPoint(out_point, 0.7);
       updateHumanPose(action_type, human_index, out_direction, out_point, nav);
+      updateCustomerPoseBuffer(out_point);
 
       publishFeedback(gh, FindPoseState::SUCCESS, out_direction);
       return {true, "SUCCESS",
