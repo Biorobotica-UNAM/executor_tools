@@ -136,4 +136,7 @@ private:
     std::string              arm_group_;
     std::vector<std::string> joint_names_;
     std::vector<double>      waypoints_;
+
+    // ── Physical limits ───────────────────────────────────────
+    double                   x_limit = 0.6;
 };

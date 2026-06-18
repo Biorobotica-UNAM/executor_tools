@@ -144,7 +144,13 @@ Result Take::run(
     // ── PREPARING_EXTEND ──────────────────────────────────────
     publishFeedback(gh, TakeState::PREPARING_EXTEND);
 
+    const double x_coord = target_data[0].get<double>();
     const double y_coord = target_data[1].get<double>();
+
+    if (x_coord > x_limit) {
+        publishFeedback(gh, TakeState::FAILED, "pose_out_of_range");
+        return {false, "FAILED", "pose_out_of_range"};
+    }
 
     if (!selectArm(arm_group_, hand,
                    right_object.get<std::string>(),
