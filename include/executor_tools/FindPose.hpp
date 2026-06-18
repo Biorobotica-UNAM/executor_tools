@@ -72,6 +72,6 @@ private:
   std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
 
   std::vector<std::pair<double, double>> scan_poses_ = {
-      //{0.0, -0.2}, {0.4, -0.2}, {-0.4, -0.2}};
-      {0.0, 0.2}, {0.6, 0.2}, {-0.6, 0.2}};
+      {0.0, -0.2}, {0.4, -0.2}, {-0.4, -0.2}};
+      //{0.0, 0.2}, {0.6, 0.2}, {-0.6, 0.2}};
 };
