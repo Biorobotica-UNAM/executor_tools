@@ -28,7 +28,7 @@ public:
     using GoalHandle  = rclcpp_action::ServerGoalHandle<ExecuteTask>;
 
     GoTo(const rclcpp::Node::SharedPtr&       node,
-		 const std::shared_ptr<Hardware>&     hardware),
+		 const std::shared_ptr<Hardware>&     hardware,
          const std::shared_ptr<Navigation>&   navigation);
 
     Result run(const std::string&                 location_name,
