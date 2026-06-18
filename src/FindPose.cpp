@@ -104,12 +104,33 @@ Result FindPose::run(const std::string &argument,
         hri_->FindPose(action_type, "any", out_direction, out_point);
 
     if (success) {
+
+      RCLCPP_INFO(
+      node_->get_logger(),
+      "[find_pose] received point: frame=%s x=%.3f y=%.3f z=%.3f",
+      out_point.header.frame_id.c_str(),
+      out_point.point.x,
+      out_point.point.y,
+      out_point.point.z);
+
       publishFeedback(gh, FindPoseState::LOOKING_AT_TARGET, out_direction);
       hardware_->LookAt(out_point);
       std::this_thread::sleep_for(1500ms);
 
       publishFeedback(gh, FindPoseState::UPDATING, out_direction);
       const auto nav = navigationPoseFromPoint(out_point, 0.7);
+
+      RCLCPP_INFO(
+      node_->get_logger(),
+      "[find_pose] navigation pose: x=%.3f y=%.3f z=%.3f q=[%.3f %.3f %.3f %.3f]",
+      nav.pose.position.x,
+      nav.pose.position.y,
+      nav.pose.position.z,
+      nav.pose.orientation.x,
+      nav.pose.orientation.y,
+      nav.pose.orientation.z,
+      nav.pose.orientation.w);
+
       updateHumanPose(action_type, human_index, out_direction, out_point, nav);
       updateCustomerPoseBuffer(out_point);
 
