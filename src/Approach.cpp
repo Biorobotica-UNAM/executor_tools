@@ -6,12 +6,14 @@
 #include <vector>
 
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+#include "hardware_tools/Hardware.hpp"
 #include "navigation_tools/Navigation.hpp" 
 
 using namespace std::chrono_literals;
 
 namespace {
 constexpr double kReferenceConsistencyWarnM = 0.10;
+constexpr double kObjectLateralSpeedMps = 0.05;
 }
 
 // =========================================================
@@ -34,6 +36,19 @@ Approach::Approach(const rclcpp::Node::SharedPtr &node,
             std::bind(&Approach::navigationStatusCallback,
                       this,
                       std::placeholders::_1));
+
+    auto declare_or_get_double = [this](const std::string &name,
+                                        double default_value) {
+        if (!node_->has_parameter(name)) {
+            node_->declare_parameter<double>(name, default_value);
+        }
+        return node_->get_parameter(name).as_double();
+    };
+
+    object_lateral_offset_m_ =
+        declare_or_get_double("approach.object_lateral_offset_m", 0.15);
+    centered_y_threshold_m_ =
+        declare_or_get_double("approach.centered_y_threshold_m", 0.08);
 }
 
 // =========================================================
@@ -230,6 +245,14 @@ Result Approach::run(const std::string &argument,
               RCLCPP_INFO(node_->get_logger(),
                           "[Approach] Navigation reported success: %s",
                           detail.c_str());
+              std::string lateral_detail;
+              if (!applyObjectLateralAdjustment(category, id, local_pose, gh,
+                                                lateral_detail)) {
+                  return {false, "FAILED", lateral_detail};
+              }
+              if (!lateral_detail.empty()) {
+                  detail += "; " + lateral_detail;
+              }
               publishFeedback(gh, ApproachState::SUCCESS, detail);
               return {true, "SUCCESS", detail};
           }
@@ -294,8 +317,17 @@ Result Approach::run(const std::string &argument,
               " tolerance=%.4f",
               distance_to_goal,
               kArrivalTolerance);
-              publishFeedback(gh, ApproachState::SUCCESS, "arrived_by_tf_fallback");
-              return {true, "SUCCESS", "arrived_by_tf_fallback"};
+              std::string detail = "arrived_by_tf_fallback";
+              std::string lateral_detail;
+              if (!applyObjectLateralAdjustment(category, id, local_pose, gh,
+                                                lateral_detail)) {
+                  return {false, "FAILED", lateral_detail};
+              }
+              if (!lateral_detail.empty()) {
+                  detail += "; " + lateral_detail;
+              }
+              publishFeedback(gh, ApproachState::SUCCESS, detail);
+              return {true, "SUCCESS", detail};
           }
       } 
       catch (const tf2::TransformException &ex) {
@@ -377,6 +409,116 @@ bool Approach::isTerminalNavigationStatus(int status) {
         default:
             return false;
     }
+}
+
+bool Approach::isObjectTarget(const std::string &category,
+                              const std::string &id) const {
+    const auto manipulation =
+        knowledge_->get_world_state(category, id, "manipulation");
+    return manipulation.is_array() && manipulation.size() >= 7;
+}
+
+bool Approach::applyObjectLateralAdjustment(
+    const std::string &category,
+    const std::string &id,
+    const geometry_msgs::msg::PoseStamped &local_pose,
+    const std::shared_ptr<GoalHandle> &gh,
+    std::string &detail) {
+    detail.clear();
+
+    if (!isObjectTarget(category, id) || object_lateral_offset_m_ <= 0.0) {
+        return true;
+    }
+
+    const double target_y = local_pose.pose.position.y;
+    if (std::abs(target_y) > centered_y_threshold_m_) {
+        detail = "object_lateral_adjustment_skipped_not_centered";
+        RCLCPP_INFO(node_->get_logger(),
+                    "[Approach] Object lateral adjustment skipped: target y=%.3f m threshold=%.3f m",
+                    target_y,
+                    centered_y_threshold_m_);
+        publishFeedback(gh, ApproachState::APPROACHING, detail);
+        return true;
+    }
+
+    const auto right_object =
+        knowledge_->get_world_state("robot", "", "right_hand");
+    const auto left_object =
+        knowledge_->get_world_state("robot", "", "left_hand");
+
+    if (!right_object.is_string() || !left_object.is_string()) {
+        detail = "object_lateral_adjustment_skipped_invalid_hand_state";
+        RCLCPP_WARN(node_->get_logger(),
+                    "[Approach] Object lateral adjustment skipped: invalid hand state");
+        publishFeedback(gh, ApproachState::APPROACHING, detail);
+        return true;
+    }
+
+    const bool right_free = right_object.get<std::string>() == "nothing";
+    const bool left_free = left_object.get<std::string>() == "nothing";
+
+    if (!right_free && !left_free) {
+        detail = "object_lateral_adjustment_skipped_no_free_hand";
+        RCLCPP_WARN(node_->get_logger(),
+                    "[Approach] Object lateral adjustment skipped: no free hand");
+        publishFeedback(gh, ApproachState::APPROACHING, detail);
+        return true;
+    }
+
+    const double distance_m =
+        right_free ? object_lateral_offset_m_ : -object_lateral_offset_m_;
+    const char *selected_hand = right_free ? "right_hand" : "left_hand";
+    const char *direction = right_free ? "left" : "right";
+
+    detail = std::string("object_lateral_adjustment_") + selected_hand +
+             "_move_" + direction;
+
+    RCLCPP_INFO(node_->get_logger(),
+                "[Approach] Object centered at y=%.3f m. Using %s, moving base %s %.3f m",
+                target_y,
+                selected_hand,
+                direction,
+                std::abs(distance_m));
+    publishFeedback(gh, ApproachState::APPROACHING, detail);
+
+    if (!moveBaseLaterally(distance_m, gh)) {
+        detail = "object_lateral_adjustment_cancelled";
+        publishFeedback(gh, ApproachState::FAILED, detail);
+        return false;
+    }
+
+    detail += "_done";
+    publishFeedback(gh, ApproachState::APPROACHING, detail);
+    return true;
+}
+
+bool Approach::moveBaseLaterally(
+    double distance_m,
+    const std::shared_ptr<GoalHandle> &gh) const {
+    if (!hardware_ || distance_m == 0.0) {
+        return true;
+    }
+
+    const double direction = distance_m > 0.0 ? 1.0 : -1.0;
+    const double duration_s = std::abs(distance_m) / kObjectLateralSpeedMps;
+    const auto start_time = std::chrono::steady_clock::now();
+    rclcpp::Rate rate(30.0);
+
+    while (rclcpp::ok() &&
+           std::chrono::duration<double>(
+               std::chrono::steady_clock::now() - start_time).count() <
+               duration_s) {
+        if (!gh || !gh->is_active()) {
+            hardware_->MoveBase(0.0, 0.0, 0.0);
+            return false;
+        }
+
+        hardware_->MoveBase(0.0, direction * kObjectLateralSpeedMps, 0.0);
+        rate.sleep();
+    }
+
+    hardware_->MoveBase(0.0, 0.0, 0.0);
+    return true;
 }
 
 void Approach::resetNavigationStatus() {

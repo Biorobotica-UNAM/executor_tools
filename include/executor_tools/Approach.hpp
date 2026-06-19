@@ -65,6 +65,16 @@ private:
     NavigationStatusSnapshot navigationStatusSnapshot();
     void navigationStatusCallback(
         const actionlib_msgs::msg::GoalStatus::SharedPtr msg);
+    bool isObjectTarget(const std::string &category,
+                        const std::string &id) const;
+    bool applyObjectLateralAdjustment(
+        const std::string &category,
+        const std::string &id,
+        const geometry_msgs::msg::PoseStamped &local_pose,
+        const std::shared_ptr<GoalHandle> &gh,
+        std::string &detail);
+    bool moveBaseLaterally(double distance_m,
+                           const std::shared_ptr<GoalHandle> &gh) const;
 
     rclcpp::Node::SharedPtr node_;
     std::shared_ptr<Hardware> hardware_;
@@ -87,6 +97,9 @@ private:
     bool has_navigation_status_{false};
     int navigation_status_code_{-1};
     std::string navigation_status_text_;
+
+    double object_lateral_offset_m_{0.15};
+    double centered_y_threshold_m_{0.08};
 };
 
 #endif
