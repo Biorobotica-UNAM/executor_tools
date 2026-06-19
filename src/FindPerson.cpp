@@ -73,8 +73,8 @@ Result FindPerson::run(const std::string &argument,
     // Para invitados nuevos no se barre lateralmente: se busca al frente
     // bajando la cabeza por escalones para encontrar caras bajas en la imagen.
     constexpr double kDegToRad = 0.017453292519943295;
-    //for (double tilt_deg : {0.0, -10.0, -20.0, -30.0}) {
-    for (double tilt_deg : {0.0, 10.0, 20.0, 30.0}) {
+    for (double tilt_deg : {0.0, -10.0, -20.0, -30.0}) {
+    //for (double tilt_deg : {0.0, 10.0, 20.0, 30.0}) {
       scan_points.push_back({0.0, tilt_deg * kDegToRad});
     }
   } else {
