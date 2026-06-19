@@ -236,15 +236,15 @@ VisualGraspApproach::candidatesForObject(const std::string& object_name) const
     };
 
     std::vector<Candidate> front = {
-        {"vision_nominal_front", GraspMode::FRONT, v(0.01, 0.00, 0.02), v(0.00, 0.00, 0.02)},
-        {"front_slightly_higher", GraspMode::FRONT, v(0.01, 0.00, 0.03), v(0.00, 0.00, 0.02)},
-        {"front_high_clearance", GraspMode::FRONT, v(0.02, 0.00, 0.04), v(0.00, 0.00, 0.02)},
-        {"farther_high_clearance", GraspMode::FRONT, v(0.02, 0.00, 0.05), v(0.00, 0.00, 0.03)},
+        {"vision_nominal_front", GraspMode::FRONT, v(0.00, 0.00, 0.00), v(0.00, 0.00, 0.00)},
+        {"front_slightly_higher", GraspMode::FRONT, v(0.00, 0.00, 0.005), v(0.00, 0.00, 0.005)},
+        {"front_high_clearance", GraspMode::FRONT, v(0.005, 0.00, 0.01), v(0.005, 0.00, 0.01)},
+        {"farther_high_clearance", GraspMode::FRONT, v(0.01, 0.00, 0.01), v(0.01, 0.00, 0.01)},
     };
 
     std::vector<Candidate> top = {
-        {"top_high_pregrasp", GraspMode::TOP, v(0.00, 0.00, 0.10), v(0.00, 0.00, 0.03)},
-        {"top_medium_pregrasp", GraspMode::TOP, v(0.00, 0.00, 0.08), v(0.00, 0.00, 0.03)},
+        {"top_high_pregrasp", GraspMode::TOP, v(0.00, 0.00, 0.01), v(0.00, 0.00, 0.01)},
+        {"top_medium_pregrasp", GraspMode::TOP, v(0.00, 0.00, 0.02), v(0.00, 0.00, 0.02)},
     };
 
     if (prefersTopGrasp(object_name))
