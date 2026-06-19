@@ -38,7 +38,7 @@ Result SaveLoc::run(const std::string &location_name,
   publishFeedback(gh, SaveLocState::SAVING, name);
   
   const std::string normalized_name = normalize(name);
-  const bool save_customer_pose = normalized_name == "customer";
+  const bool save_customer_pose = normalized_name.rfind("customer", 0) == 0;
   const bool save_kitchen_bar = normalized_name == "kitchen_bar";
 
   // ── CASO A: GUARDAR CLIENTE ─────────────────────────────────────
