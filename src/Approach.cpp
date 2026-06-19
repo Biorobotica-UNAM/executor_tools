@@ -49,6 +49,12 @@ Approach::Approach(const rclcpp::Node::SharedPtr &node,
         declare_or_get_double("approach.object_lateral_offset_m", 0.15);
     centered_y_threshold_m_ =
         declare_or_get_double("approach.centered_y_threshold_m", 0.08);
+    person_partial_distance_m_ =
+        declare_or_get_double("approach.person_partial_distance_m", 1.0);
+    person_partial_min_remaining_m_ =
+        declare_or_get_double("approach.person_partial_min_remaining_m", 0.75);
+    person_partial_timeout_s_ =
+        declare_or_get_double("approach.person_partial_timeout_s", 45.0);
 }
 
 // =========================================================
@@ -354,6 +360,197 @@ Result Approach::run(const std::string &argument,
       return {false, "FAILED", "goal_cancelled"};
   }
   
+  return {false, "FAILED", "goal_cancelled"};
+}
+
+Result Approach::runPartial(const std::string &argument,
+                            const std::shared_ptr<GoalHandle> &gh)
+{
+  if (!gh || !gh->is_active())
+    return {false, "FAILED", "goal_handle_inactive"};
+
+  publishFeedback(gh, ApproachState::READY, "partial:" + argument);
+
+  std::string category;
+  std::string id;
+  std::size_t sep = argument.find('_');
+  if (sep != std::string::npos) {
+      category = argument.substr(0, sep);
+      id = argument.substr(sep + 1);
+  } else {
+      category = argument;
+      id = "";
+  }
+
+  if (category != "customer" && category != "guest" &&
+      category != "person" && category != "human") {
+      publishFeedback(gh, ApproachState::FAILED, "partial_only_for_person_targets");
+      return {false, "FAILED", "partial_only_for_person_targets"};
+  }
+
+  publishFeedback(gh, ApproachState::LOADING, argument);
+
+  const nlohmann::json nav_array =
+      knowledge_->get_world_state(category, id, "navigation");
+  if (nav_array.empty() || !nav_array.is_array() || nav_array.size() < 7) {
+      publishFeedback(gh, ApproachState::FAILED, "invalid_knowledge_data");
+      return {false, "FAILED", "invalid_knowledge_data"};
+  }
+
+  geometry_msgs::msg::PoseStamped target_local_pose;
+  target_local_pose.header.frame_id = "base_link";
+  target_local_pose.header.stamp = node_->now();
+
+  try {
+      target_local_pose.pose.position.x = nav_array[0].get<double>();
+      target_local_pose.pose.position.y = nav_array[1].get<double>();
+      target_local_pose.pose.position.z = nav_array[2].get<double>();
+      target_local_pose.pose.orientation.x = nav_array[3].get<double>();
+      target_local_pose.pose.orientation.y = nav_array[4].get<double>();
+      target_local_pose.pose.orientation.z = nav_array[5].get<double>();
+      target_local_pose.pose.orientation.w = nav_array[6].get<double>();
+  } catch (const std::exception &ex) {
+      RCLCPP_ERROR(node_->get_logger(),
+                   "[Approach] Invalid partial navigation data for target %s_%s: %s",
+                   category.c_str(), id.c_str(), ex.what());
+      publishFeedback(gh, ApproachState::FAILED, "invalid_knowledge_data");
+      return {false, "FAILED", "invalid_knowledge_data"};
+  }
+
+  const double target_distance =
+      std::sqrt(target_local_pose.pose.position.x *
+                    target_local_pose.pose.position.x +
+                target_local_pose.pose.position.y *
+                    target_local_pose.pose.position.y);
+
+  if (target_distance <= person_partial_min_remaining_m_) {
+      publishFeedback(gh, ApproachState::SUCCESS, "partial_goal_already_close");
+      return {true, "SUCCESS", "partial_goal_already_close"};
+  }
+
+  const double partial_distance =
+      std::min(person_partial_distance_m_,
+               std::max(0.0, target_distance - person_partial_min_remaining_m_));
+
+  if (partial_distance <= 0.0) {
+      publishFeedback(gh, ApproachState::SUCCESS, "partial_goal_already_close");
+      return {true, "SUCCESS", "partial_goal_already_close"};
+  }
+
+  geometry_msgs::msg::PoseStamped partial_local_pose = target_local_pose;
+  const double ratio = partial_distance / target_distance;
+  partial_local_pose.pose.position.x = target_local_pose.pose.position.x * ratio;
+  partial_local_pose.pose.position.y = target_local_pose.pose.position.y * ratio;
+  partial_local_pose.pose.position.z = 0.0;
+  partial_local_pose.header.stamp = node_->now();
+
+  geometry_msgs::msg::PoseStamped partial_global_pose;
+  try {
+      partial_global_pose = tf_buffer_->transform(partial_local_pose, "map", 200ms);
+  } catch (const tf2::TransformException &ex) {
+      RCLCPP_ERROR(node_->get_logger(),
+                   "[Approach] Partial TF translation crashed: %s",
+                   ex.what());
+      publishFeedback(gh, ApproachState::FAILED, "tf_transform_error");
+      return {false, "FAILED", "tf_transform_error"};
+  }
+
+  RCLCPP_INFO(node_->get_logger(),
+              "[Approach] Partial person approach for %s: target_dist=%.3f m partial=%.3f m remaining=%.3f m",
+              argument.c_str(),
+              target_distance,
+              partial_distance,
+              target_distance - partial_distance);
+  publishFeedback(gh, ApproachState::APPROACHING, "partial_navigation_goal");
+
+  resetNavigationStatus();
+  navigation_->Go(partial_global_pose);
+
+  const double kArrivalTolerance = 0.10;
+  const auto start_nav_time = std::chrono::steady_clock::now();
+  const auto max_duration =
+      std::chrono::duration<double>(std::max(1.0, person_partial_timeout_s_));
+  int last_reported_nav_status = -2;
+  std::string last_reported_nav_text;
+
+  while (gh->is_active()) {
+      const auto nav_status = navigationStatusSnapshot();
+
+      if (nav_status.has_status &&
+          (nav_status.code != last_reported_nav_status ||
+           nav_status.text != last_reported_nav_text)) {
+          std::string detail = std::string("partial_navigation_status=") +
+                               navigationStatusName(nav_status.code);
+          if (!nav_status.text.empty()) {
+              detail += ": " + nav_status.text;
+          }
+          publishFeedback(gh, ApproachState::APPROACHING, detail);
+          last_reported_nav_status = nav_status.code;
+          last_reported_nav_text = nav_status.text;
+      }
+
+      if (nav_status.done) {
+          {
+              std::lock_guard<std::mutex> lock(navigation_status_mutex_);
+              waiting_navigation_status_ = false;
+          }
+
+          std::string detail = std::string("partial_navigation_status=") +
+                               navigationStatusName(nav_status.code);
+          if (!nav_status.text.empty()) {
+              detail += ": " + nav_status.text;
+          }
+
+          if (nav_status.success) {
+              publishFeedback(gh, ApproachState::SUCCESS, detail);
+              return {true, "SUCCESS", detail};
+          }
+
+          publishFeedback(gh, ApproachState::FAILED, detail);
+          return {false, "FAILED", detail};
+      }
+
+      try {
+          const auto tf_robot =
+              tf_buffer_->lookupTransform("map", "base_link",
+                                          tf2::TimePointZero, 50ms);
+          const double dx =
+              partial_global_pose.pose.position.x - tf_robot.transform.translation.x;
+          const double dy =
+              partial_global_pose.pose.position.y - tf_robot.transform.translation.y;
+          const double distance_to_goal = std::sqrt(dx * dx + dy * dy);
+
+          if (distance_to_goal <= kArrivalTolerance) {
+              {
+                  std::lock_guard<std::mutex> lock(navigation_status_mutex_);
+                  waiting_navigation_status_ = false;
+              }
+              publishFeedback(gh, ApproachState::SUCCESS,
+                              "partial_arrived_by_tf_fallback");
+              return {true, "SUCCESS", "partial_arrived_by_tf_fallback"};
+          }
+      } catch (const tf2::TransformException &ex) {
+          RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
+                               "[Approach] Partial waiting for localization update: %s",
+                               ex.what());
+      }
+
+      if (std::chrono::steady_clock::now() - start_nav_time > max_duration) {
+          {
+              std::lock_guard<std::mutex> lock(navigation_status_mutex_);
+              waiting_navigation_status_ = false;
+          }
+          publishFeedback(gh, ApproachState::FAILED, "partial_navigation_timeout");
+          return {false, "FAILED", "partial_navigation_timeout"};
+      }
+
+      std::this_thread::sleep_for(100ms);
+  }
+
+  {
+      std::lock_guard<std::mutex> lock(navigation_status_mutex_);
+      waiting_navigation_status_ = false;
+  }
   return {false, "FAILED", "goal_cancelled"};
 }
 

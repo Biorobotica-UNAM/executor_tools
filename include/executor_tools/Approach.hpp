@@ -44,6 +44,9 @@ public:
     Result run(const std::string &argument,
                const std::shared_ptr<GoalHandle> &gh);
 
+    Result runPartial(const std::string &argument,
+                      const std::shared_ptr<GoalHandle> &gh);
+
 private:
     struct NavigationStatusSnapshot {
         bool has_status{false};
@@ -100,6 +103,9 @@ private:
 
     double object_lateral_offset_m_{0.15};
     double centered_y_threshold_m_{0.08};
+    double person_partial_distance_m_{1.0};
+    double person_partial_min_remaining_m_{0.75};
+    double person_partial_timeout_s_{45.0};
 };
 
 #endif
