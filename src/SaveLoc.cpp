@@ -218,7 +218,7 @@ Result SaveLoc::run(const std::string &location_name,
         SaveLocState::SUCCESS,
         "initial_position_complete");
 
-    return {true, "SUCCESS", "saved_and_initialized:initial_position"};
+    return {true, "SUCCESS", "saved:" + name};
   }
 
   // ── CASO C: UBICACIÓN ESTÁNDAR (AddLocation ordinario) ───────────
