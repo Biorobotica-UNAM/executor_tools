@@ -56,36 +56,45 @@ Result SaveLoc::run(const std::string &location_name,
   const bool save_kitchen_bar = normalized_name == "kitchen_bar";
   const bool run_initial_position = normalized_name == "initial_position";
 
-  // ── CASO A: GUARDAR CLIENTE ─────────────────────────────────────
+  // ── CASO A: GUARDAR PUNTO SEGURO DE RETORNO AL CLIENTE ──────────
   if (save_customer_pose) {
-    if (!customer_pose_map_ || !customer_pose_map_->has_value()) {
-      publishFeedback(gh, SaveLocState::FAILED, "customer_pose_missing");
-      return {false, "FAILED", "not_saved:customer_pose_missing"};
+    geometry_msgs::msg::Pose robot_pose;
+
+    try {
+      const auto tf =
+          tf_buffer_->lookupTransform("map", "base_link",
+                                      tf2::TimePointZero, kTfTimeout);
+
+      robot_pose.position.x = tf.transform.translation.x;
+      robot_pose.position.y = tf.transform.translation.y;
+      robot_pose.position.z = tf.transform.translation.z;
+      robot_pose.orientation = tf.transform.rotation;
+
+      RCLCPP_INFO(
+          node_->get_logger(),
+          "[saveloc] Saving current robot pose as safe return point for '%s': [%.3f %.3f %.3f]",
+          name.c_str(),
+          robot_pose.position.x,
+          robot_pose.position.y,
+          robot_pose.position.z);
+    } catch (const tf2::TransformException &ex) {
+      RCLCPP_ERROR(
+          node_->get_logger(),
+          "[saveloc] Failed to get robot pose for customer return point '%s': %s",
+          name.c_str(),
+          ex.what());
+      publishFeedback(gh, SaveLocState::FAILED, "tf_lookup_failed");
+      return {false, "FAILED", "not_saved:tf_lookup_failed"};
     }
 
-    const auto &pose_stamped = customer_pose_map_->value();
-
-    if (pose_stamped.header.frame_id == "map") {
-      const bool saved =
-          navigation_->SavePoseLocation(name, pose_stamped.pose);
-
-      if (saved) {
-        publishFeedback(gh, SaveLocState::SUCCESS, name);
-        return {true, "SUCCESS", "saved:" + name};
-      }
-
-      publishFeedback(gh, SaveLocState::FAILED, "pose_save_failed");
-      return {false, "FAILED", "not_saved:" + name};
+    const bool saved = navigation_->SavePoseLocation(name, robot_pose);
+    if (saved) {
+      publishFeedback(gh, SaveLocState::SUCCESS, name);
+      return {true, "SUCCESS", "saved:" + name};
     }
 
-    RCLCPP_WARN(
-        node_->get_logger(),
-        "[saveloc] customer pose for '%s' is in frame '%s', expected 'map'",
-        name.c_str(),
-        pose_stamped.header.frame_id.c_str());
-
-    publishFeedback(gh, SaveLocState::FAILED, "customer_pose_not_in_map");
-    return {false, "FAILED", "not_saved:customer_pose_not_in_map"};
+    publishFeedback(gh, SaveLocState::FAILED, "pose_save_failed");
+    return {false, "FAILED", "not_saved:" + name};
   }
   
   // ── CASO B: CASO ESPECIAL KITCHEN_BAR (+90° a la Izquierda) ──────
