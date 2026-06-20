@@ -8,6 +8,7 @@
 #include "executor_tools/Result.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "navigation_tools/Navigation.hpp"
+#include "navigation_tools/Hardware.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 
@@ -40,6 +41,11 @@ private:
   void publishFeedback(const std::shared_ptr<GoalHandle> &gh,
                        SaveLocState state,
                        const std::string &detail = "") const;
+
+  bool moveForward(double distance_m, double speed_ms,
+                  const std::shared_ptr<GoalHandle> &gh);
+  bool rotateInPlace(double angle_rad, double angular_speed_rs,
+                    const std::shared_ptr<GoalHandle> &gh);
 
   static std::string stateName(SaveLocState state);
   static std::string trim(std::string value);
