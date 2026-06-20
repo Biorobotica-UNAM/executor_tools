@@ -113,7 +113,7 @@ Result FindPose::run(const std::string &argument,
       std::this_thread::sleep_for(1500ms);
 
       publishFeedback(gh, FindPoseState::UPDATING, out_direction);
-      const auto nav = navigationPoseFromPoint(out_point, 0.6);
+      const auto nav = navigationPoseFromPoint(out_point, 0.8);
 
       RCLCPP_INFO(
       node_->get_logger(),

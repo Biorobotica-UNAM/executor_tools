@@ -135,32 +135,90 @@ Result SaveLoc::run(const std::string &location_name,
     return {false, "FAILED", "not_saved:" + name};
   }
 
-  // ── CASO B2: RUTINA DE INICIALIZACIÓN (avanza 50cm + gira 360°) ──
+  // ── CASO B2: INITIAL_POSITION (guardar pose + rutina de inicialización) ──
   else if (run_initial_position) {
-    publishFeedback(gh, SaveLocState::SAVING, "initial_position:moving_forward_50cm");
+    // Guardar la pose actual del robot SIN modificar la orientación
+    geometry_msgs::msg::Pose robot_pose;
 
-    if (!moveForward(kInitMoveDistanceM, kInitMoveSpeedMs, gh)) {
-      hardware_->MoveBase(0.0, 0.0, 0.0);
-      publishFeedback(gh, SaveLocState::FAILED, "initial_position_move_failed");
-      return {false, "FAILED", "not_saved:initial_position_move_failed"};
+    try {
+      auto tf = tf_buffer_->lookupTransform(
+          "map", "base_link", tf2::TimePointZero, 200ms);
+
+      robot_pose.position.x = tf.transform.translation.x;
+      robot_pose.position.y = tf.transform.translation.y;
+      robot_pose.position.z = tf.transform.translation.z;
+
+      robot_pose.orientation.x = tf.transform.rotation.x;
+      robot_pose.orientation.y = tf.transform.rotation.y;
+      robot_pose.orientation.z = tf.transform.rotation.z;
+      robot_pose.orientation.w = tf.transform.rotation.w;
+
+      RCLCPP_INFO(
+          node_->get_logger(),
+          "[saveloc] Saving current robot pose as 'initial_position'.");
+
+    } catch (const tf2::TransformException &ex) {
+      RCLCPP_ERROR(
+          node_->get_logger(),
+          "[saveloc] Failed to get robot pose for initial_position: %s",
+          ex.what());
+
+      publishFeedback(gh, SaveLocState::FAILED, "tf_lookup_failed");
+      return {false, "FAILED", "not_saved:tf_lookup_failed"};
     }
 
-    publishFeedback(gh, SaveLocState::SAVING, "initial_position:rotating_360");
+    const bool saved = navigation_->SavePoseLocation(name, robot_pose);
+    if (!saved) {
+      publishFeedback(gh, SaveLocState::FAILED, "pose_save_failed");
+      return {false, "FAILED", "not_saved:pose_save_failed"};
+    }
 
-    if (!rotateInPlace(kInitRotationRad, kInitAngularSpeedRs, gh)) {
+    // Ejecutar la rutina de inicialización
+    publishFeedback(
+        gh,
+        SaveLocState::SAVING,
+        "initial_position:moving_forward_50cm");
+
+    if (!moveForward(kInitMoveDistanceM, kInitMoveSpeedMs, gh)) {
+       hardware_->MoveBase(0.0, 0.0, 0.0);
+      publishFeedback(
+          gh,
+          SaveLocState::FAILED,
+          "initial_position_move_failed");
+      return {false, "FAILED", "initial_position_move_failed"};
+    }
+
+    publishFeedback(
+        gh,
+        SaveLocState::SAVING,
+        "initial_position:rotating_360");
+
+    if (!rotateInPlace(
+            kInitRotationRad,
+            kInitAngularSpeedRs,
+            gh)) {
       hardware_->MoveBase(0.0, 0.0, 0.0);
-      publishFeedback(gh, SaveLocState::FAILED, "initial_position_rotate_failed");
-      return {false, "FAILED", "not_saved:initial_position_rotate_failed"};
+      publishFeedback(
+          gh,
+          SaveLocState::FAILED,
+          "initial_position_rotate_failed");
+      return {false, "FAILED", "initial_position_rotate_failed"};
     }
 
     hardware_->MoveBase(0.0, 0.0, 0.0);
 
-    RCLCPP_INFO(node_->get_logger(),
-                "[saveloc] initial_position routine complete (moved %.2fm, rotated %.0f deg).",
-                kInitMoveDistanceM, kInitRotationRad * 180.0 / M_PI);
+    RCLCPP_INFO(
+        node_->get_logger(),
+        "[saveloc] initial_position routine complete (moved %.2fm, rotated %.0f deg).",
+        kInitMoveDistanceM,
+        kInitRotationRad * 180.0 / M_PI);
 
-    publishFeedback(gh, SaveLocState::SUCCESS, "initial_position_complete");
-    return {true, "SUCCESS", "initial_position_complete"};
+    publishFeedback(
+        gh,
+        SaveLocState::SUCCESS,
+        "initial_position_complete");
+
+    return {true, "SUCCESS", "saved_and_initialized:initial_position"};
   }
 
   // ── CASO C: UBICACIÓN ESTÁNDAR (AddLocation ordinario) ───────────
