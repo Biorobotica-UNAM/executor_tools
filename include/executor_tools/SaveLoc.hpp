@@ -30,6 +30,7 @@ public:
 
   SaveLoc(const rclcpp::Node::SharedPtr &node,
           const std::shared_ptr<Navigation> &navigation,
+          const std::shared_ptr<Hardware> &hardware,
           const PoseBuffer &customer_pose_map = nullptr);
 
   Result run(const std::string &location_name,
@@ -46,6 +47,7 @@ private:
 
   rclcpp::Node::SharedPtr node_;
   std::shared_ptr<Navigation> navigation_;
+  std::shared_ptr<Hardware> hardware_;
   PoseBuffer customer_pose_map_;
 
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
