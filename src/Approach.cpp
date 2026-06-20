@@ -200,7 +200,7 @@ Result Approach::run(const std::string &argument,
   resetNavigationStatus();
   navigation_->Go(global_pose);
 
-  const double kArrivalTolerance = 0.9;
+  const double kArrivalTolerance = 1.0;
   auto start_nav_time = std::chrono::steady_clock::now();
   const auto kMaxNavDuration = 90s;
   int last_reported_nav_status = -2;

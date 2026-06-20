@@ -126,6 +126,48 @@ Result SaveLoc::run(const std::string &location_name,
     }
 
     const bool saved = navigation_->SavePoseLocation(name, robot_pose);
+
+    if (!saved) {
+      publishFeedback(gh, SaveLocState::FAILED, "pose_save_failed");
+      return {false, "FAILED", "not_saved:" + name};
+    }
+
+    publishFeedback(
+        gh,
+        SaveLocState::SAVING,
+        "kitchen_bar:moving_forward_50cm");
+
+    if (!moveForward(kInitMoveDistanceM, kInitMoveSpeedMs, gh)) {
+      hardware_->MoveBase(0.0, 0.0, 0.0);
+      publishFeedback(
+          gh,
+          SaveLocState::FAILED,
+          "kitchen_bar_move_failed");
+      return {false, "FAILED", "kitchen_bar_move_failed"};
+    }
+
+    publishFeedback(
+        gh,
+        SaveLocState::SAVING,
+        "kitchen_bar:rotating_360");
+
+    if (!rotateInPlace(
+            kInitRotationRad,
+            kInitAngularSpeedRs,
+            gh)) {
+      hardware_->MoveBase(0.0, 0.0, 0.0);
+      publishFeedback(
+          gh,
+          SaveLocState::FAILED,
+          "kitchen_bar_rotate_failed");
+      return {false, "FAILED", "kitchen_bar_rotate_failed"};
+    }
+
+    hardware_->MoveBase(0.0, 0.0, 0.0);
+
+    publishFeedback(gh, SaveLocState::SUCCESS, name);
+    return {true, "SUCCESS", "saved:" + name};
+
     if (saved) {
       publishFeedback(gh, SaveLocState::SUCCESS, name);
       return {true, "SUCCESS", "saved:" + name};
@@ -137,7 +179,6 @@ Result SaveLoc::run(const std::string &location_name,
 
   // ── CASO B2: INITIAL_POSITION (guardar pose + rutina de inicialización) ──
   else if (run_initial_position) {
-    // Guardar la pose actual del robot SIN modificar la orientación
     geometry_msgs::msg::Pose robot_pose;
 
     try {
@@ -153,10 +194,6 @@ Result SaveLoc::run(const std::string &location_name,
       robot_pose.orientation.z = tf.transform.rotation.z;
       robot_pose.orientation.w = tf.transform.rotation.w;
 
-      RCLCPP_INFO(
-          node_->get_logger(),
-          "[saveloc] Saving current robot pose as 'initial_position'.");
-
     } catch (const tf2::TransformException &ex) {
       RCLCPP_ERROR(
           node_->get_logger(),
@@ -168,57 +205,14 @@ Result SaveLoc::run(const std::string &location_name,
     }
 
     const bool saved = navigation_->SavePoseLocation(name, robot_pose);
-    if (!saved) {
-      publishFeedback(gh, SaveLocState::FAILED, "pose_save_failed");
-      return {false, "FAILED", "not_saved:pose_save_failed"};
+
+    if (saved) {
+      publishFeedback(gh, SaveLocState::SUCCESS, name);
+      return {true, "SUCCESS", "saved:" + name};
     }
 
-    // Ejecutar la rutina de inicialización
-    publishFeedback(
-        gh,
-        SaveLocState::SAVING,
-        "initial_position:moving_forward_50cm");
-
-    if (!moveForward(kInitMoveDistanceM, kInitMoveSpeedMs, gh)) {
-       hardware_->MoveBase(0.0, 0.0, 0.0);
-      publishFeedback(
-          gh,
-          SaveLocState::FAILED,
-          "initial_position_move_failed");
-      return {false, "FAILED", "initial_position_move_failed"};
-    }
-
-    publishFeedback(
-        gh,
-        SaveLocState::SAVING,
-        "initial_position:rotating_360");
-
-    if (!rotateInPlace(
-            kInitRotationRad,
-            kInitAngularSpeedRs,
-            gh)) {
-      hardware_->MoveBase(0.0, 0.0, 0.0);
-      publishFeedback(
-          gh,
-          SaveLocState::FAILED,
-          "initial_position_rotate_failed");
-      return {false, "FAILED", "initial_position_rotate_failed"};
-    }
-
-    hardware_->MoveBase(0.0, 0.0, 0.0);
-
-    RCLCPP_INFO(
-        node_->get_logger(),
-        "[saveloc] initial_position routine complete (moved %.2fm, rotated %.0f deg).",
-        kInitMoveDistanceM,
-        kInitRotationRad * 180.0 / M_PI);
-
-    publishFeedback(
-        gh,
-        SaveLocState::SUCCESS,
-        "initial_position_complete");
-
-    return {true, "SUCCESS", "saved:" + name};
+    publishFeedback(gh, SaveLocState::FAILED, "pose_save_failed");
+    return {false, "FAILED", "not_saved:" + name};
   }
 
   // ── CASO C: UBICACIÓN ESTÁNDAR (AddLocation ordinario) ───────────
