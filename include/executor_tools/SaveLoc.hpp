@@ -8,7 +8,7 @@
 #include "executor_tools/Result.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "navigation_tools/Navigation.hpp"
-#include "navigation_tools/Hardware.hpp"
+#include "hardware_tools/Hardware.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 
