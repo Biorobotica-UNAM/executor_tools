@@ -50,7 +50,7 @@ Approach::Approach(const rclcpp::Node::SharedPtr &node,
     centered_y_threshold_m_ =
         declare_or_get_double("approach.centered_y_threshold_m", 0.08);
     person_partial_distance_m_ =
-        declare_or_get_double("approach.person_partial_distance_m", 1.0);
+        declare_or_get_double("approach.person_partial_distance_m", 2.5);
     person_partial_min_remaining_m_ =
         declare_or_get_double("approach.person_partial_min_remaining_m", 0.75);
     person_partial_timeout_s_ =
@@ -200,7 +200,7 @@ Result Approach::run(const std::string &argument,
   resetNavigationStatus();
   navigation_->Go(global_pose);
 
-  const double kArrivalTolerance = 0.05;
+  const double kArrivalTolerance = 0.70;
   auto start_nav_time = std::chrono::steady_clock::now();
   const auto kMaxNavDuration = 90s;
   int last_reported_nav_status = -2;

@@ -17,18 +17,12 @@ namespace {
 
 geometry_msgs::msg::PoseStamped
 navigationPoseFromPoint(const geometry_msgs::msg::PointStamped &point,
-                        double offset) {
+                        double scale) {
   const double px = point.point.x;
   const double py = point.point.y;
-  const double dist = std::sqrt(px * px + py * py);
 
-  double nav_x = px;
-  double nav_y = py;
-  if (dist > offset) {
-    const double ratio = (dist - offset) / dist;
-    nav_x = px * ratio;
-    nav_y = py * ratio;
-  }
+  const double nav_x = px * scale;
+  const double nav_y = py * scale;
 
   const double yaw = std::atan2(py, px);
 
@@ -41,6 +35,7 @@ navigationPoseFromPoint(const geometry_msgs::msg::PointStamped &point,
   nav.pose.orientation.y = 0.0;
   nav.pose.orientation.z = std::sin(yaw / 2.0);
   nav.pose.orientation.w = std::cos(yaw / 2.0);
+
   return nav;
 }
 
@@ -118,7 +113,7 @@ Result FindPose::run(const std::string &argument,
       std::this_thread::sleep_for(1500ms);
 
       publishFeedback(gh, FindPoseState::UPDATING, out_direction);
-      const auto nav = navigationPoseFromPoint(out_point, 2.0);
+      const auto nav = navigationPoseFromPoint(out_point, 0.6);
 
       RCLCPP_INFO(
       node_->get_logger(),
