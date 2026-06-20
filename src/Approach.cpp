@@ -319,15 +319,14 @@ Result Approach::run(const std::string &argument,
               RCLCPP_WARN(
               node_->get_logger(),
               "[Approach] EXITING BY TF FALLBACK!"
-              " distance=%.4f <= tolerance=%.4f — cancelling nav goal.",
+              " distance=%.4f <= tolerance=%.4f — stopping nav.",
               distance_to_goal,
               kArrivalTolerance);
 
-              // FIX: el goal de navegación sigue activo cuando salimos por TF
-              // fallback. Sin Cancel() el nav stack continúa publicando
-              // velocidades hacia el objetivo original aunque ya reportamos
-              // SUCCESS. Cancelamos aquí antes de retornar.
-              navigation_->Cancel();
+              // FIX: Go() publica en un tópico; el nav_controller sigue
+              // activo cuando salimos por TF fallback. Publicamos la pose
+              // actual como nuevo goal para que se detenga de inmediato.
+              stopNavigation();
 
               std::string detail = "arrived_by_tf_fallback";
               std::string lateral_detail;
@@ -352,7 +351,7 @@ Result Approach::run(const std::string &argument,
               std::lock_guard<std::mutex> lock(navigation_status_mutex_);
               waiting_navigation_status_ = false;
           }
-          navigation_->Cancel();
+          stopNavigation();
           RCLCPP_ERROR(node_->get_logger(), "[Approach] Critical Error: Navigation timeout reached!");
           publishFeedback(gh, ApproachState::FAILED, "navigation_timeout");
           return {false, "FAILED", "navigation_timeout"};
@@ -361,14 +360,12 @@ Result Approach::run(const std::string &argument,
       std::this_thread::sleep_for(100ms);
   }
 
-  if (!gh->is_active()) {
+  // goal cancelado desde afuera
+  {
       std::lock_guard<std::mutex> lock(navigation_status_mutex_);
       waiting_navigation_status_ = false;
-      navigation_->Cancel();
-      return {false, "FAILED", "goal_cancelled"};
   }
-
-  navigation_->Cancel();
+  stopNavigation();
   return {false, "FAILED", "goal_cancelled"};
 }
 
@@ -536,14 +533,13 @@ Result Approach::runPartial(const std::string &argument,
               }
               RCLCPP_WARN(node_->get_logger(),
                           "[Approach] Partial EXITING BY TF FALLBACK!"
-                          " distance=%.4f <= tolerance=%.4f — cancelling nav goal.",
+                          " distance=%.4f <= tolerance=%.4f — stopping nav.",
                           distance_to_goal,
                           kArrivalTolerance);
 
               // FIX: ídem al run() — el goal parcial sigue activo en el nav
-              // stack cuando disparamos el fallback. Cancelamos para que deje
-              // de comandar velocidades antes de retornar SUCCESS.
-              navigation_->Cancel();
+              // stack. Publicamos la pose actual como nuevo goal para detenerlo.
+              stopNavigation();
 
               publishFeedback(gh, ApproachState::SUCCESS,
                               "partial_arrived_by_tf_fallback");
@@ -560,7 +556,7 @@ Result Approach::runPartial(const std::string &argument,
               std::lock_guard<std::mutex> lock(navigation_status_mutex_);
               waiting_navigation_status_ = false;
           }
-          navigation_->Cancel();
+          stopNavigation();
           publishFeedback(gh, ApproachState::FAILED, "partial_navigation_timeout");
           return {false, "FAILED", "partial_navigation_timeout"};
       }
@@ -568,12 +564,46 @@ Result Approach::runPartial(const std::string &argument,
       std::this_thread::sleep_for(100ms);
   }
 
+  // goal cancelado desde afuera
   {
       std::lock_guard<std::mutex> lock(navigation_status_mutex_);
       waiting_navigation_status_ = false;
   }
-  navigation_->Cancel();
+  stopNavigation();
   return {false, "FAILED", "goal_cancelled"};
+}
+
+// =========================================================
+// stopNavigation
+// =========================================================
+void Approach::stopNavigation()
+{
+    // Go() publica en un tópico simple (/nav_control/goal), no es un action,
+    // así que no existe un Cancel() nativo. La estrategia es sobrescribir el
+    // goal con la pose actual del robot: el nav_controller recibe "ve a donde
+    // ya estás", distancia ≈ 0, y deja de comandar velocidades de inmediato.
+    try {
+        const auto tf_robot =
+            tf_buffer_->lookupTransform("map", "base_link",
+                                        tf2::TimePointZero, 50ms);
+        geometry_msgs::msg::PoseStamped current_pose;
+        current_pose.header.frame_id   = "map";
+        current_pose.header.stamp      = node_->now();
+        current_pose.pose.position.x   = tf_robot.transform.translation.x;
+        current_pose.pose.position.y   = tf_robot.transform.translation.y;
+        current_pose.pose.position.z   = tf_robot.transform.translation.z;
+        current_pose.pose.orientation  = tf_robot.transform.rotation;
+        navigation_->Go(current_pose);
+        RCLCPP_INFO(node_->get_logger(),
+                    "[Approach] stopNavigation: published current pose as goal"
+                    " (x=%.3f y=%.3f) to halt nav_controller.",
+                    current_pose.pose.position.x,
+                    current_pose.pose.position.y);
+    } catch (const tf2::TransformException &ex) {
+        RCLCPP_WARN(node_->get_logger(),
+                    "[Approach] stopNavigation: TF unavailable, nav_controller"
+                    " may keep running briefly: %s", ex.what());
+    }
 }
 
 // =========================================================
