@@ -316,13 +316,19 @@ Result Approach::run(const std::string &argument,
                   std::lock_guard<std::mutex> lock(navigation_status_mutex_);
                   waiting_navigation_status_ = false;
               }
-              RCLCPP_ERROR(
+              RCLCPP_WARN(
               node_->get_logger(),
               "[Approach] EXITING BY TF FALLBACK!"
-              " distance=%.4f"
-              " tolerance=%.4f",
+              " distance=%.4f <= tolerance=%.4f — cancelling nav goal.",
               distance_to_goal,
               kArrivalTolerance);
+
+              // FIX: el goal de navegación sigue activo cuando salimos por TF
+              // fallback. Sin Cancel() el nav stack continúa publicando
+              // velocidades hacia el objetivo original aunque ya reportamos
+              // SUCCESS. Cancelamos aquí antes de retornar.
+              navigation_->Cancel();
+
               std::string detail = "arrived_by_tf_fallback";
               std::string lateral_detail;
               if (!applyObjectLateralAdjustment(category, id, local_pose, gh,
@@ -346,6 +352,7 @@ Result Approach::run(const std::string &argument,
               std::lock_guard<std::mutex> lock(navigation_status_mutex_);
               waiting_navigation_status_ = false;
           }
+          navigation_->Cancel();
           RCLCPP_ERROR(node_->get_logger(), "[Approach] Critical Error: Navigation timeout reached!");
           publishFeedback(gh, ApproachState::FAILED, "navigation_timeout");
           return {false, "FAILED", "navigation_timeout"};
@@ -357,9 +364,11 @@ Result Approach::run(const std::string &argument,
   if (!gh->is_active()) {
       std::lock_guard<std::mutex> lock(navigation_status_mutex_);
       waiting_navigation_status_ = false;
+      navigation_->Cancel();
       return {false, "FAILED", "goal_cancelled"};
   }
-  
+
+  navigation_->Cancel();
   return {false, "FAILED", "goal_cancelled"};
 }
 
@@ -525,6 +534,17 @@ Result Approach::runPartial(const std::string &argument,
                   std::lock_guard<std::mutex> lock(navigation_status_mutex_);
                   waiting_navigation_status_ = false;
               }
+              RCLCPP_WARN(node_->get_logger(),
+                          "[Approach] Partial EXITING BY TF FALLBACK!"
+                          " distance=%.4f <= tolerance=%.4f — cancelling nav goal.",
+                          distance_to_goal,
+                          kArrivalTolerance);
+
+              // FIX: ídem al run() — el goal parcial sigue activo en el nav
+              // stack cuando disparamos el fallback. Cancelamos para que deje
+              // de comandar velocidades antes de retornar SUCCESS.
+              navigation_->Cancel();
+
               publishFeedback(gh, ApproachState::SUCCESS,
                               "partial_arrived_by_tf_fallback");
               return {true, "SUCCESS", "partial_arrived_by_tf_fallback"};
@@ -540,6 +560,7 @@ Result Approach::runPartial(const std::string &argument,
               std::lock_guard<std::mutex> lock(navigation_status_mutex_);
               waiting_navigation_status_ = false;
           }
+          navigation_->Cancel();
           publishFeedback(gh, ApproachState::FAILED, "partial_navigation_timeout");
           return {false, "FAILED", "partial_navigation_timeout"};
       }
@@ -551,6 +572,7 @@ Result Approach::runPartial(const std::string &argument,
       std::lock_guard<std::mutex> lock(navigation_status_mutex_);
       waiting_navigation_status_ = false;
   }
+  navigation_->Cancel();
   return {false, "FAILED", "goal_cancelled"};
 }
 
