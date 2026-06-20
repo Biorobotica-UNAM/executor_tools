@@ -84,8 +84,8 @@ Result Receive::run(const std::string& object_name,
 
     // 5. Cerrar la mano 
     publishFeedback(gh, ReceiveState::CLOSING_GRIPPER, "Closing gripper on " + item);
-    gripper_ok = (hand == "left_hand") ? hardware_->MoveLeftGripper("open")
-                                        : hardware_->MoveRightGripper("open");
+    gripper_ok = (hand == "left_hand") ? hardware_->MoveLeftGripper("close")
+                                        : hardware_->MoveRightGripper("close");
 
     if (!gripper_ok) {
         publishFeedback(gh, ReceiveState::FAILED, "gripper_close_failed");
