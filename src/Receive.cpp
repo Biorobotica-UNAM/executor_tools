@@ -91,7 +91,7 @@ Result Receive::run(const std::string& object_name,
         publishFeedback(gh, ReceiveState::FAILED, "gripper_close_failed");
         return {false, "FAILED", "gripper_close_failed"};
     }
-    std::this_thread::sleep_for(1s); 
+    std::this_thread::sleep_for(3s); 
 
     // 6. Registrar el objeto que tiene en la mano
     publishFeedback(gh, ReceiveState::REPORTING_OCCUPANCY);
