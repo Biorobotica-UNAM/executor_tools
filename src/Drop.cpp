@@ -89,6 +89,8 @@
 
         knowledge_->update_world_state("robot", "", "left_hand", "nothing");
 
+		sleep(2.0); // espera a que el objeto caiga y no lo detecte como obstrucción al retraer
+
         publishFeedback(gh, DropState::FLOOR_RAISING_TORSO);
         if (!hardware_->MoveTorso(0.3)) {
           publishFeedback(gh, DropState::FAILED, "floor_raise_torso_failed");
@@ -975,6 +977,8 @@
 		return "EXECUTING_RETRACT";
 	  case DropState::PREPARING_TRANSPORT:
 		return "PREPARING_TRANSPORT";
+	  case DropState::SUCCESS:
+		return "SUCCESS";
 	  case DropState::FLOOR_EXTENDING_ARM:
 		return "FLOOR_EXTENDING_ARM";
 	  case DropState::FLOOR_LOWERING_TORSO:
@@ -987,8 +991,6 @@
 		return "FLOOR_CLOSING_GRIPPER";
 	  case DropState::FLOOR_RESETTING_ARM:
 		return "FLOOR_RESETTING_ARM";
-	  case DropState::SUCCESS:
-		return "SUCCESS";
 	  case DropState::FAILED:
 		return "FAILED";
 	  default:
