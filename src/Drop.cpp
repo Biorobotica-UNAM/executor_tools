@@ -885,16 +885,31 @@
 		  contains("trash") || contains("bin") || contains("box") ||
 		  contains("container") || contains("bote") || contains("basura") ||
 		  contains("caja") || contains("contenedor") || contains("cubeta");
+	  const bool container_top =
+		  contains("container_top") || contains("container_up") ||
+		  contains("container_high") || contains("container_table") ||
+		  contains("bote_alto") || contains("contenedor_alto") ||
+		  contains("sobre_mesa") || contains("mesa_alto") ||
+		  contains("medio_alto");
+	  const bool container_down =
+		  contains("container_down") || contains("container_floor") ||
+		  contains("container_low") || contains("bote_piso") ||
+		  contains("contenedor_piso") || contains("en_piso") ||
+		  contains("suelo");
 	  const bool looks_like_table = contains("table") || contains("mesa");
 	  const bool looks_like_shelf =
 		  contains("shelf") || contains("rack") || contains("cabinet") ||
 		  contains("bookcase") || contains("estante") || contains("armario") ||
 		  contains("repisa");
 
-	  if (explicit_container || (looks_like_container && !looks_like_table)) {
+	  if (explicit_container || container_top || container_down ||
+		  (looks_like_container && !looks_like_table)) {
 		target.mode = "container";
 		target.frame = "container_drop_start";
 		target.bounds = {0.15, 1.35, 0.45, 0.08, 1.10, 1.50};
+		if (container_top) {
+		  target.bounds.z_max = 1.30;
+		}
 	  }
 
 	  if (explicit_shelf || (looks_like_shelf && !looks_like_container)) {
@@ -960,6 +975,18 @@
 		return "EXECUTING_RETRACT";
 	  case DropState::PREPARING_TRANSPORT:
 		return "PREPARING_TRANSPORT";
+	  case DropState::FLOOR_EXTENDING_ARM:
+		return "FLOOR_EXTENDING_ARM";
+	  case DropState::FLOOR_LOWERING_TORSO:
+		return "FLOOR_LOWERING_TORSO";
+	  case DropState::FLOOR_OPENING_GRIPPER:
+		return "FLOOR_OPENING_GRIPPER";
+	  case DropState::FLOOR_RAISING_TORSO:
+		return "FLOOR_RAISING_TORSO";
+	  case DropState::FLOOR_CLOSING_GRIPPER:
+		return "FLOOR_CLOSING_GRIPPER";
+	  case DropState::FLOOR_RESETTING_ARM:
+		return "FLOOR_RESETTING_ARM";
 	  case DropState::SUCCESS:
 		return "SUCCESS";
 	  case DropState::FAILED:

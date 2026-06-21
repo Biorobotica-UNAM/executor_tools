@@ -5,6 +5,7 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <future>
 #include <sstream>
 #include <thread>
 #include <unordered_map>
@@ -114,6 +115,12 @@ Result FindSpace::run(const std::string &argument,
     configureTablePreferenceForHeldObject();
   } else if (space_target.mode == "shelf") {
     configureShelfPreference(space_target);
+  }
+  if (space_target.mode == "container" &&
+      !configureContainerDropProfile(space_target)) {
+    publishFeedback(gh, FindSpaceState::FAILED,
+                    "configure_container_drop_profile_failed");
+    return {false, "FAILED", "configure_container_drop_profile_failed"};
   }
 
   const rclcpp::Time request_stamp = node_->now();
@@ -411,12 +418,85 @@ bool FindSpace::storeSafeDropInKnowledge(
   return true;
 }
 
+bool FindSpace::configureContainerDropProfile(const SpaceTarget &space_target) {
+  if (!space_target.configure_container_drop_z) {
+    return true;
+  }
+
+  auto parameter_client = std::make_shared<rclcpp::AsyncParametersClient>(
+      node_, "/vision/container_drop_tf_node");
+  if (!parameter_client->wait_for_service(1s)) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "[FindSpace] parametros de /vision/container_drop_tf_node "
+                 "no disponibles para configurar perfil de contenedor");
+    return false;
+  }
+
+  const std::vector<rclcpp::Parameter> parameters = {
+      rclcpp::Parameter("override_drop_z", true),
+      rclcpp::Parameter("drop_z_override_m",
+                        space_target.container_drop_z_override_m),
+      rclcpp::Parameter("safe_z_max_m", space_target.bounds.z_max),
+      rclcpp::Parameter("roi_z_max_m", space_target.container_roi_z_max_m),
+  };
+
+  auto future = parameter_client->set_parameters(parameters);
+  if (future.wait_for(1s) != std::future_status::ready) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "[FindSpace] timeout configurando perfil de contenedor "
+                 "drop_z=%.3f safe_z_max=%.3f roi_z_max=%.3f",
+                 space_target.container_drop_z_override_m,
+                 space_target.bounds.z_max, space_target.container_roi_z_max_m);
+    return false;
+  }
+
+  bool all_ok = true;
+  std::string error;
+  for (const auto &result : future.get()) {
+    if (!result.successful) {
+      all_ok = false;
+      if (!error.empty()) {
+        error += "; ";
+      }
+      error += result.reason;
+    }
+  }
+  if (!all_ok) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "[FindSpace] fallo configurando perfil de contenedor: %s",
+                 error.c_str());
+    return false;
+  }
+
+  RCLCPP_INFO(node_->get_logger(),
+              "[FindSpace] perfil de contenedor configurado: "
+              "drop_z_override=%.3f safe_z_max=%.3f roi_z_max=%.3f",
+              space_target.container_drop_z_override_m,
+              space_target.bounds.z_max, space_target.container_roi_z_max_m);
+  return true;
+}
+
 FindSpace::SpaceTarget FindSpace::resolveDropTarget(const std::string &argument) {
   // Mapeo conservador:
   // - left_table/table/mesa siguen usando la logica de mesa.
   // - trash/bin/box/container/bote/basura/caja usan la logica de contenedor.
+  // - container_top/container_down seleccionan la postura de busqueda del
+  //   contenedor sin cambiar el contrato final con Drop: mode=container y
+  //   frame=container_drop_start.
   // - shelf/rack/cabinet/estante/armario/repisa usan la logica de estante.
   // - si no se reconoce nada, el default sigue siendo mesa para compatibilidad.
+  constexpr double kContainerDownTorsoHeight = 0.05;
+  constexpr double kContainerDownHeadPitch = -0.7;
+  constexpr double kContainerDownDropZOverride = 1.08;
+  constexpr double kContainerDownSafeZMax = 1.10;
+  constexpr double kContainerDownRoiZMax = 1.05;
+  constexpr double kContainerTopTorsoHeight = 0.3;
+  // Ajuste manual principal para contenedores sobre mesa/lugar medio alto.
+  constexpr double kContainerTopHeadPitch = -0.45;
+  constexpr double kContainerTopDropZOverride = 1.20;
+  constexpr double kContainerTopSafeZMax = 1.30;
+  constexpr double kContainerTopRoiZMax = 1.35;
+
   std::string lower = argument;
   std::transform(lower.begin(), lower.end(), lower.begin(),
                  [](unsigned char c) {
@@ -442,20 +522,42 @@ FindSpace::SpaceTarget FindSpace::resolveDropTarget(const std::string &argument)
       contains("trash") || contains("bin") || contains("box") ||
       contains("container") || contains("bote") || contains("basura") ||
       contains("caja") || contains("contenedor") || contains("cubeta");
+  const bool container_top =
+      contains("container_top") || contains("container_up") ||
+      contains("container_high") || contains("container_table") ||
+      contains("bote_alto") || contains("contenedor_alto") ||
+      contains("sobre_mesa") || contains("mesa_alto") ||
+      contains("medio_alto");
+  const bool container_down =
+      contains("container_down") || contains("container_floor") ||
+      contains("container_low") || contains("bote_piso") ||
+      contains("contenedor_piso") || contains("en_piso") ||
+      contains("suelo");
   const bool looks_like_table = contains("table") || contains("mesa");
   const bool looks_like_shelf =
       contains("shelf") || contains("rack") || contains("cabinet") ||
       contains("bookcase") || contains("estante") || contains("armario") ||
       contains("repisa");
 
-  if (explicit_container || (looks_like_container && !looks_like_table)) {
+  if (explicit_container || container_top || container_down ||
+      (looks_like_container && !looks_like_table)) {
     target.mode = "container";
     target.frame = "container_drop_start";
     target.service_label = "/vision/container_drop_tf/enable";
-    target.torso_height = 0.1;
-    target.head_pitch = -0.7;
+    target.torso_height = kContainerDownTorsoHeight;
+    target.head_pitch = kContainerDownHeadPitch;
     target.sensor_settle_delay_sec = 1.6;
-    target.bounds = {0.15, 1.35, 0.45, 0.08, 1.10, 1.50};
+    target.configure_container_drop_z = true;
+    target.container_drop_z_override_m = kContainerDownDropZOverride;
+    target.container_roi_z_max_m = kContainerDownRoiZMax;
+    target.bounds = {0.15, 1.35, 0.45, 0.08, kContainerDownSafeZMax, 1.50};
+    if (container_top) {
+      target.torso_height = kContainerTopTorsoHeight;
+      target.head_pitch = kContainerTopHeadPitch;
+      target.container_drop_z_override_m = kContainerTopDropZOverride;
+      target.container_roi_z_max_m = kContainerTopRoiZMax;
+      target.bounds.z_max = kContainerTopSafeZMax;
+    }
   }
 
   if (explicit_shelf || (looks_like_shelf && !looks_like_container)) {

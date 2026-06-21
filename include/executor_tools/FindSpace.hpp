@@ -79,6 +79,9 @@ private:
     double torso_height{0.3};
     double head_pitch{-0.6};
     double sensor_settle_delay_sec{0.3};
+    bool configure_container_drop_z{false};
+    double container_drop_z_override_m{1.0};
+    double container_roi_z_max_m{1.05};
     int shelf_level_rank{0};
     SpaceBounds bounds;
   };
@@ -115,6 +118,7 @@ private:
   bool storeSafeDropInKnowledge(
       const SpaceTarget &space_target,
       const geometry_msgs::msg::TransformStamped &tf);
+  bool configureContainerDropProfile(const SpaceTarget &space_target);
   void configureTablePreferenceForHeldObject();
   void configureShelfPreference(const SpaceTarget &space_target);
   
