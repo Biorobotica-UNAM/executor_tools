@@ -96,6 +96,18 @@ private:
                                  const SpaceTarget &space_target);
   bool preScanShelf(const std::shared_ptr<GoalHandle> &gh,
                     const SpaceTarget &space_target);
+  bool refineShelfAlignment(
+      const std::shared_ptr<GoalHandle> &gh,
+      const SpaceTarget &space_target,
+      const rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr &enable_client,
+      geometry_msgs::msg::TransformStamped &tf);
+  bool waitForFreshShelfTf(
+      const std::shared_ptr<GoalHandle> &gh,
+      const SpaceTarget &space_target,
+      const rclcpp::Time &request_stamp,
+      std::chrono::milliseconds max_wait,
+      geometry_msgs::msg::TransformStamped &tf,
+      std::string &last_error);
   bool requestOwlContainerPose(OwlContainerPose &pose_out,
                                std::string &error_out);
   void publishBasePulse(double vx, double vy, double wz,

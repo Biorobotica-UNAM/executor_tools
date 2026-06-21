@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -30,8 +31,10 @@ enum class DropState {
   PREPARING_RELEASE,
   PLANNING_RELEASE,
   EXECUTING_RELEASE,
+  MOVING_FORWARD,
   OPENING_GRIPPER,
   REPORTING_OCCUPANCY,
+  MOVING_BACKWARD,
   PLANNING_RETRACT,
   EXECUTING_RETRACT,
   PREPARING_TRANSPORT,
@@ -85,11 +88,25 @@ private:
     std::string source;
   };
 
+  struct MotorStage {
+    std::string label;
+    std::vector<std::size_t> motors;
+    std::size_t waypoints;
+  };
+
+  struct ReleasePoseCandidate {
+    std::string label;
+    double dx;
+    double dy;
+    double dz;
+  };
+
   static constexpr std::array<double, 6> PREPARE_POSE =
       {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
   static constexpr std::array<double, 6> TRANSPORT_POSE =
       {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
-  static constexpr double RELEASE_Z_OFFSET = 0.08;
+  static constexpr double MOVE_DISTANCE_M = 0.02;
+  static constexpr double MOVE_LINEAR_SPEED = 0.05;
 
   inline static const std::unordered_set<std::string> PINCH_OBJECTS = {
       "spoon", "fork", "knife", "chopstick", "teaspoon",
@@ -112,6 +129,16 @@ private:
   std::string resolveObjectName(const std::string &held_object) const;
   std::string selectTip(const std::string &object_name) const;
   PoseStamped retractPose(const std::string &arm) const;
+  std::vector<MotorStage> releaseMotorStages() const;
+  std::vector<ReleasePoseCandidate> releasePoseCandidates() const;
+  bool orderReleaseJointSequence(const std::vector<std::string> &joint_names,
+                                 std::vector<double> &waypoints) const;
+  bool buildReverseTrajectory(const std::vector<std::string> &joint_names,
+                              const std::vector<double> &source_waypoints,
+                              std::vector<double> &reversed_waypoints) const;
+  std::size_t maxRemainingReleaseBlocks() const;
+  std::string motorJointName(std::size_t motor) const;
+  bool moveBase(double distance_m, const std::shared_ptr<GoalHandle> &gh);
 
   static DropTarget resolveDropTarget(const std::string &argument);
   static std::string stateName(DropState s);

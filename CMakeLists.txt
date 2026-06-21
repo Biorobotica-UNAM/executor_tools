@@ -38,6 +38,9 @@ add_library(${PROJECT_NAME}
   src/Align.cpp
   src/Drop.cpp
   src/FindSpace.cpp
+  src/FindSpaceTable.cpp
+  src/FindSpaceContainer.cpp
+  src/FindSpaceShelf.cpp
   src/Give.cpp
   src/FindPerson.cpp
   src/FindObject.cpp
@@ -110,6 +113,7 @@ ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 
 ament_export_dependencies(
   rclcpp
+  ament_index_cpp
   actionlib_msgs
   rclcpp_action
   executor_interfaces
