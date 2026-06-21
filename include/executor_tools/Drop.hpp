@@ -38,6 +38,12 @@ enum class DropState {
   PLANNING_RETRACT,
   EXECUTING_RETRACT,
   PREPARING_TRANSPORT,
+  FLOOR_EXTENDING_ARM,
+  FLOOR_LOWERING_TORSO,
+  FLOOR_OPENING_GRIPPER,
+  FLOOR_RAISING_TORSO,
+  FLOOR_CLOSING_GRIPPER,
+  FLOOR_RESETTING_ARM,
   SUCCESS,
   FAILED
 };
@@ -101,10 +107,12 @@ private:
     double dz;
   };
 
-  static constexpr std::array<double, 6> PREPARE_POSE =
-      {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
-  static constexpr std::array<double, 6> TRANSPORT_POSE =
-      {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
+  static constexpr std::array<double, 6> PREPARE_POSE = {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
+  static constexpr std::array<double, 6> TRANSPORT_POSE = {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
+
+  static constexpr std::array<double, 6> FLOOR_ARM_EXTEND = {0.4, 0.1, 0.3, 1.0, 0.0, 0.2};
+  static constexpr std::array<double, 6> FLOOR_ARM_RESET  = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+
   static constexpr double MOVE_DISTANCE_M = 0.02;
   static constexpr double MOVE_LINEAR_SPEED = 0.05;
 
