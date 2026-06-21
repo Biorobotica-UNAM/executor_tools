@@ -514,6 +514,26 @@ FindSpace::SpaceTarget FindSpace::resolveDropTarget(const std::string &argument)
   return target;
 }
 
+//category 
+std::string FindSpace::normalizeObjectToken(const std::string &name) {
+  std::string normalized = name;
+  const auto first = normalized.find_first_not_of(" \t\r\n\"'");
+  if (first == std::string::npos) {
+    return "";
+  }
+  const auto last = normalized.find_last_not_of(" \t\r\n\"'");
+  normalized = normalized.substr(first, last - first + 1);
+
+  std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                 [](unsigned char c) {
+                   if (std::isspace(c) || c == '-') {
+                     return '_';
+                   }
+                   return static_cast<char>(std::tolower(c));
+                 });
+  return normalized;
+}
+
 std::string FindSpace::owlFrameName(const std::string &class_name, int instance) {
   std::string sanitized = class_name;
   std::replace(sanitized.begin(), sanitized.end(), ' ', '_');
