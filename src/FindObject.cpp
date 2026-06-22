@@ -95,17 +95,20 @@ Result FindObject::run(const std::string &argument,
         publishFeedback(gh, FindObjectState::DETECTING,
                         detected_name + "_centered");
 
-        if (!refreshCenteredObjectPose(query_name, centered_object_pose,
-                                       centered_object_nav,
-                                       centered_detected_name, gh)) {
-          publishFeedback(gh, FindObjectState::FAILED,
-                          "centered_pose_not_found");
-          continue;
-        }
-
         publishFeedback(gh, FindObjectState::UPDATING, centered_detected_name);
         updateObjectState(query_name, object_index, centered_detected_name,
                           centered_object_pose, centered_object_nav);
+
+        if (refreshCenteredObjectPose(query_name, centered_object_pose,
+                                       centered_object_nav,
+                                       centered_detected_name, gh)) {
+          publishFeedback(gh, FindObjectState::UPDATING, centered_detected_name);
+          updateObjectState(query_name, object_index, centered_detected_name,
+                            centered_object_pose, centered_object_nav);
+        } else { 
+
+          RCLCPP_INFO(node_->get_logger(), "[FindObject] centered_pose_not_found");
+        }
 
         publishFeedback(gh, FindObjectState::SUCCESS, centered_detected_name);
         return {true, "SUCCESS", centered_detected_name + "_found"};
