@@ -144,10 +144,16 @@ Result Take::run(
     // ── PREPARING_EXTEND ──────────────────────────────────────
     publishFeedback(gh, TakeState::PREPARING_EXTEND);
 
-    const double x_coord = target_data[0].get<double>();
-    const double y_coord = target_data[1].get<double>();
+    const double x_coord     = target_data[0].get<double>();
+    const double y_coord     = target_data[1].get<double>();
+    const double abs_y_coord = std::abs(y_coord);
 
-    if (x_coord > x_limit) {
+    if (x_coord > x_high_limit || x_coord < x_low_limit) {
+        publishFeedback(gh, TakeState::FAILED, "pose_out_of_range");
+        return {false, "FAILED", "pose_out_of_range"};
+    }
+
+    if (abs_y_coord > x_high_limit || abs_y_coord < x_low_limit) {
         publishFeedback(gh, TakeState::FAILED, "pose_out_of_range");
         return {false, "FAILED", "pose_out_of_range"};
     }

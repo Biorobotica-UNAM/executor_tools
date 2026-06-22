@@ -7,6 +7,7 @@
 #include <unordered_set>
 #include <vector>
 #include <optional>
+#include <cmath>
 
 #include <nlohmann/json.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -138,5 +139,8 @@ private:
     std::vector<double>      waypoints_;
 
     // ── Physical constants ───────────────────────────────────────
-    const double             x_limit = 0.6;
+    const double             x_low_limit  = 0.3;
+    const double             x_high_limit = 0.6;
+    const double             y_low_limit  = 0.1;
+    const double             y_high_limit = 0.5;
 };
