@@ -17,7 +17,7 @@ bool FindSpace::precenterContainerWithOwl(
     const std::shared_ptr<GoalHandle> &gh,
     const SpaceTarget &space_target) {
   constexpr int kMaxHeadCorrections = 4;
-  constexpr int kMaxBaseCorrections = 7;
+  constexpr int kMaxBaseCorrections = 6;
   constexpr double kIdealXMin = 0.75;
   constexpr double kIdealXMax = 0.85;
   constexpr double kIdealAbsYMax = 0.22;
