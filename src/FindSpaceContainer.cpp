@@ -205,6 +205,19 @@ bool FindSpace::precenterContainerWithOwl(
     const bool image_centered =
         std::fabs(image_error) <= kImageCenterTolerancePx;
     const bool pan_close = std::fabs(desired_pan - commanded_pan) <= 0.05;
+
+    // Salida temprana: si OWL ya confirma que el contenedor está en zona
+    // escaneable y razonablemente centrado, dejamos que la geometría guiada
+    // por OWL haga el refinamiento.
+    if (in_scan_zone && std::fabs(pose.y) <= 0.25 && pose.x <= 1.35 &&
+        std::fabs(image_error) <= 65.0) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "[FindSpace] precenter suficiente para geometria; "
+                  "continuando base=(%.3f %.3f %.3f) image_error=%.1f",
+                  pose.x, pose.y, pose.z, image_error);
+      return true;
+    }
+
     if (in_ideal_zone && image_centered && pan_close) {
       RCLCPP_INFO(node_->get_logger(),
                   "[FindSpace] precenter OWL listo: contenedor en zona ideal "

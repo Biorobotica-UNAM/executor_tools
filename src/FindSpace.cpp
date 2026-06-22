@@ -205,14 +205,11 @@ Result FindSpace::run(const std::string &argument,
           container_result == "container_full") {
         last_error = container_error.empty() ? "container_full"
                                              : container_error;
-        RCLCPP_WARN(node_->get_logger(),
-                    "[FindSpace] contenedor lleno reportado por vision; "
-                    "terminando espera de TF: %s",
-                    last_error.c_str());
-        publishFeedback(gh, FindSpaceState::FAILED,
-                        "container_full: " + last_error);
-        setSpaceTfNodeEnabled(enable_client, space_target.service_label, false);
-        return {false, "FAILED", "container_full"};
+        RCLCPP_WARN_THROTTLE(
+            node_->get_logger(), *node_->get_clock(), 1000,
+            "[FindSpace] vision reporto container_full, pero esta desactivado "
+            "temporalmente; se continua esperando TF: %s",
+            last_error.c_str());
       }
     }
 
@@ -433,10 +430,21 @@ bool FindSpace::configureContainerDropProfile(const SpaceTarget &space_target) {
   }
 
   const std::vector<rclcpp::Parameter> parameters = {
+      // Por ahora el contenedor nunca falla por "lleno"; la geometria sigue
+      // midiendo forma/superficie, pero no bloquea el drop por interior_fill.
+      rclcpp::Parameter("reject_full_containers", false),
+      // Altura fija: OWL/geometria dan x,y; la altura se calibra por perfil.
       rclcpp::Parameter("override_drop_z", true),
       rclcpp::Parameter("drop_z_override_m",
                         space_target.container_drop_z_override_m),
+      // Alinear exactamente los limites de vision con los que FindSpace valida
+      // despues en base_link.
+      rclcpp::Parameter("safe_x_min_m", space_target.bounds.x_min),
+      rclcpp::Parameter("safe_x_max_m", space_target.bounds.x_max),
+      rclcpp::Parameter("safe_abs_y_max_m", space_target.bounds.abs_y_max),
+      rclcpp::Parameter("safe_z_min_m", space_target.bounds.z_min),
       rclcpp::Parameter("safe_z_max_m", space_target.bounds.z_max),
+      rclcpp::Parameter("safe_dist_xy_max_m", space_target.bounds.dist_xy_max),
       rclcpp::Parameter("roi_z_max_m", space_target.container_roi_z_max_m),
   };
 
@@ -487,13 +495,13 @@ FindSpace::SpaceTarget FindSpace::resolveDropTarget(const std::string &argument)
   // - si no se reconoce nada, el default sigue siendo mesa para compatibilidad.
   constexpr double kContainerDownTorsoHeight = 0.05;
   constexpr double kContainerDownHeadPitch = -0.7;
-  constexpr double kContainerDownDropZOverride = 1.08;
+  constexpr double kContainerDownDropZOverride = 0.8;
   constexpr double kContainerDownSafeZMax = 1.10;
   constexpr double kContainerDownRoiZMax = 1.05;
   constexpr double kContainerTopTorsoHeight = 0.3;
   // Ajuste manual principal para contenedores sobre mesa/lugar medio alto.
   constexpr double kContainerTopHeadPitch = -0.45;
-  constexpr double kContainerTopDropZOverride = 1.20;
+  constexpr double kContainerTopDropZOverride = 0.8;
   constexpr double kContainerTopSafeZMax = 1.30;
   constexpr double kContainerTopRoiZMax = 1.35;
 
