@@ -248,10 +248,10 @@ bool AnalyzePerson::updateUserNavigation(
   const bool nav_ok = knowledge_->update_world_state("user", "2", "navigation", navigation.dump());
   //const bool frame_ok = knowledge_->update_world_state("user", "2", "navigation_frame", frame);
 
-  if (!nav_ok || !frame_ok) {
-    out_msg = "person_pose_failed_update_world_state";
-    return false;
-  }
+  //if (!nav_ok || !frame_ok) {
+    //out_msg = "person_pose_failed_update_world_state";
+    //return false;
+  //}
 
   RCLCPP_INFO(node_->get_logger(),
               "[AnalyzePerson] user_2 navigation updated frame=%s pose=%s",
