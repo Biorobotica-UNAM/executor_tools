@@ -26,7 +26,7 @@ VisualGraspApproach::VisualGraspApproach(
     use_visual_servo_ =
         declareOrGet<bool>("visual_grasp.use_visual_servo", true);
     base_final_approach_distance_m_ =
-        declareOrGet<double>("visual_grasp.base_final_approach_distance_m", 0.10);
+        declareOrGet<double>("visual_grasp.base_final_approach_distance_m", 0.0);
     base_final_approach_speed_mps_ =
         declareOrGet<double>("visual_grasp.base_final_approach_speed_mps", 0.05);
     visual_max_attempts_ =
@@ -261,9 +261,9 @@ std::vector<VisualGraspApproach::MotorStage>
 VisualGraspApproach::approachMotorStages() const
 {
     return {
-        {"arm", {1, 2, 3, 4}, 8},
-        {"wrist", {5, 6}, 5},
-        {"torso", {0}, 5},
+        {"arm", {1, 2, 3, 4}, 1},
+        {"wrist", {5, 6}, 1},
+        {"torso", {0}, 1},
     };
 }
 

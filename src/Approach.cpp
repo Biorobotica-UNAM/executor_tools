@@ -201,7 +201,7 @@ Result Approach::run(const std::string &argument,
   navigation_->Go(global_pose);
 
   const bool is_person_target = (category == "customer" || category == "guest" || category == "host"   || category == "user");
-  const double kArrivalTolerance = is_person_target ? 1.0 : 0.05;
+  const double kArrivalTolerance = is_person_target ? 1.0 : 0.50;
   auto start_nav_time = std::chrono::steady_clock::now();
   const auto kMaxNavDuration = 90s;
   int last_reported_nav_status = -2;
