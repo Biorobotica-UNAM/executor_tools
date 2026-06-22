@@ -95,9 +95,9 @@ Result FindObject::run(const std::string &argument,
         publishFeedback(gh, FindObjectState::DETECTING,
                         detected_name + "_centered");
 
-        publishFeedback(gh, FindObjectState::UPDATING, centered_detected_name);
-        updateObjectState(query_name, object_index, centered_detected_name,
-                          centered_object_pose, centered_object_nav);
+        publishFeedback(gh, FindObjectState::UPDATING, detected_name);
+        updateObjectState(query_name, object_index, detected_name,
+                          object_pose, object_nav);
 
         if (refreshCenteredObjectPose(query_name, centered_object_pose,
                                        centered_object_nav,
