@@ -3,11 +3,15 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
+
+#include "geometry_msgs/msg/point_stamped.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
 
 using namespace std::chrono_literals;
 
@@ -46,6 +50,27 @@ std::vector<std::string> splitUnderscore(const std::string &value) {
   }
 
   return parts;
+}
+
+geometry_msgs::msg::PoseStamped
+navigationPoseFromPoint(const geometry_msgs::msg::PointStamped &point,
+                        double scale) {
+  const double px = point.point.x;
+  const double py = point.point.y;
+
+  const double yaw = std::atan2(py, px);
+
+  geometry_msgs::msg::PoseStamped nav;
+  nav.header = point.header;
+  nav.pose.position.x = px * scale;
+  nav.pose.position.y = py * scale;
+  nav.pose.position.z = 0.0;
+  nav.pose.orientation.x = 0.0;
+  nav.pose.orientation.y = 0.0;
+  nav.pose.orientation.z = std::sin(yaw / 2.0);
+  nav.pose.orientation.w = std::cos(yaw / 2.0);
+
+  return nav;
 }
 
 } // namespace
@@ -93,6 +118,9 @@ Result AnalyzePerson::run(const std::string &argument,
   const std::string action =
       lower(trim(json_args.value("action", std::string{})));
   std::string result_msg;
+  std::vector<Vision::YoloDetection> detections;
+  bool has_point = false;
+  geometry_msgs::msg::PointStamped point;
   bool execution_success = false;
 
   publishFeedback(gh, AnalyzePersonState::CALLING_SERVICE, action);
@@ -102,13 +130,15 @@ Result AnalyzePerson::run(const std::string &argument,
         lower(trim(json_args.value("color", std::string{})));
     const std::string attribute =
         lower(trim(json_args.value("attribute", std::string{})));
-    execution_success = runColor(color, attribute, result_msg);
+    execution_success = runColor(color, attribute, result_msg, detections,
+                                 has_point, point);
   } else if (action == "gesture") {
     const std::string gesture_type =
         lower(trim(json_args.value("gesture_type", std::string{})));
     const std::string arm_side =
         lower(trim(json_args.value("arm_side", std::string{"any"})));
-    execution_success = runGesture(gesture_type, arm_side, result_msg);
+    execution_success = runGesture(gesture_type, arm_side, result_msg,
+                                   detections, has_point, point);
   } else if (action == "combined" || action == "gesture_color") {
     const std::string gesture_type =
         lower(trim(json_args.value("gesture_type", std::string{})));
@@ -119,19 +149,21 @@ Result AnalyzePerson::run(const std::string &argument,
     const std::string arm_side =
         lower(trim(json_args.value("arm_side", std::string{"any"})));
     execution_success =
-        runCombined(gesture_type, color, attribute, arm_side, result_msg);
+        runCombined(gesture_type, color, attribute, arm_side, result_msg,
+                    detections, has_point, point);
   } else {
     publishFeedback(gh, AnalyzePersonState::FAILED,
                     "unknown_action: " + action);
     return {false, "FAILED", "unknown_action"};
   }
 
-  std::string navigation{};
-
-  publishFeedback(gh, AnalyzePersonState::UPDATING_KNOWLEDGE);
-  knowledge_->update_world_state("user", "2", "navigation", navigation);
-
   if (execution_success) {
+    publishFeedback(gh, AnalyzePersonState::UPDATING_KNOWLEDGE);
+    if (!updateUserNavigation(detections, has_point, point, result_msg)) {
+      publishFeedback(gh, AnalyzePersonState::FAILED, result_msg);
+      return {false, "FAILED", result_msg};
+    }
+
     publishFeedback(gh, AnalyzePersonState::SUCCESS, result_msg);
     return {true, "SUCCESS", result_msg};
   }
@@ -143,28 +175,89 @@ Result AnalyzePerson::run(const std::string &argument,
 
 bool AnalyzePerson::runColor(const std::string &color,
                              const std::string &attribute,
-                             std::string &out_msg) {
-  std::vector<Vision::YoloDetection> detections;
+                             std::string &out_msg,
+                             std::vector<Vision::YoloDetection>
+                                 &out_detections,
+                             bool &out_has_point,
+                             geometry_msgs::msg::PointStamped &out_point) {
   return vision_->AnalyzePerson("color", color, attribute, "", "any", out_msg,
-                                detections);
+                                out_detections, out_has_point, out_point);
 }
 
 bool AnalyzePerson::runGesture(const std::string &gesture_type,
                                const std::string &arm_side,
-                               std::string &out_msg) {
-  std::vector<Vision::YoloDetection> detections;
+                               std::string &out_msg,
+                               std::vector<Vision::YoloDetection>
+                                   &out_detections,
+                               bool &out_has_point,
+                               geometry_msgs::msg::PointStamped &out_point) {
   return vision_->AnalyzePerson("gesture", "", "", gesture_type, arm_side,
-                                out_msg, detections);
+                                out_msg, out_detections, out_has_point,
+                                out_point);
 }
 
 bool AnalyzePerson::runCombined(const std::string &gesture_type,
                                 const std::string &color,
                                 const std::string &attribute,
                                 const std::string &arm_side,
-                                std::string &out_msg) {
-  std::vector<Vision::YoloDetection> detections;
+                                std::string &out_msg,
+                                std::vector<Vision::YoloDetection>
+                                    &out_detections,
+                                bool &out_has_point,
+                                geometry_msgs::msg::PointStamped &out_point) {
   return vision_->AnalyzePerson("combined", color, attribute, gesture_type,
-                                arm_side, out_msg, detections);
+                                arm_side, out_msg, out_detections,
+                                out_has_point, out_point);
+}
+
+bool AnalyzePerson::updateUserNavigation(
+    const std::vector<Vision::YoloDetection> &detections,
+    bool has_point,
+    const geometry_msgs::msg::PointStamped &point,
+    std::string &out_msg) {
+  geometry_msgs::msg::PoseStamped nav;
+
+  if (has_point) {
+    nav = navigationPoseFromPoint(point, 0.95);
+  } else {
+    if (detections.empty()) {
+      out_msg = "person_pose_failed_no_detection_bbox";
+      return false;
+    }
+
+    const auto best_detection = std::max_element(
+        detections.begin(), detections.end(),
+        [](const Vision::YoloDetection &lhs, const Vision::YoloDetection &rhs) {
+          return lhs.confidence < rhs.confidence;
+        });
+
+    geometry_msgs::msg::PoseStamped pose;
+    if (!vision_->DetectionToNavPose(*best_detection, pose, nav)) {
+      out_msg = "person_pose_failed_bbox_to_pose";
+      return false;
+    }
+  }
+
+  const auto &np = nav.pose.position;
+  const auto &nq = nav.pose.orientation;
+  nlohmann::json navigation = {np.x, np.y, np.z, nq.x, nq.y, nq.z, nq.w};
+
+  const std::string frame =
+      nav.header.frame_id.empty() ? "base_link" : nav.header.frame_id;
+
+  const bool nav_ok = knowledge_->update_world_state("user", "2", "navigation", navigation.dump());
+  //const bool frame_ok = knowledge_->update_world_state("user", "2", "navigation_frame", frame);
+
+  if (!nav_ok || !frame_ok) {
+    out_msg = "person_pose_failed_update_world_state";
+    return false;
+  }
+
+  RCLCPP_INFO(node_->get_logger(),
+              "[AnalyzePerson] user_2 navigation updated frame=%s pose=%s",
+              frame.c_str(), navigation.dump().c_str());
+
+  return true;
 }
 
 void AnalyzePerson::publishFeedback(const std::shared_ptr<GoalHandle> &gh,
