@@ -280,6 +280,8 @@ Result Take::run(
         ? hardware_->MoveLeftGripper("close")
         : hardware_->MoveRightGripper("close");
 
+	sleep(2.0);
+
     if (!gripper_ok)
     {
         publishFeedback(gh, TakeState::FAILED, "gripper_close_failed");
