@@ -48,11 +48,33 @@ Result Align::run(const std::string &argument,
 
   auto start_time = std::chrono::steady_clock::now();
 
+  bool align_to_object = (argument == "container");
+
   // Implementacion original de referencia:
   // double last_angular_velocity = 0.0;
 
   while (gh->is_active()) {
-    double angle = vision_->GetTableAlignment();
+    double angle = 0.0;
+
+    if (align_to_object) {
+      geometry_msgs::msg::PoseStamped object_pose, object_nav;
+      std::string detected_name;
+
+      if (vision_->GetOwlPose("container", object_pose, object_nav,
+                              detected_name)) {
+        double angle_rad = std::atan2(object_pose.pose.position.y,
+                                      object_pose.pose.position.x);
+        angle = angle_rad * 180.0 / M_PI;
+      } else {
+        RCLCPP_WARN(node_->get_logger(),
+                    "[Align] No se detecto el contenedor. Reintentando...");
+        hardware_->MoveBase(0.0, 0.0, 0.0);
+        std::this_thread::sleep_for(200ms);
+        continue;
+      }
+    } else {
+      angle = vision_->GetTableAlignment();
+    }
 
     publishFeedback(gh, AlignState::GET_ALIGNMENT, std::to_string(angle));
 
@@ -126,11 +148,11 @@ Result Align::run(const std::string &argument,
     */
 
     if (std::chrono::steady_clock::now() - start_time > kMaxDuration) {
-        // Keep the behavior bounded if vision keeps returning a large error
-        // or the base does not physically rotate.
-        hardware_->MoveBase(0.0, 0.0, 0.0);
-        publishFeedback(gh, AlignState::FAILED, "timeout");
-        return {false, "FAILED", "timeout"};
+      // Keep the behavior bounded if vision keeps returning a large error
+      // or the base does not physically rotate.
+      hardware_->MoveBase(0.0, 0.0, 0.0);
+      publishFeedback(gh, AlignState::FAILED, "timeout");
+      return {false, "FAILED", "timeout"};
     }
   }
 
