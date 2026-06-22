@@ -87,6 +87,14 @@
           return {false, "FAILED", "floor_open_gripper_failed"};
         }
 
+        publishFeedback(gh, DropState::FLOOR_TILTING_GRIPPER);
+        if (!hardware_->MoveLeftArm({FLOOR_ARM_TILT[0], FLOOR_ARM_TILT[1],
+                                     FLOOR_ARM_TILT[2], FLOOR_ARM_TILT[3],
+                                     FLOOR_ARM_TILT[4], FLOOR_ARM_TILT[5]})) {
+          publishFeedback(gh, DropState::FAILED, "floor_tilt_arm_failed");
+          return {false, "FAILED", "floor_tilt_arm_failed"};
+        }
+
         knowledge_->update_world_state("robot", "", "left_hand", "nothing");
 
 		sleep(2.0); // espera a que el objeto caiga y no lo detecte como obstrucción al retraer
@@ -985,6 +993,8 @@
 		return "FLOOR_LOWERING_TORSO";
 	  case DropState::FLOOR_OPENING_GRIPPER:
 		return "FLOOR_OPENING_GRIPPER";
+      case DropState::FLOOR_TILTING_GRIPPER:
+		return "FLOOR_TILTING_GRIPPER";
 	  case DropState::FLOOR_RAISING_TORSO:
 		return "FLOOR_RAISING_TORSO";
 	  case DropState::FLOOR_CLOSING_GRIPPER:

@@ -62,8 +62,8 @@ private:
     static std::string stateName(GiveState s);
 
     // Constantes cinemáticas del brazo izquierdo (6 DOF)
-    static constexpr std::array<double, 6> LEFT_ARM_POINTING = {0.4, 0.1, 0.3, 1.0, 0.0, 0.2};
-    static constexpr std::array<double, 6> RIGHT_ARM_POINTING = {0.4, -0.1, -0.3, 1.0, 0.0, 0.2};
+    static constexpr std::array<double, 6> LEFT_ARM_POINTING = {0.4, 0.0, 0.3, 1.0, 0.0, 0.2};
+    static constexpr std::array<double, 6> RIGHT_ARM_POINTING = {0.4, 0.0, -0.3, 1.0, 0.0, 0.2};
     static constexpr std::array<double, 6> ARM_RESTING  = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 
     rclcpp::Node::SharedPtr    node_;
