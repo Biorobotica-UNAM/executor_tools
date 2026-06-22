@@ -52,6 +52,7 @@ add_library(${PROJECT_NAME}
   src/Listen.cpp
   src/FindPose.cpp
   src/Analyze.cpp
+  src/AnalyzePerson.cpp
   src/SaveLoc.cpp
 )
 
