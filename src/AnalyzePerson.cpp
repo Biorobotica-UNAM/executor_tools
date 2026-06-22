@@ -1,8 +1,9 @@
 #include "executor_tools/AnalyzePerson.hpp"
 
 #include <algorithm>
-#include <chrono>
 #include <cctype>
+#include <chrono>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -26,10 +27,9 @@ std::string trim(std::string value) {
 }
 
 std::string lower(std::string value) {
-  std::transform(value.begin(), value.end(), value.begin(),
-                 [](unsigned char c) {
-                   return static_cast<char>(std::tolower(c));
-                 });
+  std::transform(
+      value.begin(), value.end(), value.begin(),
+      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   return value;
 }
 
@@ -52,8 +52,10 @@ std::vector<std::string> splitUnderscore(const std::string &value) {
 
 AnalyzePerson::AnalyzePerson(const rclcpp::Node::SharedPtr &node,
                              const std::shared_ptr<Hardware> &hardware,
-                             const std::shared_ptr<Vision> &vision)
-    : node_(node), hardware_(hardware), vision_(vision) {}
+                             const std::shared_ptr<Vision> &vision,
+                             const std::shared_ptr<Knowledge> &knowledge)
+    : node_(node), hardware_(hardware), vision_(vision), knowledge_(knowledge) {
+}
 
 Result AnalyzePerson::run(const std::string &argument,
                           const std::shared_ptr<GoalHandle> &gh) {
@@ -124,6 +126,11 @@ Result AnalyzePerson::run(const std::string &argument,
     return {false, "FAILED", "unknown_action"};
   }
 
+  std::string navigation{};
+
+  publishFeedback(gh, AnalyzePersonState::UPDATING_KNOWLEDGE);
+  knowledge_->update_world_state("user", "2", "navigation", navigation);
+
   if (execution_success) {
     publishFeedback(gh, AnalyzePersonState::SUCCESS, result_msg);
     return {true, "SUCCESS", result_msg};
@@ -191,6 +198,8 @@ std::string AnalyzePerson::stateName(AnalyzePersonState state) {
     return "PARSING_ARGS";
   case AnalyzePersonState::CALLING_SERVICE:
     return "CALLING_SERVICE";
+  case AnalyzePersonState::UPDATING_KNOWLEDGE:
+    return "UPDATING_KNOWLEDGE";
   case AnalyzePersonState::SUCCESS:
     return "SUCCESS";
   case AnalyzePersonState::FAILED:
@@ -200,8 +209,7 @@ std::string AnalyzePerson::stateName(AnalyzePersonState state) {
   }
 }
 
-nlohmann::json AnalyzePerson::parsePersonString(
-    const std::string &argument) {
+nlohmann::json AnalyzePerson::parsePersonString(const std::string &argument) {
   nlohmann::json j;
   const auto parts = splitUnderscore(lower(trim(argument)));
 
@@ -209,8 +217,7 @@ nlohmann::json AnalyzePerson::parsePersonString(
     return j;
   }
 
-  if ((parts[0] == "color" || parts[0] == "attribute") &&
-      parts.size() >= 3) {
+  if ((parts[0] == "color" || parts[0] == "attribute") && parts.size() >= 3) {
     j["action"] = parts[0];
     j["color"] = parts[1];
     j["attribute"] = parts[2];
