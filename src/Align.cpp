@@ -73,7 +73,8 @@ Result Align::run(const std::string &argument,
         continue;
       }
     } else {
-      angle = vision_->GetTableAlignment();
+      bool is_round_table = (argument == "round_table" || argument == "round");
+      angle = vision_->GetTableAlignment(is_round_table);
     }
 
     publishFeedback(gh, AlignState::GET_ALIGNMENT, std::to_string(angle));
