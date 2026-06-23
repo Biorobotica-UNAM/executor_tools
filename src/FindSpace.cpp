@@ -11,11 +11,18 @@
 #include <unordered_map>
 #include <vector>
 
+#include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "nlohmann/json.hpp"
 #include "tf2/exceptions.h"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+#include "tf2/utils.h"
 
 using namespace std::chrono_literals;
+
+namespace {
+constexpr double kSafeDropDesiredManipulationX = 0.62;
+}
 
 // =========================================================
 // Constructor
@@ -382,36 +389,81 @@ bool FindSpace::storeSafeDropInKnowledge(
     return false;
   }
 
-  const nlohmann::json pose = nlohmann::json::array({
-      tf.transform.translation.x,
-      tf.transform.translation.y,
-      tf.transform.translation.z,
-      tf.transform.rotation.x,
-      tf.transform.rotation.y,
-      tf.transform.rotation.z,
-      tf.transform.rotation.w,
+  const auto &p = tf.transform.translation;
+  const auto &q = tf.transform.rotation;
+  // navigation es una meta local para acercar la base; en contenedores queda
+  // antes del centro de manipulacion para que el brazo no tenga que alcanzar de lejos.
+  const double navigation_x =
+      space_target.mode == "container"
+          ? std::max(0.0, p.x - kSafeDropDesiredManipulationX)
+          : p.x;
+  const nlohmann::json navigation = nlohmann::json::array({
+      navigation_x,
+      p.y,
+      0.0,
+      0.0,
+      0.0,
+      std::sin(tf2::getYaw(q) * 0.5),
+      std::cos(tf2::getYaw(q) * 0.5),
   });
 
-  const bool mode_ok = knowledge_->update_world_state(
-      "robot", "", "safe_drop_mode", space_target.mode);
-  const bool frame_ok = knowledge_->update_world_state(
-      "robot", "", "safe_drop_frame", space_target.frame);
-  const bool pose_ok = knowledge_->update_world_state(
-      "robot", "", "safe_drop_pose", pose.dump());
+  geometry_msgs::msg::PoseStamped base_pose;
+  base_pose.header.stamp =
+      tf.header.stamp.sec == 0 && tf.header.stamp.nanosec == 0
+          ? node_->now()
+          : rclcpp::Time(tf.header.stamp);
+  base_pose.header.frame_id = "base_link";
+  base_pose.pose.position.x = p.x;
+  base_pose.pose.position.y = p.y;
+  base_pose.pose.position.z = p.z;
+  base_pose.pose.orientation = q;
 
-  if (!mode_ok || !frame_ok || !pose_ok) {
+  geometry_msgs::msg::PoseStamped map_pose;
+  try {
+    map_pose = tf_buffer_->transform(base_pose, "map", 300ms);
+  } catch (const tf2::TransformException &ex) {
+    RCLCPP_WARN(node_->get_logger(),
+                "[FindSpace] no se pudo transformar safe_drop a map para "
+                "knowledge: %s",
+                ex.what());
+    return false;
+  }
+
+  const auto &mp = map_pose.pose.position;
+  const auto &mq = map_pose.pose.orientation;
+  const nlohmann::json manipulation = nlohmann::json::array({
+      mp.x,
+      mp.y,
+      mp.z,
+      mq.x,
+      mq.y,
+      mq.z,
+      mq.w,
+  });
+
+  // Formato compatible con FindObject::updateObjectState:
+  // manipulation vive en map para que Drop reutilice una pose estable;
+  // navigation vive en base_link para que Approach pueda acercar el robot.
+  const bool name_ok = knowledge_->update_world_state(
+      "safe_drop", "1", "name", space_target.frame);
+  const bool manipulation_ok = knowledge_->update_world_state(
+      "safe_drop", "1", "manipulation", manipulation.dump());
+  const bool navigation_ok = knowledge_->update_world_state(
+      "safe_drop", "1", "navigation", navigation.dump());
+
+  if (!name_ok || !manipulation_ok || !navigation_ok) {
     RCLCPP_WARN(node_->get_logger(),
                 "[FindSpace] no se pudo guardar safe_drop en knowledge "
-                "mode_ok=%d frame_ok=%d pose_ok=%d",
-                mode_ok, frame_ok, pose_ok);
+                "name_ok=%d manipulation_ok=%d navigation_ok=%d",
+                name_ok, manipulation_ok, navigation_ok);
     return false;
   }
 
   RCLCPP_INFO(node_->get_logger(),
               "[FindSpace] safe_drop guardado en knowledge: mode=%s frame=%s "
-              "pose=%s",
+              "manipulation_map=%s navigation_base=%s",
               space_target.mode.c_str(), space_target.frame.c_str(),
-              pose.dump().c_str());
+              manipulation.dump().c_str(), navigation.dump().c_str());
   return true;
 }
 
@@ -445,7 +497,12 @@ bool FindSpace::configureContainerDropProfile(const SpaceTarget &space_target) {
       rclcpp::Parameter("safe_z_min_m", space_target.bounds.z_min),
       rclcpp::Parameter("safe_z_max_m", space_target.bounds.z_max),
       rclcpp::Parameter("safe_dist_xy_max_m", space_target.bounds.dist_xy_max),
+      rclcpp::Parameter("roi_z_min_m", space_target.container_roi_z_min_m),
       rclcpp::Parameter("roi_z_max_m", space_target.container_roi_z_max_m),
+      rclcpp::Parameter("object_min_height_m",
+                        space_target.container_object_min_height_m),
+      rclcpp::Parameter("object_max_height_m",
+                        space_target.container_object_max_height_m),
   };
 
   auto future = parameter_client->set_parameters(parameters);
@@ -478,9 +535,15 @@ bool FindSpace::configureContainerDropProfile(const SpaceTarget &space_target) {
 
   RCLCPP_INFO(node_->get_logger(),
               "[FindSpace] perfil de contenedor configurado: "
-              "drop_z_override=%.3f safe_z_max=%.3f roi_z_max=%.3f",
+              "profile=%s drop_z_override=%.3f safe_z=[%.3f %.3f] "
+              "roi_z=[%.3f %.3f] object_h=[%.3f %.3f]",
+              space_target.container_profile.c_str(),
               space_target.container_drop_z_override_m,
-              space_target.bounds.z_max, space_target.container_roi_z_max_m);
+              space_target.bounds.z_min, space_target.bounds.z_max,
+              space_target.container_roi_z_min_m,
+              space_target.container_roi_z_max_m,
+              space_target.container_object_min_height_m,
+              space_target.container_object_max_height_m);
   return true;
 }
 
@@ -495,15 +558,27 @@ FindSpace::SpaceTarget FindSpace::resolveDropTarget(const std::string &argument)
   // - si no se reconoce nada, el default sigue siendo mesa para compatibilidad.
   constexpr double kContainerDownTorsoHeight = 0.05;
   constexpr double kContainerDownHeadPitch = -0.7;
-  constexpr double kContainerDownDropZOverride = 0.8;
+  // Altura de liberacion, no fondo del contenedor: a 0.6 m MoveIt no encontraba
+  // IK valida para la orientacion de Drop; 1.0 m mantiene el punto alcanzable.
+  constexpr double kContainerDownDropZOverride = 1.0;
   constexpr double kContainerDownSafeZMax = 1.10;
+  constexpr double kContainerDownRoiZMin = -0.20;
   constexpr double kContainerDownRoiZMax = 1.05;
+  constexpr double kContainerDownObjectMinHeight = 0.25;
+  constexpr double kContainerDownObjectMaxHeight = 0.55;
   constexpr double kContainerTopTorsoHeight = 0.3;
   // Ajuste manual principal para contenedores sobre mesa/lugar medio alto.
   constexpr double kContainerTopHeadPitch = -0.45;
-  constexpr double kContainerTopDropZOverride = 0.8;
+  // Se mantiene igual para top/down porque Drop usa candidatos relativos sobre
+  // esta marca, no la superficie exacta del plano detectado.
+  constexpr double kContainerTopDropZOverride = 1.0;
   constexpr double kContainerTopSafeZMax = 1.30;
+  // En contenedores elevados, excluir el piso ayuda a que RANSAC tome la mesa,
+  // caja o soporte como plano de referencia para medir la altura del borde.
+  constexpr double kContainerTopRoiZMin = 0.25;
   constexpr double kContainerTopRoiZMax = 1.35;
+  constexpr double kContainerTopObjectMinHeight = 0.08;
+  constexpr double kContainerTopObjectMaxHeight = 0.75;
 
   std::string lower = argument;
   std::transform(lower.begin(), lower.end(), lower.begin(),
@@ -533,7 +608,11 @@ FindSpace::SpaceTarget FindSpace::resolveDropTarget(const std::string &argument)
   const bool container_top =
       contains("container_top") || contains("container_up") ||
       contains("container_high") || contains("container_table") ||
+      contains("container_on") || contains("stacked_container") ||
       contains("bote_alto") || contains("contenedor_alto") ||
+      contains("sobre_contenedor") || contains("sobre otro") ||
+      contains("sobre_otro") || contains("encima") ||
+      contains("encima_de") || contains("apilado") ||
       contains("sobre_mesa") || contains("mesa_alto") ||
       contains("medio_alto");
   const bool container_down =
@@ -556,14 +635,22 @@ FindSpace::SpaceTarget FindSpace::resolveDropTarget(const std::string &argument)
     target.head_pitch = kContainerDownHeadPitch;
     target.sensor_settle_delay_sec = 1.6;
     target.configure_container_drop_z = true;
+    target.container_profile = "down";
     target.container_drop_z_override_m = kContainerDownDropZOverride;
+    target.container_roi_z_min_m = kContainerDownRoiZMin;
     target.container_roi_z_max_m = kContainerDownRoiZMax;
+    target.container_object_min_height_m = kContainerDownObjectMinHeight;
+    target.container_object_max_height_m = kContainerDownObjectMaxHeight;
     target.bounds = {0.15, 1.35, 0.45, 0.08, kContainerDownSafeZMax, 1.50};
     if (container_top) {
+      target.container_profile = "top";
       target.torso_height = kContainerTopTorsoHeight;
       target.head_pitch = kContainerTopHeadPitch;
       target.container_drop_z_override_m = kContainerTopDropZOverride;
+      target.container_roi_z_min_m = kContainerTopRoiZMin;
       target.container_roi_z_max_m = kContainerTopRoiZMax;
+      target.container_object_min_height_m = kContainerTopObjectMinHeight;
+      target.container_object_max_height_m = kContainerTopObjectMaxHeight;
       target.bounds.z_max = kContainerTopSafeZMax;
     }
   }

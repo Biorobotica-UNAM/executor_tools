@@ -2,6 +2,8 @@
 #include <nlohmann/json.hpp>
 #include <chrono>
 #include <cmath>
+#include <algorithm>
+#include <cctype>
 #include <thread>
 #include <vector>
 
@@ -14,6 +16,55 @@ using namespace std::chrono_literals;
 namespace {
 constexpr double kReferenceConsistencyWarnM = 0.10;
 constexpr double kObjectLateralSpeedMps = 0.05;
+constexpr double kSafeDropFinalCorrectionToleranceM = 0.04;
+constexpr double kSafeDropFinalCorrectionMaxM = 0.40;
+constexpr double kSafeDropFinalCorrectionSpeedMps = 0.05;
+
+std::string toLowerCopy(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+bool containsToken(const std::string &value, const std::string &token) {
+    return toLowerCopy(value).find(token) != std::string::npos;
+}
+
+// Knowledge puede guardar objetos como "cutlery_1", "left_cutlery_1" o
+// simplemente "cutlery"; normalizamos esas variantes antes de comparar.
+std::string stripHandPrefix(const std::string &value) {
+    if (value.rfind("left_", 0) == 0) {
+        return value.substr(5);
+    }
+    if (value.rfind("right_", 0) == 0) {
+        return value.substr(6);
+    }
+    return value;
+}
+
+std::string stripNumericSuffix(const std::string &value) {
+    const auto sep = value.rfind('_');
+    if (sep != std::string::npos && sep + 1 < value.size() &&
+        std::all_of(value.begin() + sep + 1, value.end(),
+                    [](unsigned char c) { return std::isdigit(c); })) {
+        return value.substr(0, sep);
+    }
+    return value;
+}
+
+// Drop guarda en safe_drop_1 que objeto/mano motivaron el acercamiento.
+// Approach usa este matcher para confirmar que esa mano sigue trayendo el
+// mismo objeto antes de mover lateralmente la base.
+bool objectTokenMatches(const std::string &expected, const std::string &held) {
+    const std::string expected_norm = stripHandPrefix(toLowerCopy(expected));
+    const std::string held_norm = stripHandPrefix(toLowerCopy(held));
+    if (expected_norm.empty() || held_norm.empty() || held_norm == "nothing") {
+        return false;
+    }
+    return expected_norm == held_norm ||
+           expected_norm == stripNumericSuffix(held_norm) ||
+           stripNumericSuffix(expected_norm) == held_norm;
+}
 }
 
 // =========================================================
@@ -72,8 +123,11 @@ Result Approach::run(const std::string &argument,
   std::string category = "";
   std::string id = "";
   
-  std::size_t sep = argument.find('_');
-  if (sep != std::string::npos) {
+  std::size_t sep = argument.rfind('_');
+  if (sep != std::string::npos &&
+      sep + 1 < argument.size() &&
+      std::all_of(argument.begin() + sep + 1, argument.end(),
+                  [](unsigned char c) { return std::isdigit(c); })) {
       category = argument.substr(0, sep);
       id = argument.substr(sep + 1);
   } else {
@@ -200,8 +254,14 @@ Result Approach::run(const std::string &argument,
   resetNavigationStatus();
   navigation_->Go(global_pose);
 
-  const bool is_person_target = (category == "customer" || category == "guest" || category == "host"   || category == "user");
-  const double kArrivalTolerance = is_person_target ? 1.0 : 0.05;
+  const bool is_person_target =
+      (category == "customer" || category == "guest" ||
+       category == "host" || category == "user");
+  const bool is_safe_drop_target = category == "safe_drop";
+  // safe_drop necesita terminar mucho mas cerca que un objeto/persona: Drop usa
+  // esa marca como pose de manipulacion, no solo como destino de navegacion.
+  const double kArrivalTolerance =
+      is_person_target ? 1.8 : (is_safe_drop_target ? 0.08 : 0.30);
   auto start_nav_time = std::chrono::steady_clock::now();
   const auto kMaxNavDuration = 90s;
   int last_reported_nav_status = -2;
@@ -248,15 +308,23 @@ Result Approach::run(const std::string &argument,
               detail += ": " + nav_status.text;
           }
 
-          if (nav_status.success) {
-              RCLCPP_INFO(node_->get_logger(),
-                          "[Approach] Navigation reported success: %s",
-                          detail.c_str());
-              std::string lateral_detail;
-              if (!applyObjectLateralAdjustment(category, id, local_pose, gh,
-                                                lateral_detail)) {
-                  return {false, "FAILED", lateral_detail};
-              }
+	          if (nav_status.success) {
+	              RCLCPP_INFO(node_->get_logger(),
+	                          "[Approach] Navigation reported success: %s",
+	                          detail.c_str());
+	              std::string final_correction_detail;
+	              if (!applySafeDropFinalCorrection(category, global_pose, gh,
+	                                                final_correction_detail)) {
+	                  return {false, "FAILED", final_correction_detail};
+	              }
+	              if (!final_correction_detail.empty()) {
+	                  detail += "; " + final_correction_detail;
+	              }
+	              std::string lateral_detail;
+	              if (!applyObjectLateralAdjustment(category, id, local_pose, gh,
+	                                                lateral_detail)) {
+	                  return {false, "FAILED", lateral_detail};
+	              }
               if (!lateral_detail.empty()) {
                   detail += "; " + lateral_detail;
               }
@@ -704,29 +772,113 @@ bool Approach::applyObjectLateralAdjustment(
         return true;
     }
 
-    const bool right_free = right_object.get<std::string>() == "nothing";
-    const bool left_free = left_object.get<std::string>() == "nothing";
+    const std::string right_value = right_object.get<std::string>();
+    const std::string left_value = left_object.get<std::string>();
+    const bool right_free = right_value == "nothing" || right_value.empty();
+    const bool left_free = left_value == "nothing" || left_value.empty();
+    const bool right_occupied = !right_free;
+    const bool left_occupied = !left_free;
 
-    if (!right_free && !left_free) {
-        detail = "object_lateral_adjustment_skipped_no_free_hand";
-        RCLCPP_WARN(node_->get_logger(),
-                    "[Approach] Object lateral adjustment skipped: no free hand");
-        publishFeedback(gh, ApproachState::APPROACHING, detail);
-        return true;
+    const bool is_drop_target = category == "safe_drop";
+    bool use_right_hand = false;
+    bool drop_context_selected = false;
+    const char *selection_reason = "free hand";
+
+    if (is_drop_target) {
+        // Para drop el ajuste lateral se alinea con la mano que trae el objeto;
+        // es la contraparte de take, donde se prefiere la mano libre.
+        selection_reason = "held object";
+        if (!right_occupied && !left_occupied) {
+            detail = "object_lateral_adjustment_skipped_no_held_object";
+            RCLCPP_WARN(
+                node_->get_logger(),
+                "[Approach] Drop lateral adjustment skipped: no held object");
+            publishFeedback(gh, ApproachState::APPROACHING, detail);
+            return true;
+        }
+
+        const auto drop_hand =
+            knowledge_->get_world_state(category, id, "drop_hand");
+        const auto drop_object =
+            knowledge_->get_world_state(category, id, "drop_object");
+        // Este es el handoff Drop -> Approach: Drop escribe drop_hand/drop_object
+        // justo antes de fallar por rango o planear, y Approach usa esos campos
+        // para alinear con el brazo que realmente trae el objeto a soltar.
+        if (drop_hand.is_string()) {
+            const std::string hand = toLowerCopy(drop_hand.get<std::string>());
+            const std::string object =
+                drop_object.is_string() ? drop_object.get<std::string>() : "";
+            const bool left_matches =
+                hand == "left_hand" && left_occupied &&
+                (object.empty() || objectTokenMatches(object, left_value));
+            const bool right_matches =
+                hand == "right_hand" && right_occupied &&
+                (object.empty() || objectTokenMatches(object, right_value));
+
+            if (left_matches || right_matches) {
+                use_right_hand = right_matches;
+                selection_reason = "drop requested object";
+                drop_context_selected = true;
+            } else if (!object.empty()) {
+                RCLCPP_WARN(
+                    node_->get_logger(),
+                    "[Approach] Drop lateral context ignored: hand=%s object=%s left=%s right=%s",
+                    hand.c_str(), object.c_str(),
+                    left_value.c_str(), right_value.c_str());
+            }
+        }
+
+        if (drop_context_selected) {
+            // Ya sabemos que brazo trae el objeto que Drop intento soltar.
+        } else if (right_occupied && left_occupied) {
+            const auto target_name =
+                knowledge_->get_world_state(category, id, "name");
+            const bool is_container_target =
+                target_name.is_string() &&
+                (containsToken(target_name.get<std::string>(), "container") ||
+                 containsToken(target_name.get<std::string>(), "contenedor") ||
+                 containsToken(target_name.get<std::string>(), "bote"));
+
+            if (!is_container_target) {
+                detail = "object_lateral_adjustment_skipped_ambiguous_held_hand";
+                RCLCPP_WARN(
+                    node_->get_logger(),
+                    "[Approach] Drop lateral adjustment skipped: both hands are occupied");
+                publishFeedback(gh, ApproachState::APPROACHING, detail);
+                return true;
+            }
+
+            // Si las dos manos estan ocupadas y el destino es contenedor,
+            // escogemos una mano fija para no bloquear el flujo por ambiguedad.
+            use_right_hand = false;
+            selection_reason = "container fallback held object";
+        } else {
+            use_right_hand = right_occupied;
+        }
+    } else {
+        if (!right_free && !left_free) {
+            detail = "object_lateral_adjustment_skipped_no_free_hand";
+            RCLCPP_WARN(node_->get_logger(),
+                        "[Approach] Object lateral adjustment skipped: no free hand");
+            publishFeedback(gh, ApproachState::APPROACHING, detail);
+            return true;
+        }
+        use_right_hand = right_free;
     }
 
     const double distance_m =
-        right_free ? object_lateral_offset_m_ : -object_lateral_offset_m_;
-    const char *selected_hand = right_free ? "right_hand" : "left_hand";
-    const char *direction = right_free ? "left" : "right";
+        use_right_hand ? object_lateral_offset_m_ : -object_lateral_offset_m_;
+    const char *selected_hand = use_right_hand ? "right_hand" : "left_hand";
+    const char *direction = use_right_hand ? "left" : "right";
 
     detail = std::string("object_lateral_adjustment_") + selected_hand +
              "_move_" + direction;
 
     RCLCPP_INFO(node_->get_logger(),
-                "[Approach] Object centered at y=%.3f m. Using %s, moving base %s %.3f m",
+                "[Approach] Object centered at y=%.3f m. Using %s (%s), moving base %s %.3f m",
                 target_y,
                 selected_hand,
+                selection_reason,
                 direction,
                 std::abs(distance_m));
     publishFeedback(gh, ApproachState::APPROACHING, detail);
@@ -764,6 +916,103 @@ bool Approach::moveBaseLaterally(
         }
 
         hardware_->MoveBase(0.0, direction * kObjectLateralSpeedMps, 0.0);
+        rate.sleep();
+    }
+
+    hardware_->MoveBase(0.0, 0.0, 0.0);
+    return true;
+}
+
+bool Approach::applySafeDropFinalCorrection(
+    const std::string &category,
+    const geometry_msgs::msg::PoseStamped &global_pose,
+    const std::shared_ptr<GoalHandle> &gh,
+    std::string &detail) {
+    detail.clear();
+    if (category != "safe_drop") {
+        return true;
+    }
+
+    // La marca de navegacion puede quedarse corta por criterios del planner;
+    // para safe_drop damos un ultimo pulso local antes del ajuste lateral.
+    geometry_msgs::msg::PoseStamped target_in_base;
+    try {
+        auto map_pose_now = global_pose;
+        map_pose_now.header.stamp = node_->now();
+        target_in_base = tf_buffer_->transform(map_pose_now, "base_link", 200ms);
+    } catch (const tf2::TransformException &ex) {
+        detail = "safe_drop_final_correction_tf_failed";
+        RCLCPP_WARN(node_->get_logger(),
+                    "[Approach] Safe-drop final correction skipped: %s",
+                    ex.what());
+        publishFeedback(gh, ApproachState::APPROACHING, detail);
+        return true;
+    }
+
+    const double dx = target_in_base.pose.position.x;
+    const double dy = target_in_base.pose.position.y;
+    const double residual = std::hypot(dx, dy);
+    RCLCPP_INFO(node_->get_logger(),
+                "[Approach] Safe-drop final residual after navigation: dx=%.3f dy=%.3f dist=%.3f",
+                dx, dy, residual);
+
+    if (residual <= kSafeDropFinalCorrectionToleranceM) {
+        detail = "safe_drop_final_correction_not_needed";
+        publishFeedback(gh, ApproachState::APPROACHING, detail);
+        return true;
+    }
+
+    if (residual > kSafeDropFinalCorrectionMaxM) {
+        detail = "safe_drop_final_correction_residual_too_large";
+        RCLCPP_WARN(node_->get_logger(),
+                    "[Approach] Safe-drop final residual %.3f m exceeds %.3f m",
+                    residual, kSafeDropFinalCorrectionMaxM);
+        publishFeedback(gh, ApproachState::FAILED, detail);
+        return false;
+    }
+
+    detail = "safe_drop_final_correction";
+    publishFeedback(gh, ApproachState::APPROACHING, detail);
+    if (!moveBaseRelative(dx, dy, gh)) {
+        detail = "safe_drop_final_correction_cancelled";
+        publishFeedback(gh, ApproachState::FAILED, detail);
+        return false;
+    }
+
+    detail = "safe_drop_final_correction_done";
+    publishFeedback(gh, ApproachState::APPROACHING, detail);
+    return true;
+}
+
+bool Approach::moveBaseRelative(
+    double dx_m,
+    double dy_m,
+    const std::shared_ptr<GoalHandle> &gh) const {
+    if (!hardware_) {
+        return true;
+    }
+
+    const double distance = std::hypot(dx_m, dy_m);
+    if (distance <= 0.0) {
+        return true;
+    }
+
+    const double duration_s = distance / kSafeDropFinalCorrectionSpeedMps;
+    const double vx = dx_m / duration_s;
+    const double vy = dy_m / duration_s;
+    const auto start_time = std::chrono::steady_clock::now();
+    rclcpp::Rate rate(30.0);
+
+    while (rclcpp::ok() &&
+           std::chrono::duration<double>(
+               std::chrono::steady_clock::now() - start_time).count() <
+               duration_s) {
+        if (!gh || !gh->is_active()) {
+            hardware_->MoveBase(0.0, 0.0, 0.0);
+            return false;
+        }
+
+        hardware_->MoveBase(vx, vy, 0.0);
         rate.sleep();
     }
 

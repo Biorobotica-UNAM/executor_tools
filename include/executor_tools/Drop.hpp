@@ -150,7 +150,9 @@ private:
   std::string motorJointName(std::size_t motor) const;
   bool moveBase(double distance_m, const std::shared_ptr<GoalHandle> &gh);
 
+  DropTarget resolveDropTargetFromLastFindSpace(const std::string &argument) const;
   static DropTarget resolveDropTarget(const std::string &argument);
+  static bool isExplicitDropDestination(const std::string &argument);
   static std::string stateName(DropState s);
   static std::string normalizeToken(std::string value);
   static bool parseObjectId(const std::string &object_id,

@@ -80,8 +80,12 @@ private:
     double head_pitch{-0.6};
     double sensor_settle_delay_sec{0.3};
     bool configure_container_drop_z{false};
+    std::string container_profile{"default"};
     double container_drop_z_override_m{1.0};
+    double container_roi_z_min_m{-0.20};
     double container_roi_z_max_m{1.05};
+    double container_object_min_height_m{0.25};
+    double container_object_max_height_m{0.55};
     int shelf_level_rank{0};
     SpaceBounds bounds;
   };

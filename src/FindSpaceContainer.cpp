@@ -130,8 +130,8 @@ bool FindSpace::precenterContainerWithOwl(
         pose.x >= kIdealXMin && pose.x <= kIdealXMax &&
         std::fabs(pose.y) <= kIdealAbsYMax;
     RCLCPP_INFO(node_->get_logger(),
-                "[FindSpace] precenter OWL class=%s frame=%s conf=%.2f "
-                "base=(%.3f %.3f %.3f) bbox_cx=%.1f bbox_size=(%.1f %.1f) "
+                "[FindSpace] OWL seleccionado class=%s frame=%s conf=%.2f "
+                "base=(%.3f %.3f %.3f) bbox_cx=%.1f bbox_px=(%.1f %.1f) "
                 "ideal_x=[%.2f %.2f] ideal_abs_y<=%.2f "
                 "scan_x=[%.2f %.2f] scan_abs_y<=%.2f",
                 pose.class_name.c_str(), pose.frame.c_str(), pose.confidence,
@@ -187,13 +187,21 @@ bool FindSpace::precenterContainerWithOwl(
         continue;
       }
 
+      const char *reason = pose.x > kActionXMax ? "lejos_x" :
+                           (pose.x < kActionXMin ? "demasiado_cerca_x" :
+                            "lateral_y");
+      const char *advice = pose.x > kActionXMax ? "acercarse_al_contenedor" :
+                           (std::fabs(pose.y) > kActionAbsYMax ?
+                            "recentrar_robot_o_contenedor" :
+                            "reaproximar_con_navegacion");
       RCLCPP_WARN(node_->get_logger(),
-                  "[FindSpace] contenedor fuera de la zona corregible actual: "
-                  "base=(%.3f %.3f %.3f) scan_x=[%.2f %.2f] abs_y<=%.2f "
-                  "action_x=[%.2f %.2f] action_abs_y<=%.2f. "
-                  "Se requiere reaproximacion externa.",
-                  pose.x, pose.y, pose.z, kScanXMin, kScanXMax,
-                  kScanAbsYMax, kActionXMin, kActionXMax, kActionAbsYMax);
+                  "[FindSpace] OWL rechazado: contenedor fuera de zona "
+                  "corregible reason=%s base=(%.3f %.3f %.3f) "
+                  "scan_x=[%.2f %.2f] abs_y<=%.2f action_x=[%.2f %.2f] "
+                  "action_abs_y<=%.2f consejo=%s",
+                  reason, pose.x, pose.y, pose.z, kScanXMin, kScanXMax,
+                  kScanAbsYMax, kActionXMin, kActionXMax, kActionAbsYMax,
+                  advice);
       return false;
     }
 
@@ -427,12 +435,24 @@ bool FindSpace::requestOwlContainerPose(OwlContainerPose &pose_out,
         8.0 * std::hypot(scan_x_error, scan_y_error) -
         0.20 * center_offset;
 
+    const char *state = in_scan_zone ? "usable" : "fuera_scan";
+    const char *advice = "ok";
+    if (!in_scan_zone) {
+      if (x > kScanXMax) {
+        advice = "acercarse_al_contenedor";
+      } else if (x < kScanXMin) {
+        advice = "alejarse_un_poco";
+      } else {
+        advice = "recentrar_robot_o_contenedor";
+      }
+    }
+
     RCLCPP_INFO(node_->get_logger(),
-                "[FindSpace] OWL candidato frame=%s conf=%.2f "
-                "base=(%.3f %.3f %.3f) bbox_cx=%.1f area=%.0f "
-                "score=%.3f in_scan=%s",
+                "[FindSpace] OWL marca frame=%s conf=%.2f "
+                "base=(%.3f %.3f %.3f) bbox_px=(%.0f %.0f) "
+                "bbox_cx=%.1f score=%.2f estado=%s consejo=%s",
                 frame.c_str(), det.confidence, x, y, tf.transform.translation.z,
-                center_x, area, score, in_scan_zone ? "true" : "false");
+                width, height, center_x, score, state, advice);
 
     if (!found || score > best_score) {
       found = true;

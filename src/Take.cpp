@@ -144,10 +144,16 @@ Result Take::run(
     // ── PREPARING_EXTEND ──────────────────────────────────────
     publishFeedback(gh, TakeState::PREPARING_EXTEND);
 
-    const double x_coord = target_data[0].get<double>();
-    const double y_coord = target_data[1].get<double>();
+    const double x_coord     = target_data[0].get<double>();
+    const double y_coord     = target_data[1].get<double>();
+    const double abs_y_coord = std::abs(y_coord);
 
-    if (x_coord > x_limit) {
+    if (x_coord > x_high_limit || x_coord < x_low_limit) {
+        publishFeedback(gh, TakeState::FAILED, "pose_out_of_range");
+        return {false, "FAILED", "pose_out_of_range"};
+    }
+
+    if (abs_y_coord > y_high_limit || abs_y_coord < y_low_limit) {
         publishFeedback(gh, TakeState::FAILED, "pose_out_of_range");
         return {false, "FAILED", "pose_out_of_range"};
     }
@@ -467,13 +473,21 @@ bool Take::selectArm(
 {
     arm_group = (y_coord >= 0.0) ? "left_arm_group" : "right_arm_group";
 
-    if (arm_group == "left_arm_group") {
+    if (arm_group == "left_arm_group" && left_obj == "nothing") {
         hand = "left_hand";
-        return (left_obj == "nothing");
-    } else {
-        hand = "right_hand";
-        return (right_obj == "nothing");
+        return true;
+    } else if (arm_group == "left_arm_group" && left_obj != "nothing") {
+        arm_group = "right_arm_group";
     }
+
+    if (arm_group == "right_arm_group" && right_obj == "nothing") {
+        hand = "right_hand";
+        return true;
+    } else if (arm_group == "right_arm_group" && right_obj != "nothing") {
+        return false;
+    }
+
+    return false;
 }
 
 // ─────────────────────────────────────────────────────────────

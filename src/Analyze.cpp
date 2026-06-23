@@ -272,5 +272,13 @@ nlohmann::json AnalyzeObjects::parseObjectString(const std::string &argument) {
     return j;
   }
 
+  // bare class name from CLIPS (e.g. "snacks") → default to count
+  if (!argument.empty()) {
+    j["action"] = "count";
+    j["target_class"] = argument;
+    j["reset_count"] = false;
+    return j;
+  }
+
   return j;
 }
