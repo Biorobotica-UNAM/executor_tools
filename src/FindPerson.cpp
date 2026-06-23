@@ -114,81 +114,77 @@ Result FindPerson::run(const std::string &argument,
 // waitForHeadStable
 // ============================================================
 //
-// Espera a que la cabeza deje de moverse antes de capturar un frame.
-// Funciona en dos modos según lo que exponga Hardware:
+// Espera activa hasta que la cabeza deje de moverse, leyendo la
+// posición real con Hardware::GetCurrentPose("head", joint).
 //
-//   A) Si Hardware::GetHeadPosition() existe: compara la posición actual
-//      contra la lectura anterior; sale cuando el delta es menor a
-//      tolerance_rad en dos muestras consecutivas.
+//   joint 0 → pan   (rad)
+//   joint 1 → tilt  (rad)
 //
-//   B) Si no existe (o falla): fallback a un sleep mínimo garantizado de
-//      kMinSettleMs ms, que es más conservador que el sleep fijo anterior.
-//
-// En cualquier caso respeta goal_cancelled para no bloquear la cancelación.
+// Lógica:
+//   1. Sleep mínimo kMinSettleMs para dar tiempo al servo de arrancar
+//      el movimiento antes de empezar a muestrear (evita salida falsa
+//      inmediata si la articulación aún no empezó a moverse).
+//   2. Poll cada kPollMs ms. Si el delta entre la muestra anterior y la
+//      actual es < tolerance_rad en AMBOS ejes durante stable_needed
+//      muestras consecutivas → cabeza estable → return true.
+//   3. Si se supera timeout_ms → warning + return true (no abortar).
+//   4. Si el goal se cancela → return false.
 
 bool FindPerson::waitForHeadStable(const std::shared_ptr<GoalHandle> &gh,
-                                   int timeout_ms,
-                                   double tolerance_rad) {
-  constexpr int kPollMs    = 80;   // intervalo de muestreo
-  constexpr int kMinSettleMs = 400; // mínimo aunque la pose ya sea estable
+                                   int    timeout_ms,
+                                   double tolerance_rad,
+                                   int    stable_needed) {
+  constexpr int kPollMs     = 80;   // intervalo de muestreo (ms)
+  constexpr int kMinSettleMs = 150; // tiempo mínimo antes de empezar a muestrear
 
-  const auto t_start = std::chrono::steady_clock::now();
-  const auto deadline = t_start + std::chrono::milliseconds(timeout_ms);
-
-  // Mínimo de settle para dar tiempo al servo de arrancar el movimiento
-  // antes de empezar a leer la posición.
+  // Pausa mínima para que el servo arranque el movimiento
   std::this_thread::sleep_for(std::chrono::milliseconds(kMinSettleMs));
 
-  std::vector<double> prev_pos;
-  int stable_count = 0;             // muestras consecutivas bajo umbral
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+
+  double prev_pan  = hardware_->GetCurrentPose("head", 0);
+  double prev_tilt = hardware_->GetCurrentPose("head", 1);
+  int    stable_count = 0;
 
   while (std::chrono::steady_clock::now() < deadline) {
     if (!gh || !gh->is_active())
       return false;
 
-    // ── Intento A: pose real ────────────────────────────────
-    // Si tu Hardware expone GetHeadPosition() descomenta este bloque.
-    // El método debe devolver {pan, tilt} en radianes o un vector vacío
-    // si el dato no está disponible todavía.
-    //
-    // std::vector<double> cur_pos = hardware_->GetHeadPosition();
-    // if (!cur_pos.empty() && cur_pos.size() == prev_pos.size()) {
-    //   double delta = 0.0;
-    //   for (std::size_t i = 0; i < cur_pos.size(); ++i)
-    //     delta = std::max(delta, std::abs(cur_pos[i] - prev_pos[i]));
-    //
-    //   if (delta < tolerance_rad) {
-    //     if (++stable_count >= 2) {   // 2 muestras estables (~160 ms)
-    //       RCLCPP_DEBUG(node_->get_logger(),
-    //                    "[FindPerson] Head stable after %.0f ms (delta=%.4f rad)",
-    //                    std::chrono::duration<double, std::milli>(
-    //                        std::chrono::steady_clock::now() - t_start).count(),
-    //                    delta);
-    //       return true;
-    //     }
-    //   } else {
-    //     stable_count = 0;
-    //   }
-    // }
-    // prev_pos = cur_pos;
-
-    // ── Fallback B: tiempo mínimo ya cumplido, salir ────────
-    // Si no hay GetHeadPosition, el kMinSettleMs de arriba es suficiente.
-    // Elimina este return y descomenta el bloque A cuando tengas la API.
-    (void)prev_pos;
-    (void)stable_count;
-    (void)tolerance_rad;
-    RCLCPP_DEBUG(node_->get_logger(),
-                 "[FindPerson] waitForHeadStable: using time-based settle (%d ms)",
-                 kMinSettleMs);
-    return true;
-
     std::this_thread::sleep_for(std::chrono::milliseconds(kPollMs));
+
+    const double cur_pan  = hardware_->GetCurrentPose("head", 0);
+    const double cur_tilt = hardware_->GetCurrentPose("head", 1);
+
+    const double delta_pan  = std::abs(cur_pan  - prev_pan);
+    const double delta_tilt = std::abs(cur_tilt - prev_tilt);
+    const double delta      = std::max(delta_pan, delta_tilt);
+
+    RCLCPP_DEBUG(node_->get_logger(),
+                 "[FindPerson] waitForHeadStable: pan=%.4f tilt=%.4f "
+                 "delta=%.4f rad (stable %d/%d)",
+                 cur_pan, cur_tilt, delta, stable_count, stable_needed);
+
+    if (delta < tolerance_rad) {
+      if (++stable_count >= stable_needed) {
+        RCLCPP_DEBUG(node_->get_logger(),
+                     "[FindPerson] Head stable: pan=%.4f tilt=%.4f "
+                     "(delta=%.4f < %.4f rad, %d consecutive samples)",
+                     cur_pan, cur_tilt, delta, tolerance_rad, stable_needed);
+        return true;
+      }
+    } else {
+      stable_count = 0;
+    }
+
+    prev_pan  = cur_pan;
+    prev_tilt = cur_tilt;
   }
 
   RCLCPP_WARN(node_->get_logger(),
-              "[FindPerson] waitForHeadStable: timeout after %d ms", timeout_ms);
-  return true; // timeout no es fallo, continuamos igual
+              "[FindPerson] waitForHeadStable: timeout after %d ms — continuing anyway",
+              timeout_ms);
+  return true; // timeout no es error fatal
 }
 
 // ============================================================
@@ -209,9 +205,6 @@ bool FindPerson::scanPosition(double pan, double tilt, bool anybody,
 
   hardware_->MoveHead({pan, tilt});
 
-  // Espera a que la cabeza se estabilice antes de detectar.
-  // Sustituye el sleep fijo anterior (12 × 100 ms = 1.2 s) por una espera
-  // activa que sale en cuanto la articulación deja de moverse.
   if (!waitForHeadStable(gh))
     return false;
 
@@ -240,21 +233,11 @@ bool FindPerson::scanPosition(double pan, double tilt, bool anybody,
               detection.pose.pose.position.z);
 
   // ── 3. Centering loop (closed-loop) ───────────────────────
-  //
-  // En vez de corregir el LookAt con un heurístico open-loop sobre el
-  // bbox (que depende de la distancia a la persona), ejecutamos hasta
-  // kMaxCenterIter iteraciones de detect→lookat. Cada iteración usa la
-  // pose recién obtenida con la cabeza ya quieta, por lo que converge
-  // incluso si la primera detección vino con la cámara en movimiento.
-  //
-  // Criterio de salida anticipada: si el centro del bbox se acerca a
-  // kImageCenterY dentro de kCenterThresholdPx, se considera centrada.
-
   publishFeedback(gh, FindPersonState::LOOK_AT_TARGET);
 
   constexpr int    kMaxCenterIter      = 2;
   constexpr double kImageCenterY       = 240.0;
-  constexpr double kCenterThresholdPx  = 40.0;  // convergencia aceptable
+  constexpr double kCenterThresholdPx  = 40.0;
 
   Vision::PersonDetection current_detection = detection;
 
@@ -283,8 +266,6 @@ bool FindPerson::scanPosition(double pan, double tilt, bool anybody,
     // ── 3c. Re-detect con cabeza quieta ───────────────────
     Vision::PersonDetection refined;
     if (!vision_->DetectPersonPose(refined, 2s)) {
-      // Si falla la re-detección no abortamos: usamos la última pose válida
-      // y salimos del loop para continuar con la identificación.
       RCLCPP_WARN(node_->get_logger(),
                   "[FindPerson] Re-detect failed on centering iter=%d, using last valid pose",
                   iter);
@@ -324,20 +305,12 @@ bool FindPerson::scanPosition(double pan, double tilt, bool anybody,
     }
   }
 
-  // Desde aquí `current_detection` contiene la pose del último frame
-  // capturado con la cabeza estable. Se usa como pose definitiva de la
-  // persona para navegación y para el registro facial.
   const geometry_msgs::msg::PoseStamped target_pose = current_detection.pose;
 
   if (!gh->is_active())
     return false;
 
   // ── 4. Refresh del frame cacheado en face_recog ───────────
-  //
-  // Ahora que la cabeza está quieta y la cara está (aproximadamente) centrada
-  // hacemos el refresh. Se elimina el caso especial de "cara baja" porque el
-  // centering loop ya lo resuelve.
-
   bool refreshed = false;
   std::string centered_coords;
   float centered_z = 0.0f;
