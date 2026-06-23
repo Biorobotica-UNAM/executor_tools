@@ -141,6 +141,6 @@ private:
     // ── Physical constants ───────────────────────────────────────
     const double             x_low_limit  = 0.3;
     const double             x_high_limit = 0.6;
-    const double             y_low_limit  = 0.1;
+    const double             y_low_limit  = 0.15;
     const double             y_high_limit = 0.5;
 };
