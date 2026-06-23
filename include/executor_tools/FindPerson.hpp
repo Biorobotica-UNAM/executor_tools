@@ -48,6 +48,10 @@ public:
              const std::shared_ptr<GoalHandle> &gh);
 
 private:
+  bool waitForHeadStable(const std::shared_ptr<GoalHandle> &gh,
+                       int timeout_ms = 2000,
+                       double tolerance_rad = 0.04);
+
   bool scanPosition(double pan, double tilt, bool anybody,
                     const std::string &target, const std::string &category,
                     const std::string &person_index, std::string &found_name,
