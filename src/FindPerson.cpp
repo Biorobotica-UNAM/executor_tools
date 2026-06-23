@@ -282,7 +282,7 @@ bool FindPerson::scanPosition(double pan, double tilt, bool anybody,
 
     // ── 3c. Re-detect con cabeza quieta ───────────────────
     Vision::PersonDetection refined;
-    if (!vision_->DetectPersonPose(refined, 1500ms)) {
+    if (!vision_->DetectPersonPose(refined, 2s)) {
       // Si falla la re-detección no abortamos: usamos la última pose válida
       // y salimos del loop para continuar con la identificación.
       RCLCPP_WARN(node_->get_logger(),
