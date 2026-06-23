@@ -153,7 +153,7 @@ Result Take::run(
         return {false, "FAILED", "pose_out_of_range"};
     }
 
-    if (abs_y_coord > x_high_limit || abs_y_coord < x_low_limit) {
+    if (abs_y_coord > y_high_limit || abs_y_coord < y_low_limit) {
         publishFeedback(gh, TakeState::FAILED, "pose_out_of_range");
         return {false, "FAILED", "pose_out_of_range"};
     }
