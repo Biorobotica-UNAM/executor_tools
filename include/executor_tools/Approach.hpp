@@ -64,6 +64,14 @@ private:
         std::string &detail);
     bool moveBaseLaterally(double distance_m,
                            const std::shared_ptr<GoalHandle> &gh) const;
+    bool applySafeDropFinalCorrection(
+        const std::string &category,
+        const geometry_msgs::msg::PoseStamped &global_pose,
+        const std::shared_ptr<GoalHandle> &gh,
+        std::string &detail);
+    bool moveBaseRelative(double dx_m,
+                          double dy_m,
+                          const std::shared_ptr<GoalHandle> &gh) const;
     // Detiene la navegación activa publicando la pose actual del robot como
     // nuevo goal. Go() es un tópico (no action), así que sobrescribir con
     // "ve a donde ya estás" hace que el nav_controller deje de comandar

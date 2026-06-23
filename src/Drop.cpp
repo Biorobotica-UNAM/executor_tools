@@ -8,10 +8,28 @@
 	#include <thread>
 
 	#include "tf2/exceptions.h"
+	#include "tf2/utils.h"
+	#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
-	using namespace std::chrono_literals;
+using namespace std::chrono_literals;
 
-	Drop::Drop(const rclcpp::Node::SharedPtr &node,
+namespace {
+constexpr double kSafeDropDesiredManipulationX = 0.62;
+constexpr double kContainerManipulationCenterXMax = 0.72;
+
+geometry_msgs::msg::Quaternion releaseToolOrientation() {
+  // Drop usa una orientacion fija de herramienta: la TF marca el punto seguro,
+  // no la postura final del efector.
+  geometry_msgs::msg::Quaternion q;
+  q.x = 0.0;
+  q.y = -0.707;
+  q.z = 0.0;
+  q.w = 0.707;
+  return q;
+}
+}
+
+Drop::Drop(const rclcpp::Node::SharedPtr &node,
 		       const std::shared_ptr<Manipulation> &manipulation,
 		       const std::shared_ptr<Hardware> &hardware,
 		       const std::shared_ptr<Knowledge> &knowledge,
@@ -23,9 +41,11 @@
 	}
 
 	std::vector<Drop::MotorStage> Drop::releaseMotorStages() const {
+	  // La liberacion se ejecuta como inverso de take: primero coloca hombro/codo
+	  // y al final ajusta muneca para no arrastrar el objeto dentro del contenedor.
 	  return {
 		  {"shoulder_elbow", {0, 3}, 3},
-		  {"wrist", {5}, 2},
+		  {"wrist", {4}, 2},
 	  };
 	}
 
@@ -123,7 +143,7 @@
         return {true, "SUCCESS", "floor_drop_completed"};
       }
 
-	  const DropTarget drop_target = resolveDropTarget(argument);
+	  const DropTarget drop_target = resolveDropTargetFromLastFindSpace(argument);
 
 	  std::ostringstream ready_detail;
 	  ready_detail << "arg=" << (argument.empty() ? "<empty>" : argument)
@@ -153,6 +173,20 @@
 	  const std::string object_name = resolveObjectName(held->value);
 	  const std::string tip = selectTip(object_name);
 
+	  // Si Drop queda fuera de rango, supervisor_manager inyecta
+	  // approach safe_drop_1. Guardamos aqui que objeto/mano motivaron ese
+	  // drop para que Approach alinee la base con el brazo correcto.
+	  const bool drop_object_ok = knowledge_->update_world_state(
+		  "safe_drop", "1", "drop_object", held->value);
+	  const bool drop_hand_ok = knowledge_->update_world_state(
+		  "safe_drop", "1", "drop_hand", held->hand);
+	  if (!drop_object_ok || !drop_hand_ok) {
+		RCLCPP_WARN(node_->get_logger(),
+		            "[Drop] no se pudo guardar contexto de drop en knowledge "
+		            "drop_object_ok=%d drop_hand_ok=%d",
+		            drop_object_ok, drop_hand_ok);
+	  }
+
 	  RCLCPP_INFO(node_->get_logger(),
 		          "[Drop] soltando object='%s' hand=%s arm=%s tip=%s target=%s",
 		          held->value.c_str(), held->hand.c_str(), arm_group_.c_str(),
@@ -181,11 +215,13 @@
 		    << " z=" << p.z << " dist_xy=" << distance_xy
 		    << " mode=" << drop_target.mode << " source=" << safe_pose->source;
 		publishFeedback(gh, DropState::FAILED, oss.str());
-		return {false, "FAILED", oss.str()};
+		RCLCPP_WARN(node_->get_logger(), "[Drop] %s", oss.str().c_str());
+		return {false, "FAILED", "pose_out_of_range"};
 	  }
 
 	  auto release_center_pose = safe_pose->pose;
 	  release_center_pose.header.stamp = node_->now();
+	  release_center_pose.pose.orientation = releaseToolOrientation();
 	  auto target_pose = release_center_pose;
 
 	  RCLCPP_INFO(node_->get_logger(),
@@ -450,25 +486,64 @@
 		return make_right();
 	  }
 
-	  const auto mentions = [&arg](const std::string &held) {
+	  const auto strip_hand_prefix = [](const std::string &value) {
+		if (value.rfind("left_", 0) == 0) {
+		  return value.substr(5);
+		}
+		if (value.rfind("right_", 0) == 0) {
+		  return value.substr(6);
+		}
+		return value;
+	  };
+
+	  const auto strip_index = [](const std::string &value) {
+		const auto sep = value.rfind('_');
+		if (sep != std::string::npos && sep + 1 < value.size() &&
+		    std::all_of(value.begin() + sep + 1, value.end(),
+		                [](unsigned char c) { return std::isdigit(c); })) {
+		  return value.substr(0, sep);
+		}
+		return value;
+	  };
+
+	  // Cuando el comando es "drop cutlery_1", el argumento ya no describe el
+	  // destino; describe que objeto se debe soltar. Con esto elegimos la mano
+	  // correcta antes de mirar el ultimo safe_drop calculado por find_space.
+	  const auto object_matches = [&](const std::string &held) {
 		if (held.empty() || held == "nothing") {
 		  return false;
 		}
-		if (arg.find(held) != std::string::npos) {
+		if (arg.empty() || isExplicitDropDestination(arg)) {
+		  return false;
+		}
+
+		const std::string normalized_arg = strip_hand_prefix(arg);
+		const std::string normalized_held = strip_hand_prefix(held);
+		if (normalized_arg == normalized_held) {
 		  return true;
 		}
-		const auto sep = held.find('_');
-		if (sep != std::string::npos && sep + 1 < held.size()) {
-		  return arg.find(held.substr(sep + 1)) != std::string::npos;
+
+		// Permite "drop cutlery" cuando la mano guarda "cutlery_1", pero no
+		// mezcla instancias diferentes como cutlery_1 y cutlery_2.
+		if (normalized_arg == strip_index(normalized_held) ||
+		    strip_index(normalized_arg) == normalized_held) {
+		  return true;
 		}
 		return false;
 	  };
 
-	  if (mentions(left) && left_occupied) {
+	  const bool left_matches = left_occupied && object_matches(left);
+	  const bool right_matches = right_occupied && object_matches(right);
+
+	  if (left_matches && !right_matches) {
 		return make_left();
 	  }
-	  if (mentions(right) && right_occupied) {
+	  if (right_matches && !left_matches) {
 		return make_right();
+	  }
+	  if (left_matches && right_matches) {
+		error = "requested_object_ambiguous";
+		return std::nullopt;
 	  }
 
 	  if (left_occupied && !right_occupied) {
@@ -486,12 +561,46 @@
 	  return std::nullopt;
 	}
 
+	Drop::DropTarget Drop::resolveDropTargetFromLastFindSpace(
+		const std::string &argument) const {
+	  // Si el plan todavia manda "drop container/table/shelf", respetamos ese
+	  // destino explicito. Si manda un objeto, usamos safe_drop_1.name.
+	  if (isExplicitDropDestination(argument)) {
+		return resolveDropTarget(argument);
+	  }
+
+	  // En el flujo actual, drop recibe el objeto a soltar (p. ej. cutlery_1).
+	  // El destino sale del ultimo find_space, que guarda safe_drop_1.name.
+	  const json last_target =
+		  knowledge_->get_world_state("safe_drop", "1", "name");
+	  if (last_target.is_string() && !last_target.get<std::string>().empty()) {
+		const std::string frame = last_target.get<std::string>();
+		const auto target = resolveDropTarget(frame);
+		RCLCPP_INFO(node_->get_logger(),
+		            "[Drop] destino tomado de ultimo find_space: name=%s mode=%s frame=%s",
+		            frame.c_str(), target.mode.c_str(), target.frame.c_str());
+		return target;
+	  }
+
+	  // Compatibilidad con planes antiguos que pasaban table/container/shelf
+	  // directamente como argumento de drop.
+	  return resolveDropTarget(argument);
+	}
+
 	std::optional<Drop::SafeDropPose> Drop::waitForSafeDropPose(
 		const std::shared_ptr<GoalHandle> &gh, const DropTarget &drop_target,
 		std::string &error) const {
 	  const std::string target_frame = "base_link";
 	  publishFeedback(gh, DropState::WAIT_DROP_TF,
-		              target_frame + " <- " + drop_target.frame);
+			          target_frame + " <- " + drop_target.frame);
+
+	  // La marca de manipulacion persiste en map para no moverse cuando el
+	  // robot reaproxima; Drop la transforma a base_link justo antes de planear.
+	  std::string knowledge_error;
+	  auto knowledge_pose = readSafeDropPoseFromKnowledge(drop_target, knowledge_error);
+	  if (knowledge_pose) {
+		return knowledge_pose;
+	  }
 
 	  geometry_msgs::msg::TransformStamped tf;
 	  std::string last_error;
@@ -518,14 +627,8 @@
 	  }
 
 	  RCLCPP_WARN(node_->get_logger(),
-		          "[Drop] TF %s no disponible despues de %d intento(s): %s",
-		          drop_target.frame.c_str(), attempts, last_error.c_str());
-
-	  std::string knowledge_error;
-	  auto safe_pose = readSafeDropPoseFromKnowledge(drop_target, knowledge_error);
-	  if (safe_pose) {
-		return safe_pose;
-	  }
+			          "[Drop] TF %s no disponible despues de %d intento(s): %s",
+			          drop_target.frame.c_str(), attempts, last_error.c_str());
 
 	  error = "drop_tf_not_available_run_find_space_first";
 	  if (!knowledge_error.empty()) {
@@ -536,34 +639,60 @@
 
 	std::optional<Drop::SafeDropPose> Drop::readSafeDropPoseFromKnowledge(
 		const DropTarget &drop_target, std::string &error) const {
-	  const json mode = knowledge_->get_world_state("robot", "", "safe_drop_mode");
-	  const json frame = knowledge_->get_world_state("robot", "", "safe_drop_frame");
-	  const json pose = knowledge_->get_world_state("robot", "", "safe_drop_pose");
+	  // Mismo formato que FindObject::updateObjectState: name identifica la TF
+	  // conceptual y manipulation guarda la pose estable en map.
+	  const json name = knowledge_->get_world_state("safe_drop", "1", "name");
+	  const json manipulation =
+		  knowledge_->get_world_state("safe_drop", "1", "manipulation");
 
-	  if (!mode.is_string() || !frame.is_string() || !pose.is_array() ||
-		  pose.size() != 7) {
-		error = "safe_drop_knowledge_empty";
+	  if (!name.is_string() || !manipulation.is_array() ||
+		  manipulation.size() != 7) {
+		error = "safe_drop_knowledge_empty_or_invalid";
 		return std::nullopt;
 	  }
 
-	  if (frame.get<std::string>() != drop_target.frame ||
-		  mode.get<std::string>() != drop_target.mode) {
-		error = "safe_drop_knowledge_mismatch mode=" + mode.get<std::string>() +
-		        " frame=" + frame.get<std::string>();
+	  if (name.get<std::string>() != drop_target.frame) {
+		error = "safe_drop_knowledge_mismatch name=" +
+		        name.get<std::string>() + " expected=" + drop_target.frame;
 		return std::nullopt;
 	  }
+
+	  PoseStamped map_pose;
+	  map_pose.header.stamp = rclcpp::Time(0);
+	  map_pose.header.frame_id = "map";
+	  map_pose.pose.position.x = manipulation[0].get<double>();
+	  map_pose.pose.position.y = manipulation[1].get<double>();
+	  map_pose.pose.position.z = manipulation[2].get<double>();
+	  map_pose.pose.orientation.x = manipulation[3].get<double>();
+	  map_pose.pose.orientation.y = manipulation[4].get<double>();
+	  map_pose.pose.orientation.z = manipulation[5].get<double>();
+	  map_pose.pose.orientation.w = manipulation[6].get<double>();
 
 	  SafeDropPose safe_pose;
+	  try {
+		safe_pose.pose = tf_buffer_->transform(map_pose, "base_link", 500ms);
+	  } catch (const tf2::TransformException &ex) {
+		error = "safe_drop_map_to_base_transform_failed: " +
+		        std::string(ex.what());
+		return std::nullopt;
+	  }
 	  safe_pose.pose.header.stamp = node_->now();
-	  safe_pose.pose.header.frame_id = "base_link";
-	  safe_pose.pose.pose.position.x = pose[0].get<double>();
-	  safe_pose.pose.pose.position.y = pose[1].get<double>();
-	  safe_pose.pose.pose.position.z = pose[2].get<double>();
-	  safe_pose.pose.pose.orientation.x = pose[3].get<double>();
-	  safe_pose.pose.pose.orientation.y = pose[4].get<double>();
-	  safe_pose.pose.pose.orientation.z = pose[5].get<double>();
-	  safe_pose.pose.pose.orientation.w = pose[6].get<double>();
-	  safe_pose.source = "knowledge:" + frame.get<std::string>();
+	  safe_pose.source = "knowledge:safe_drop_1.manipulation_map";
+
+	  // Refrescamos navigation en base_link para que Approach pueda acercarse
+	  // al punto guardado aunque el robot ya se haya movido desde FindSpace.
+	  const auto &p = safe_pose.pose.pose.position;
+	  const auto &q = safe_pose.pose.pose.orientation;
+	  const double yaw = tf2::getYaw(q);
+	  const double navigation_x =
+	      drop_target.mode == "container"
+	          ? std::max(0.0, p.x - kSafeDropDesiredManipulationX)
+	          : p.x;
+	  const json navigation = {
+	      navigation_x, p.y, 0.0, 0.0, 0.0, std::sin(yaw * 0.5),
+	      std::cos(yaw * 0.5)};
+	  knowledge_->update_world_state("safe_drop", "1", "navigation",
+	                                 navigation.dump());
 	  return safe_pose;
 	}
 
@@ -789,22 +918,22 @@
 	std::string Drop::motorJointName(std::size_t motor) const {
 	  const bool left = arm_group_ == "left_arm_group";
 
-	  switch (motor) {
-	  case 0:
-		return left ? "lf_shoulder_joint" : "rf_shoulder_joint";
-	  case 1:
-		return left ? "ls_shoulder_joint" : "rs_shoulder_joint";
-	  case 2:
-		return left ? "l_arm_twist_joint" : "r_arm_twist_joint";
-	  case 3:
-		return left ? "l_elbow_joint" : "r_elbow_joint";
-	  case 4:
-		return left ? "l_hand_joint" : "r_hand_joint";
-	  case 5:
-		return left ? "l_wrist_joint" : "r_wrist_joint";
-	  default:
-		return "";
-	  }
+		  switch (motor) {
+		  case 0:
+			return left ? "lf_shoulder_joint" : "rf_shoulder_joint";
+		  case 1:
+			return left ? "ls_shoulder_joint" : "rs_shoulder_joint";
+		  case 2:
+			return left ? "l_arm_twist_joint" : "r_arm_twist_joint";
+		  case 3:
+			return left ? "l_elbow_joint" : "r_elbow_joint";
+		  case 4:
+			return left ? "l_wrist_joint" : "r_wrist_joint";
+		  case 5:
+			return left ? "l_hand_joint" : "r_hand_joint";
+		  default:
+			return "";
+		  }
 	}
 
 	bool Drop::buildReverseTrajectory(
@@ -898,7 +1027,11 @@
 	  const bool container_top =
 		  contains("container_top") || contains("container_up") ||
 		  contains("container_high") || contains("container_table") ||
+		  contains("container_on") || contains("stacked_container") ||
 		  contains("bote_alto") || contains("contenedor_alto") ||
+		  contains("sobre_contenedor") || contains("sobre otro") ||
+		  contains("sobre_otro") || contains("encima") ||
+		  contains("encima_de") || contains("apilado") ||
 		  contains("sobre_mesa") || contains("mesa_alto") ||
 		  contains("medio_alto");
 	  const bool container_down =
@@ -916,7 +1049,8 @@
 		  (looks_like_container && !looks_like_table)) {
 		target.mode = "container";
 		target.frame = "container_drop_start";
-		target.bounds = {0.15, 1.35, 0.45, 0.08, 1.10, 1.50};
+		target.bounds = {0.15, kContainerManipulationCenterXMax,
+		                 0.45, 0.08, 1.10, 0.90};
 		if (container_top) {
 		  target.bounds.z_max = 1.30;
 		}
@@ -935,6 +1069,27 @@
 	  }
 
 	  return target;
+	}
+
+	bool Drop::isExplicitDropDestination(const std::string &argument) {
+	  const std::string lower = normalizeToken(argument);
+	  const auto contains = [&lower](const std::string &needle) {
+		return lower.find(needle) != std::string::npos;
+	  };
+
+	  // Palabras que significan "este argumento es destino", no objeto. Esto
+	  // conserva compatibilidad con planes viejos y evita confundir "container"
+	  // con un objeto transportado.
+	  return contains("drop_start") ||
+	         contains("table") || contains("mesa") ||
+	         contains("trash") || contains("bin") || contains("box") ||
+	         contains("container") || contains("contenedor") ||
+	         contains("bote") || contains("basura") ||
+	         contains("caja") || contains("cubeta") ||
+	         contains("shelf") || contains("rack") ||
+	         contains("cabinet") || contains("bookcase") ||
+	         contains("estante") || contains("armario") ||
+	         contains("repisa");
 	}
 
 	void Drop::publishFeedback(const std::shared_ptr<GoalHandle> &gh,
