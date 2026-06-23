@@ -473,13 +473,21 @@ bool Take::selectArm(
 {
     arm_group = (y_coord >= 0.0) ? "left_arm_group" : "right_arm_group";
 
-    if (arm_group == "left_arm_group") {
+    if (arm_group == "left_arm_group" && left_obj == "nothing") {
         hand = "left_hand";
-        return (left_obj == "nothing");
-    } else {
-        hand = "right_hand";
-        return (right_obj == "nothing");
+        return true;
+    } else if (arm_group == "left_arm_group" && left_obj != "nothing") {
+        arm_group = "right_arm_group";
     }
+
+    if (arm_group == "right_arm_group" && right_obj == "nothing") {
+        hand = "right_hand";
+        return true;
+    } else if (arm_group == "right_arm_group" && right_obj != "nothing") {
+        return false;
+    }
+
+    return false;
 }
 
 // ─────────────────────────────────────────────────────────────
