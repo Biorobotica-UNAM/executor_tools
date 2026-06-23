@@ -287,10 +287,28 @@ bool FindPerson::scanPosition(double pan, double tilt, bool anybody,
 
   if (identified) {
     if (!anybody && identified_name != target) {
-      RCLCPP_INFO(node_->get_logger(),
-                  "[FindPerson] Identified '%s', not target '%s' — skipping",
-                  identified_name.c_str(), target.c_str());
-      return false;
+      // The face DB always uses guest_N names, but the planner may refer to
+      // the same person with a semantic name (e.g. "user_1"). Check the world
+      // state for the face name stored under this logical slot. If a reference
+      // exists and does not match, it is genuinely the wrong person. If the
+      // slot has no stored name yet, accept whoever was identified here.
+      auto stored_json = knowledge_->get_world_state(category, person_index, "name");
+      const bool has_reference =
+          stored_json.is_string() && !stored_json.get<std::string>().empty();
+
+      if (has_reference && identified_name != stored_json.get<std::string>()) {
+        RCLCPP_INFO(node_->get_logger(),
+                    "[FindPerson] Identified '%s', not target '%s' (expected: '%s') — skipping",
+                    identified_name.c_str(), target.c_str(),
+                    stored_json.get<std::string>().c_str());
+        return false;
+      }
+
+      if (!has_reference) {
+        RCLCPP_INFO(node_->get_logger(),
+                    "[FindPerson] No face reference stored for '%s' — accepting identified '%s'",
+                    target.c_str(), identified_name.c_str());
+      }
     }
 
     if (anybody) {
@@ -324,8 +342,10 @@ bool FindPerson::scanPosition(double pan, double tilt, bool anybody,
       RCLCPP_INFO(node_->get_logger(), "[FindPerson] Description: %s",
                   description.c_str());
       publishFeedback(gh, FindPersonState::UPDATING, found_name);
+      // Always write the face name so subsequent find_person calls for this
+      // logical slot can verify identity correctly (e.g. user_1 → guest_1).
       updatePersonState(category, person_index, found_name, target_pose,
-                        detection.nav, description, anybody);
+                        detection.nav, description, true);
     } else {
       RCLCPP_WARN(node_->get_logger(),
                   "[FindPerson] DescribePerson failed for '%s'",
