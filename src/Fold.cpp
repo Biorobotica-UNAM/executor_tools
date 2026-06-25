@@ -103,7 +103,7 @@ Result Fold::stepDetectCloth(const std::shared_ptr<GoalHandle>& gh)
     //         • TF transform unavailable within timeout
     // ════════════════════════════════════════════════════════════
 
-    Vision::ClothKeypoints kp;
+    //Vision::ClothKeypoints kp;
     bool detected = false;
 
     for (int attempt = 1; attempt <= 3 && !detected; ++attempt) {
