@@ -54,6 +54,7 @@ add_library(${PROJECT_NAME}
   src/Analyze.cpp
   src/AnalyzePerson.cpp
   src/SaveLoc.cpp
+  src/Fold.cpp
 )
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
