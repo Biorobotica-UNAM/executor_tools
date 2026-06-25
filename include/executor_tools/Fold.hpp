@@ -4,6 +4,7 @@
 #include "executor_interfaces/action/execute_task.hpp"
 #include "executor_tools/Result.hpp"
 #include "hardware_tools/Hardware.hpp"
+#include "hri_tools/HRI.hpp"
 #include "vision_tools/Vision.hpp"
 #include "geometry_msgs/msg/point_stamped.hpp"
 #include <array>
@@ -50,6 +51,7 @@ public:
 
     Fold(const rclcpp::Node::SharedPtr&   node,
          const std::shared_ptr<Hardware>& hardware,
+         const std::shared_ptr<HRI>& hri,
          const std::shared_ptr<Vision>&   vision);
 
     Result run(const std::string&                 argument,
@@ -57,12 +59,17 @@ public:
 
 private:
     // ── Sub-steps (each returns early on failure) ─────────────
-    Result stepDetectCloth  (const std::shared_ptr<GoalHandle>& gh);
-    Result stepTakeSleeves  (const std::shared_ptr<GoalHandle>& gh);
-    Result stepFoldSleeves  (const std::shared_ptr<GoalHandle>& gh);
-    Result stepTakeBottom   (const std::shared_ptr<GoalHandle>& gh);
-    Result stepLiftAndAdvance(const std::shared_ptr<GoalHandle>& gh);
-    Result stepReset        (const std::shared_ptr<GoalHandle>& gh);
+    Result redetect           (const std::shared_ptr<GoalHandle>& gh);
+
+    Result stepTakeLeftSleeve (const std::shared_ptr<GoalHandle>& gh);
+    Result stepFoldLeftSleeve (const std::shared_ptr<GoalHandle>& gh);
+
+    Result stepTakeRightSleeve(const std::shared_ptr<GoalHandle>& gh);
+    Result stepFoldRightSleeve(const std::shared_ptr<GoalHandle>& gh);
+
+    Result stepTakeBottom     (const std::shared_ptr<GoalHandle>& gh);
+    Result stepLiftAndAdvance (const std::shared_ptr<GoalHandle>& gh);
+    Result stepReset          (const std::shared_ptr<GoalHandle>& gh);
 
     // ── Time-based linear base drive (mirrors Point's rotation) ─
     bool driveForward(double distance_m,
@@ -108,6 +115,7 @@ private:
     rclcpp::Node::SharedPtr   node_;
     std::shared_ptr<Hardware> hardware_;
     std::shared_ptr<Vision>   vision_;
+    std::shared_ptr<HRI>        hri_;
 
     // Cloth keypoints cached after detection (world frame)
     geometry_msgs::msg::PointStamped cloth_left_sleeve_;
