@@ -121,11 +121,11 @@ Result Fold::stepDetectCloth(const std::shared_ptr<GoalHandle>& gh)
     }
 
     // Cache keypoints for subsequent steps
-    cloth_left_sleeve_  = kp.left_sleeve;
-    cloth_right_sleeve_ = kp.right_sleeve;
-    cloth_bottom_left_  = kp.bottom_left;
-    cloth_bottom_right_ = kp.bottom_right;
-    cloth_center_       = kp.center;
+    //cloth_left_sleeve_  = kp.left_sleeve;
+    //cloth_right_sleeve_ = kp.right_sleeve;
+    //cloth_bottom_left_  = kp.bottom_left;
+    //cloth_bottom_right_ = kp.bottom_right;
+    //cloth_center_       = kp.center;
 
     // Refine head orientation toward cloth center so depth is stable
     hardware_->LookAt(cloth_center_);
