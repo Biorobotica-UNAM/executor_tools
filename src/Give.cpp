@@ -1,8 +1,44 @@
 #include "executor_tools/Give.hpp"
+#include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <thread>
 
 using namespace std::chrono_literals;
+
+namespace {
+
+std::string normalizeObjectToken(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::replace(value.begin(), value.end(), ' ', '_');
+    return value;
+}
+
+std::string stripNumericSuffix(const std::string& value)
+{
+    const auto sep = value.rfind('_');
+    if (sep != std::string::npos && sep + 1 < value.size() &&
+        std::all_of(value.begin() + sep + 1, value.end(),
+                    [](unsigned char c) { return std::isdigit(c); })) {
+        return value.substr(0, sep);
+    }
+    return value;
+}
+
+bool objectMatches(const std::string& requested, const std::string& held)
+{
+    const std::string req = normalizeObjectToken(requested);
+    const std::string have = normalizeObjectToken(held);
+    if (req.empty() || have.empty() || have == "nothing") {
+        return false;
+    }
+    return req == have || req == stripNumericSuffix(have) ||
+           stripNumericSuffix(req) == have;
+}
+
+} // namespace
 
 // =========================================================
 // Constructor
@@ -36,7 +72,7 @@ Result Give::run(const std::string& object_name,
 
     std::string hand = selectHand(object_name);
 
-    if (hand != "right_hand" || hand != "left_hand") {
+    if (hand != "right_hand" && hand != "left_hand") {
         publishFeedback(gh, GiveState::FAILED, "not_object");
         return {false, "FAILED", "not_object"};
     } 
@@ -89,13 +125,13 @@ Result Give::run(const std::string& object_name,
     std::this_thread::sleep_for(2s);
 
     // 7. Cerrar la mano
-    publishFeedback(gh, GiveState::MOVING_GRIPPER, "Opening gripper");
+    publishFeedback(gh, GiveState::MOVING_GRIPPER, "Closing gripper");
     gripper_ok = (hand == "left_hand") ? hardware_->MoveLeftGripper("close")
                                             : hardware_->MoveRightGripper("close");
 
     if (!gripper_ok) {
         publishFeedback(gh, GiveState::FAILED, "gripper_close_failed");
-        return {false, "FAILED", "gripper_open_failed"};
+        return {false, "FAILED", "gripper_close_failed"};
     }
 
     // 8. Regresar el brazo a la posición de reposo
@@ -129,8 +165,13 @@ std::string Give::selectHand(const std::string& obj)
 
     result.clear();
 
-    if (left_object == obj) result = "left_hand";
-    if (right_object == obj) result = "right_hand";
+    const std::string left =
+        left_object.is_string() ? left_object.get<std::string>() : "";
+    const std::string right =
+        right_object.is_string() ? right_object.get<std::string>() : "";
+
+    if (objectMatches(obj, left)) result = "left_hand";
+    if (objectMatches(obj, right)) result = "right_hand";
 
     return result;
 }
