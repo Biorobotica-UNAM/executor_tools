@@ -49,6 +49,9 @@ private:
                 std::string &out_msg);
   bool runCompare(const std::vector<std::string> &classes,
                   std::string &out_msg);
+  bool updateSelectedObjectState(const std::string &category,
+                                 const Vision::YoloDetection &detection,
+                                 std::string &out_msg);
 
   // Publicación de feedback usando el enum del analizador
   void publishFeedback(const std::shared_ptr<GoalHandle> &gh,

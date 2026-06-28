@@ -150,7 +150,14 @@ bool AnalyzeObjects::runSize(const std::string &target_class,
     knowledge_->update_world_state("analytics", "size", "confidence",
                                    std::to_string(best_match.confidence));
 
-    out_msg = "size_filter_success_best_match_" + best_match.class_name;
+    std::string update_msg;
+    if (!updateSelectedObjectState(target_class, best_match, update_msg)) {
+      out_msg = update_msg;
+      return false;
+    }
+
+    out_msg = "size_filter_success_best_match_" + best_match.class_name +
+              "_stored_" + target_class + "_1";
   }
   return ok;
 }
@@ -167,7 +174,14 @@ bool AnalyzeObjects::runColor(const std::string &target_class,
     knowledge_->update_world_state("analytics", "color", "best_match",
                                    best_match.class_name);
 
-    out_msg = "color_match_found_" + best_match.class_name;
+    std::string update_msg;
+    if (!updateSelectedObjectState(target_class, best_match, update_msg)) {
+      out_msg = update_msg;
+      return false;
+    }
+
+    out_msg = "color_match_found_" + best_match.class_name + "_stored_" +
+              target_class + "_1";
   }
   return ok;
 }
@@ -192,6 +206,45 @@ bool AnalyzeObjects::runCompare(const std::vector<std::string> &classes,
     out_msg = "compare_winner_is_" + winner_class;
   }
   return ok;
+}
+
+bool AnalyzeObjects::updateSelectedObjectState(
+    const std::string &category, const Vision::YoloDetection &detection,
+    std::string &out_msg) {
+  geometry_msgs::msg::PoseStamped pose;
+  geometry_msgs::msg::PoseStamped nav;
+
+  // Color/tamaño seleccionan una bbox. Para que el plan pueda ejecutar take,
+  // convertimos esa bbox al mismo contrato de knowledge que usa FindObject.
+  if (!vision_->DetectionToNavPose(detection, pose, nav)) {
+    out_msg = "analysis_selected_object_pose_failed";
+    return false;
+  }
+
+  const auto &p = pose.pose.position;
+  const auto &q = pose.pose.orientation;
+  nlohmann::json manipulation = {p.x, p.y, p.z, q.x, q.y, q.z, q.w};
+
+  const auto &np = nav.pose.position;
+  const auto &nq = nav.pose.orientation;
+  nlohmann::json navigation = {np.x, np.y, np.z, nq.x, nq.y, nq.z, nq.w};
+
+  const std::string name =
+      detection.class_name.empty() ? category : detection.class_name;
+
+  const bool name_ok =
+      knowledge_->update_world_state(category, "1", "name", name);
+  const bool manipulation_ok = knowledge_->update_world_state(
+      category, "1", "manipulation", manipulation.dump());
+  const bool navigation_ok = knowledge_->update_world_state(
+      category, "1", "navigation", navigation.dump());
+
+  if (!name_ok || !manipulation_ok || !navigation_ok) {
+    out_msg = "analysis_selected_object_update_failed";
+    return false;
+  }
+
+  return true;
 }
 
 // ─────────────────────────────────────────────────────────────

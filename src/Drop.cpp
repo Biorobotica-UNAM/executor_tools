@@ -87,10 +87,15 @@ Drop::Drop(const rclcpp::Node::SharedPtr &node,
 
       // ── FLOOR DROP (caso especial) ────────────────────────────────────────────
       if (normalizeToken(argument) == "floor") {
+        // Caso especial usado solo por el argumento "floor": no usa FindSpace,
+        // safe_drop ni estado de manos; siempre suelta con el brazo izquierdo.
+        const auto move_left_arm = [&](const std::array<double, 6> &pose) {
+          const std::vector<double> joints(pose.begin(), pose.end());
+          return hardware_->MoveLeftArm(joints);
+        };
+
         publishFeedback(gh, DropState::FLOOR_EXTENDING_ARM);
-        if (!hardware_->MoveLeftArm({FLOOR_ARM_EXTEND[0], FLOOR_ARM_EXTEND[1],
-                                     FLOOR_ARM_EXTEND[2], FLOOR_ARM_EXTEND[3],
-                                     FLOOR_ARM_EXTEND[4], FLOOR_ARM_EXTEND[5]})) {
+        if (!move_left_arm(LEFT_FLOOR_ARM_EXTEND)) {
           publishFeedback(gh, DropState::FAILED, "floor_extend_arm_failed");
           return {false, "FAILED", "floor_extend_arm_failed"};
         }
@@ -108,9 +113,7 @@ Drop::Drop(const rclcpp::Node::SharedPtr &node,
         }
 
         publishFeedback(gh, DropState::FLOOR_TILTING_GRIPPER);
-        if (!hardware_->MoveLeftArm({FLOOR_ARM_TILT[0], FLOOR_ARM_TILT[1],
-                                     FLOOR_ARM_TILT[2], FLOOR_ARM_TILT[3],
-                                     FLOOR_ARM_TILT[4], FLOOR_ARM_TILT[5]})) {
+        if (!move_left_arm(LEFT_FLOOR_ARM_TILT)) {
           publishFeedback(gh, DropState::FAILED, "floor_tilt_arm_failed");
           return {false, "FAILED", "floor_tilt_arm_failed"};
         }
@@ -132,14 +135,12 @@ Drop::Drop(const rclcpp::Node::SharedPtr &node,
         }
 
         publishFeedback(gh, DropState::FLOOR_RESETTING_ARM);
-        if (!hardware_->MoveLeftArm({FLOOR_ARM_RESET[0], FLOOR_ARM_RESET[1],
-                                     FLOOR_ARM_RESET[2], FLOOR_ARM_RESET[3],
-                                     FLOOR_ARM_RESET[4], FLOOR_ARM_RESET[5]})) {
+        if (!move_left_arm(FLOOR_ARM_RESET)) {
           publishFeedback(gh, DropState::FAILED, "floor_reset_arm_failed");
           return {false, "FAILED", "floor_reset_arm_failed"};
         }
 
-        publishFeedback(gh, DropState::SUCCESS, "left_arm_group");
+        publishFeedback(gh, DropState::SUCCESS, "left_arm");
         return {true, "SUCCESS", "floor_drop_completed"};
       }
 
