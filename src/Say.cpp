@@ -20,8 +20,11 @@
 #include <array>
 #include <chrono>
 #include <ctime>
+#include <string>
 
 namespace {
+
+constexpr const char * kFollowToPrefix = "instruct_follow_to_";
 
 std::string currentDayOfWeekUtterance() {
     static constexpr std::array<const char*, 7> kDays = {
@@ -41,6 +44,17 @@ std::string currentDayOfWeekUtterance() {
     }
 
     return std::string("Today is ") + kDays[day_index] + ".";
+}
+
+std::string followToDestinationUtterance(const std::string& phrase_key) {
+    if (phrase_key.rfind(kFollowToPrefix, 0U) != 0U ||
+        phrase_key.size() <= std::char_traits<char>::length(kFollowToPrefix)) {
+        return "";
+    }
+
+    return "Say CONTINUE and I will start following you to " +
+           phrase_key.substr(std::char_traits<char>::length(kFollowToPrefix)) +
+           ". I will stop when we arrive.";
 }
 
 } // namespace
@@ -75,6 +89,8 @@ Result Say::run(const std::string&                 phrase_key,
     std::string utterance;
     if (phrase_key == "day_of_week") {
         utterance = currentDayOfWeekUtterance();
+    } else if (phrase_key.rfind(kFollowToPrefix, 0U) == 0U) {
+        utterance = followToDestinationUtterance(phrase_key);
     } else {
         utterance = knowledge_->get_phrase(phrase_key, "");
     }
