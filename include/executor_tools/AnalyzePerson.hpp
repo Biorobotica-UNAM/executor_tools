@@ -61,6 +61,9 @@ private:
                             bool has_point,
                             const geometry_msgs::msg::PointStamped &point,
                             std::string &out_msg);
+  bool updateGestureAnalytics(const std::string &gesture,
+                              const std::string &detail,
+                              std::string &out_msg);
 
   void publishFeedback(const std::shared_ptr<GoalHandle> &gh,
                        AnalyzePersonState state,

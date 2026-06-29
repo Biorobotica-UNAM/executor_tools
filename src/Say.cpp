@@ -17,6 +17,33 @@
 
 #include "executor_tools/Say.hpp"
 #include <algorithm> 
+#include <array>
+#include <chrono>
+#include <ctime>
+
+namespace {
+
+std::string currentDayOfWeekUtterance() {
+    static constexpr std::array<const char*, 7> kDays = {
+        "Sunday", "Monday", "Tuesday", "Wednesday",
+        "Thursday", "Friday", "Saturday"
+    };
+
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t now_time = std::chrono::system_clock::to_time_t(now);
+
+    std::tm local_time{};
+    localtime_r(&now_time, &local_time);
+
+    const int day_index = local_time.tm_wday;
+    if (day_index < 0 || day_index >= static_cast<int>(kDays.size())) {
+        return "I could not determine the day of the week.";
+    }
+
+    return std::string("Today is ") + kDays[day_index] + ".";
+}
+
+} // namespace
 
 // =========================================================
 // Constructor
@@ -45,7 +72,12 @@ Result Say::run(const std::string&                 phrase_key,
     // contra el world state. Devuelve la cadena lista para TTS.
     publishFeedback(gh, SayState::LOADING);
 
-    std::string utterance = knowledge_->get_phrase(phrase_key, "");
+    std::string utterance;
+    if (phrase_key == "day_of_week") {
+        utterance = currentDayOfWeekUtterance();
+    } else {
+        utterance = knowledge_->get_phrase(phrase_key, "");
+    }
 
     // --- EFECTO FALLBACK ---
     if (utterance.empty()) {

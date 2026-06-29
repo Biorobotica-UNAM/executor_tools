@@ -73,6 +73,45 @@ navigationPoseFromPoint(const geometry_msgs::msg::PointStamped &point,
   return nav;
 }
 
+struct HeadScanPose {
+  const char *label;
+  double pan;
+  double tilt;
+  std::chrono::milliseconds settle;
+};
+
+const std::vector<HeadScanPose> &gestureScanPoses() {
+  static const std::vector<HeadScanPose> poses = {
+      {"center_down", 0.0, -0.60, 1500ms},
+      {"left_down", -0.55, -0.55, 900ms},
+      {"right_down", 0.55, -0.55, 900ms},
+      {"center_mid", 0.0, -0.35, 700ms},
+  };
+  return poses;
+}
+
+std::vector<std::string> gestureCandidates(const std::string &gesture_type) {
+  if (gesture_type.empty() || gesture_type == "any" ||
+      gesture_type == "unknown") {
+    return {"waving", "raising", "pointing"};
+  }
+
+  return {gesture_type};
+}
+
+std::string spokenGestureName(const std::string &gesture_type) {
+  if (gesture_type == "raising" || gesture_type == "raise") {
+    return "raising a hand";
+  }
+  if (gesture_type == "waving" || gesture_type == "wave") {
+    return "waving";
+  }
+  if (gesture_type == "pointing" || gesture_type == "point") {
+    return "pointing";
+  }
+  return gesture_type.empty() ? "unknown" : gesture_type;
+}
+
 } // namespace
 
 AnalyzePerson::AnalyzePerson(const rclcpp::Node::SharedPtr &node,
@@ -89,13 +128,6 @@ Result AnalyzePerson::run(const std::string &argument,
   }
 
   publishFeedback(gh, AnalyzePersonState::READY);
-
-  publishFeedback(gh, AnalyzePersonState::MOVING_HEAD);
-  hardware_->MoveHead({0.0, -0.60});
-  std::this_thread::sleep_for(1500ms);
-
-  publishFeedback(gh, AnalyzePersonState::STABILIZING);
-  std::this_thread::sleep_for(500ms);
 
   nlohmann::json json_args;
   try {
@@ -122,10 +154,17 @@ Result AnalyzePerson::run(const std::string &argument,
   bool has_point = false;
   geometry_msgs::msg::PointStamped point;
   bool execution_success = false;
-
-  publishFeedback(gh, AnalyzePersonState::CALLING_SERVICE, action);
+  std::string detected_gesture;
 
   if (action == "color" || action == "attribute") {
+    publishFeedback(gh, AnalyzePersonState::MOVING_HEAD, "center_down");
+    hardware_->MoveHead({0.0, -0.60});
+    std::this_thread::sleep_for(1500ms);
+
+    publishFeedback(gh, AnalyzePersonState::STABILIZING, "center_down");
+    std::this_thread::sleep_for(500ms);
+
+    publishFeedback(gh, AnalyzePersonState::CALLING_SERVICE, action);
     const std::string color =
         lower(trim(json_args.value("color", std::string{})));
     const std::string attribute =
@@ -137,8 +176,39 @@ Result AnalyzePerson::run(const std::string &argument,
         lower(trim(json_args.value("gesture_type", std::string{})));
     const std::string arm_side =
         lower(trim(json_args.value("arm_side", std::string{"any"})));
-    execution_success = runGesture(gesture_type, arm_side, result_msg,
-                                   detections, has_point, point);
+    const auto candidates = gestureCandidates(gesture_type);
+
+    for (const auto &pose : gestureScanPoses()) {
+      if (!gh->is_active()) {
+        return {false, "FAILED", "goal_cancelled"};
+      }
+
+      publishFeedback(gh, AnalyzePersonState::MOVING_HEAD, pose.label);
+      hardware_->MoveHead({pose.pan, pose.tilt});
+      std::this_thread::sleep_for(pose.settle);
+
+      publishFeedback(gh, AnalyzePersonState::STABILIZING, pose.label);
+      std::this_thread::sleep_for(400ms);
+
+      for (const auto &candidate : candidates) {
+        publishFeedback(gh, AnalyzePersonState::CALLING_SERVICE,
+                        action + ":" + candidate + ":" + pose.label);
+        execution_success = runGesture(candidate, arm_side, result_msg,
+                                       detections, has_point, point);
+        if (execution_success) {
+          detected_gesture = spokenGestureName(candidate);
+          break;
+        }
+
+        RCLCPP_INFO(node_->get_logger(),
+                    "[AnalyzePerson] gesture '%s' not found at head pose '%s': %s",
+                    candidate.c_str(), pose.label, result_msg.c_str());
+      }
+
+      if (execution_success) {
+        break;
+      }
+    }
   } else if (action == "combined" || action == "gesture_color") {
     const std::string gesture_type =
         lower(trim(json_args.value("gesture_type", std::string{})));
@@ -148,9 +218,40 @@ Result AnalyzePerson::run(const std::string &argument,
         lower(trim(json_args.value("attribute", std::string{})));
     const std::string arm_side =
         lower(trim(json_args.value("arm_side", std::string{"any"})));
-    execution_success =
-        runCombined(gesture_type, color, attribute, arm_side, result_msg,
-                    detections, has_point, point);
+    const auto candidates = gestureCandidates(gesture_type);
+
+    for (const auto &pose : gestureScanPoses()) {
+      if (!gh->is_active()) {
+        return {false, "FAILED", "goal_cancelled"};
+      }
+
+      publishFeedback(gh, AnalyzePersonState::MOVING_HEAD, pose.label);
+      hardware_->MoveHead({pose.pan, pose.tilt});
+      std::this_thread::sleep_for(pose.settle);
+
+      publishFeedback(gh, AnalyzePersonState::STABILIZING, pose.label);
+      std::this_thread::sleep_for(400ms);
+
+      for (const auto &candidate : candidates) {
+        publishFeedback(gh, AnalyzePersonState::CALLING_SERVICE,
+                        action + ":" + candidate + ":" + pose.label);
+        execution_success =
+            runCombined(candidate, color, attribute, arm_side, result_msg,
+                        detections, has_point, point);
+        if (execution_success) {
+          detected_gesture = spokenGestureName(candidate);
+          break;
+        }
+
+        RCLCPP_INFO(node_->get_logger(),
+                    "[AnalyzePerson] combined gesture '%s' not found at head pose '%s': %s",
+                    candidate.c_str(), pose.label, result_msg.c_str());
+      }
+
+      if (execution_success) {
+        break;
+      }
+    }
   } else {
     publishFeedback(gh, AnalyzePersonState::FAILED,
                     "unknown_action: " + action);
@@ -160,6 +261,11 @@ Result AnalyzePerson::run(const std::string &argument,
   if (execution_success) {
     publishFeedback(gh, AnalyzePersonState::UPDATING_KNOWLEDGE);
     if (!updateUserNavigation(detections, has_point, point, result_msg)) {
+      publishFeedback(gh, AnalyzePersonState::FAILED, result_msg);
+      return {false, "FAILED", result_msg};
+    }
+    if (!detected_gesture.empty() &&
+        !updateGestureAnalytics(detected_gesture, result_msg, result_msg)) {
       publishFeedback(gh, AnalyzePersonState::FAILED, result_msg);
       return {false, "FAILED", result_msg};
     }
@@ -257,6 +363,27 @@ bool AnalyzePerson::updateUserNavigation(
               "[AnalyzePerson] user_2 navigation updated frame=%s pose=%s",
               frame.c_str(), navigation.dump().c_str());
 
+  return true;
+}
+
+bool AnalyzePerson::updateGestureAnalytics(const std::string &gesture,
+                                           const std::string &detail,
+                                           std::string &out_msg) {
+  const bool target_ok =
+      knowledge_->update_world_state("analytics", "gesture", "target", "person");
+  const bool gesture_ok =
+      knowledge_->update_world_state("analytics", "gesture", "gesture", gesture);
+  const bool detail_ok =
+      knowledge_->update_world_state("analytics", "gesture", "detail", detail);
+
+  if (!target_ok || !gesture_ok || !detail_ok) {
+    out_msg = "gesture_analytics_update_failed";
+    return false;
+  }
+
+  RCLCPP_INFO(node_->get_logger(),
+              "[AnalyzePerson] analytics.gesture updated gesture=%s detail=%s",
+              gesture.c_str(), detail.c_str());
   return true;
 }
 
