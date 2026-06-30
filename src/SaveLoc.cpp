@@ -155,23 +155,6 @@ Result SaveLoc::run(const std::string &location_name,
       return {false, "FAILED", "kitchen_bar_move_failed"};
     }
 
-    publishFeedback(
-        gh,
-        SaveLocState::SAVING,
-        "kitchen_bar:rotating_360");
-
-    if (!rotateInPlace(
-            kInitRotationRad,
-            kInitAngularSpeedRs,
-            gh)) {
-      hardware_->MoveBase(0.0, 0.0, 0.0);
-      publishFeedback(
-          gh,
-          SaveLocState::FAILED,
-          "kitchen_bar_rotate_failed");
-      return {false, "FAILED", "kitchen_bar_rotate_failed"};
-    }
-
     hardware_->MoveBase(0.0, 0.0, 0.0);
 
     publishFeedback(gh, SaveLocState::SUCCESS, name);
