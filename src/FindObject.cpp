@@ -59,8 +59,20 @@ Result FindObject::run(const std::string &argument,
       if (detectEmptyChair(seat_point)) {
         publishFeedback(gh, FindObjectState::LOOKING_AT_TARGET);
 
+        geometry_msgs::msg::PointStamped look_point = seat_point;
+        look_point.header.stamp.sec = 0;
+        look_point.header.stamp.nanosec = 0;
+
+        RCLCPP_INFO(
+            node_->get_logger(),
+            "[FindObject] Seat LookAt frame=%s pos=[%.3f %.3f %.3f]",
+            look_point.header.frame_id.c_str(),
+            look_point.point.x,
+            look_point.point.y,
+            look_point.point.z);
+
         for (int i = 0; i < 5; ++i) {
-          hardware_->LookAt(seat_point);
+          hardware_->LookAt(look_point);
           std::this_thread::sleep_for(20ms);
         }
 
