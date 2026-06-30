@@ -69,5 +69,5 @@ private:
   std::shared_ptr<Knowledge> knowledge_;
 
   const std::vector<std::pair<double, double>> scan_poses_ = {
-      {0.0, -0.60}, {-0.25, -0.65}, {0.25, -0.65}};
+      {0.0, -0.60}, {-0.60, -0.55}, {0.60, -0.55}};
 };
