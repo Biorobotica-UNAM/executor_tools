@@ -148,6 +148,33 @@ Result Take::run(
     const double y_coord     = target_data[1].get<double>();
     const double abs_y_coord = std::abs(y_coord);
 
+	if (category_name == "groceries")
+    {
+        if (!selectArm(arm_group_, hand,
+                       right_object.get<std::string>(),
+                       left_object.get<std::string>(),
+                       y_coord))
+        {
+            publishFeedback(gh, TakeState::FAILED, "arm_not_available");
+            return {false, "FAILED", "arm_not_available"};
+        }
+
+        publishFeedback(gh, TakeState::REPORTING_OCCUPANCY);
+
+        bool report_ok = knowledge_->update_world_state(
+                            "robot", "",
+                            hand, category_name + "_" + object_index);
+
+        if (!report_ok)
+        {
+            publishFeedback(gh, TakeState::FAILED, "report_object_failed");
+            return {false, "FAILED", "report_object_failed"};
+        }
+
+        publishFeedback(gh, TakeState::SUCCESS, arm_group_);
+        return {true, "SUCCESS", arm_group_ + "_take_completed"};
+    }
+
     if (x_coord > x_high_limit || x_coord < x_low_limit) {
         publishFeedback(gh, TakeState::FAILED, "pose_out_of_range");
         return {false, "FAILED", "pose_out_of_range"};
