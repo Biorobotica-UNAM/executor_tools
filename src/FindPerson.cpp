@@ -76,7 +76,7 @@ Result FindPerson::run(const std::string &argument,
     }
   } else {
     constexpr double kDegToRad = 0.017453292519943295;
-    for (double tilt_deg : {0.0, -25.0}) {
+    for (double tilt_deg : {-15.0, -30.0}) {
       for (double pan : {0.0, -0.6, 0.6}) {
         scan_points.push_back({pan, tilt_deg * kDegToRad});
       }
@@ -262,6 +262,8 @@ bool FindPerson::scanPosition(double pan, double tilt, bool anybody,
     // ── 3b. Esperar estabilización real antes de re-detectar
     if (!waitForHeadStable(gh))
       return false;
+
+    rclcpp::sleep_for(std::chrono::milliseconds(1000));
 
     // ── 3c. Re-detect con cabeza quieta ───────────────────
     Vision::PersonDetection refined;
