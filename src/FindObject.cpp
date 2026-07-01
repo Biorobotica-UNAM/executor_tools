@@ -1,12 +1,20 @@
 #include "executor_tools/FindObject.hpp"
 #include "executor_tools/Result.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <thread>
 
 using namespace std::chrono_literals;
+
+namespace {
+std::string owlPromptFromObjectName(std::string name) {
+  std::replace(name.begin(), name.end(), '_', ' ');
+  return name;
+}
+}  // namespace
 
 // ─────────────────────────────────────────────────────────────
 //  Constructor
@@ -76,8 +84,9 @@ Result FindObject::run(const std::string &argument,
     else {
       geometry_msgs::msg::PoseStamped object_pose, object_nav;
       std::string detected_name;
+      const std::string owl_query = owlPromptFromObjectName(query_name);
 
-      if (vision_->GetOwlPose(query_name, object_pose, object_nav,
+      if (vision_->GetOwlPose(owl_query, object_pose, object_nav,
                               detected_name)) {
         publishFeedback(gh, FindObjectState::LOOKING_AT_TARGET, detected_name);
 
@@ -100,7 +109,7 @@ Result FindObject::run(const std::string &argument,
         publishFeedback(gh, FindObjectState::DETECTING,
                         detected_name + "_centered");
 
-        if (refreshCenteredObjectPose(query_name, centered_object_pose,
+        if (refreshCenteredObjectPose(owl_query, centered_object_pose,
                                        centered_object_nav,
                                        centered_detected_name, gh)) {
           final_detected_name = centered_detected_name.empty()

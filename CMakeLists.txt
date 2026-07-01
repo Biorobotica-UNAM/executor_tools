@@ -44,6 +44,7 @@ add_library(${PROJECT_NAME}
   src/Give.cpp
   src/FindPerson.cpp
   src/FindObject.cpp
+  src/VerifyTake.cpp
   src/Focus.cpp
   src/Receive.cpp
   src/Follow.cpp
