@@ -395,6 +395,7 @@ bool FindPerson::scanPosition(double pan, double tilt, bool anybody, bool host,
         RCLCPP_WARN(node_->get_logger(),
                     "[FindPerson] Could not register/overwrite face for '%s'; continuing with knowledge update",
                     found_name.c_str());
+      }
     } else {
       found_name = identified_name;
       RCLCPP_INFO(node_->get_logger(), "[FindPerson] Person identified: %s", found_name.c_str());
@@ -431,10 +432,12 @@ bool FindPerson::scanPosition(double pan, double tilt, bool anybody, bool host,
   }
 
   publishFeedback(gh, FindPersonState::REGISTERING);
+  std::string new_name;
+  
   if (host)
-    const std::string new_name = "host_1";
+    new_name = "host_1";
   else
-    const std::string new_name = generatePersonName(std::stoull(person_index));
+    new_name = generatePersonName(std::stoull(person_index));
 
   if (vision_->RegisterPerson(new_name)) {
     found_name = new_name;
