@@ -95,7 +95,7 @@ Result FindPerson::run(const std::string &argument,
 
     std::string found_name;
 
-    const bool found = scanPosition(sp.pan, sp.tilt, anybody, argument,
+    const bool found = scanPosition(sp.pan, sp.tilt, anybody, host, argument,
                                     category, person_index, found_name, gh);
 
     if (!gh->is_active())
@@ -195,7 +195,7 @@ bool FindPerson::waitForHeadStable(const std::shared_ptr<GoalHandle> &gh,
 // scanPosition
 // ============================================================
 
-bool FindPerson::scanPosition(double pan, double tilt, bool anybody,
+bool FindPerson::scanPosition(double pan, double tilt, bool anybody, bool host,
                               const std::string &target,
                               const std::string &category,
                               const std::string &person_index,
