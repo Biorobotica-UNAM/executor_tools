@@ -43,8 +43,8 @@ private:
     static std::string stateName(PointState s);
 
     // Posiciones de brazo izquierdo (6 DOF) — Justina
-    static constexpr std::array<double, 6> ARM_POINTING = {0.6, 0.1, 0.3, 1.2, 0.0, 0.0};
-    static constexpr std::array<double, 6> ARM_RESTING  = {0.0, 0.0, 0.3, 1.5, 0.0, 1.2};
+    static constexpr std::array<double, 6> ARM_POINTING = {0.6, 0.0, 0.3, 1.2, 0.0, 0.0};
+    static constexpr std::array<double, 6> ARM_RESTING  = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 
     static constexpr double ANGULAR_SPEED = 0.6;   // rad/s
 

@@ -1,16 +1,56 @@
 #include "executor_tools/Give.hpp"
+#include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <thread>
 
 using namespace std::chrono_literals;
+
+namespace {
+
+std::string normalizeObjectToken(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::replace(value.begin(), value.end(), ' ', '_');
+    return value;
+}
+
+std::string stripNumericSuffix(const std::string& value)
+{
+    const auto sep = value.rfind('_');
+    if (sep != std::string::npos && sep + 1 < value.size() &&
+        std::all_of(value.begin() + sep + 1, value.end(),
+                    [](unsigned char c) { return std::isdigit(c); })) {
+        return value.substr(0, sep);
+    }
+    return value;
+}
+
+bool objectMatches(const std::string& requested, const std::string& held)
+{
+    const std::string req = normalizeObjectToken(requested);
+    const std::string have = normalizeObjectToken(held);
+    if (req.empty() || have.empty() || have == "nothing") {
+        return false;
+    }
+    return req == have || req == stripNumericSuffix(have) ||
+           stripNumericSuffix(req) == have;
+}
+
+} // namespace
 
 // =========================================================
 // Constructor
 // =========================================================
 Give::Give(const rclcpp::Node::SharedPtr& node,
            const std::shared_ptr<Hardware>& hardware,
+           const std::shared_ptr<Knowledge>& knowledge,
            const std::shared_ptr<HRI>& hri)
-: node_(node), hardware_(hardware), hri_(hri)
+: node_(node),
+  hardware_(hardware),
+  knowledge_(knowledge),
+  hri_(hri)
 {}
 
 // =========================================================
@@ -27,43 +67,83 @@ Result Give::run(const std::string& object_name,
     // ── READY ─────────────────────────────────────────────
     publishFeedback(gh, GiveState::READY, item);
 
-    // 1. Extender el brazo inmediatamente 
+    // 1. Revisar en qué mano tiene el objeto
+    publishFeedback(gh, GiveState::SELECTING_HAND);
+
+    std::string hand = selectHand(object_name);
+
+    if (hand != "right_hand" && hand != "left_hand") {
+        publishFeedback(gh, GiveState::FAILED, "not_object");
+        return {false, "FAILED", "not_object"};
+    } 
+
+    // 2. Extender el brazo inmediatamente 
     publishFeedback(gh, GiveState::MOVING_ARM, "Extending arm to give " + item);
     hardware_->MoveBase(0.0, 0.0, 0.0);
-    bool arm_ok = hardware_->MoveLeftArm(
-        {ARM_POINTING[0], ARM_POINTING[1], ARM_POINTING[2],
-         ARM_POINTING[3], ARM_POINTING[4], ARM_POINTING[5]});
+    
+    // TODO: Verify pose works for both arms
+    bool arm_ok = (hand == "left_hand") ? hardware_->MoveLeftArm(
+                                            {LEFT_ARM_POINTING[0], LEFT_ARM_POINTING[1], LEFT_ARM_POINTING[2],
+                                             LEFT_ARM_POINTING[3], LEFT_ARM_POINTING[4], LEFT_ARM_POINTING[5]})
+                                        : hardware_->MoveRightArm(
+                                            {RIGHT_ARM_POINTING[0], RIGHT_ARM_POINTING[1], RIGHT_ARM_POINTING[2],
+                                             RIGHT_ARM_POINTING[3], RIGHT_ARM_POINTING[4], RIGHT_ARM_POINTING[5]});
 
     if (!arm_ok) {
         publishFeedback(gh, GiveState::FAILED, "arm_failed_extension");
         return {false, "FAILED", "arm_extension_failed"};
     }
 
-    // 2. Decir frase usando el nombre del objeto recibido
+    // 3. Decir frase usando el nombre del objeto recibido
     publishFeedback(gh, GiveState::SPEAKING, "Requesting retrieval of: " + item);
     std::string phrase = "Please take the " + item + ". I will open my hand in 5. 4. 3. 2. 1.";
     hri_->Say(phrase);
 
-    // 3. Abrir la mano 
+    // 4. Abrir la mano 
     publishFeedback(gh, GiveState::MOVING_GRIPPER, "Opening gripper");
-    bool gripper_ok = hardware_->MoveLeftGripper("open");
+    bool gripper_ok = (hand == "left_hand") ? hardware_->MoveLeftGripper("open")
+                                            : hardware_->MoveRightGripper("open");
 
     if (!gripper_ok) {
         publishFeedback(gh, GiveState::FAILED, "gripper_open_failed");
         return {false, "FAILED", "gripper_open_failed"};
     }
 
-    // 4. Esperar 2 segundos mientras la persona retira el objeto
+    // 5. Actualizar la disponibilidad de la mano en el estado del mundo 
+    publishFeedback(gh, GiveState::REPORTING_OCCUPANCY, "Opening gripper");
+    bool report_ok = knowledge_->update_world_state(
+                        "robot", "",
+                        hand, "nothing");
+
+    if (!report_ok) {
+        publishFeedback(gh, GiveState::FAILED, "report_object_failed");
+        return {false, "FAILED", "report_object_failed"};
+    }
+
+    // 6. Esperar 2 segundos mientras la persona retira el objeto
     publishFeedback(gh, GiveState::WAITING, "Waiting 2 seconds");
     std::this_thread::sleep_for(2s);
 
-    // 5. Regresar el brazo a la posición de reposo
+    // 7. Cerrar la mano
+    publishFeedback(gh, GiveState::MOVING_GRIPPER, "Closing gripper");
+    gripper_ok = (hand == "left_hand") ? hardware_->MoveLeftGripper("close")
+                                            : hardware_->MoveRightGripper("close");
+
+    if (!gripper_ok) {
+        publishFeedback(gh, GiveState::FAILED, "gripper_close_failed");
+        return {false, "FAILED", "gripper_close_failed"};
+    }
+
+    // 8. Regresar el brazo a la posición de reposo
     publishFeedback(gh, GiveState::MOVING_ARM, "Resetting arm to resting position");
     std::this_thread::sleep_for(500ms);
 
-    bool reset_ok = hardware_->MoveLeftArm(
-        {ARM_RESTING[0], ARM_RESTING[1], ARM_RESTING[2],
-         ARM_RESTING[3], ARM_RESTING[4], ARM_RESTING[5]});
+    bool reset_ok = (hand == "left_hand") ? hardware_->MoveLeftArm(
+                                            {ARM_RESTING[0], ARM_RESTING[1], ARM_RESTING[2],
+                                             ARM_RESTING[3], ARM_RESTING[4], ARM_RESTING[5]})
+                                          : hardware_->MoveRightArm(
+                                            {ARM_RESTING[0], ARM_RESTING[1], ARM_RESTING[2],
+                                             ARM_RESTING[3], ARM_RESTING[4], ARM_RESTING[5]});
 
     if (reset_ok) {
         publishFeedback(gh, GiveState::SUCCESS, "give_completed_for_" + item);
@@ -74,9 +154,28 @@ Result Give::run(const std::string& object_name,
     }
 }
 
-// =========================================================
-// publishFeedback — Formato anidado fb->feedback.message
-// =========================================================
+std::string Give::selectHand(const std::string& obj)
+{
+    std::string result;
+
+    json left_object = knowledge_->get_world_state(
+                                    "robot", "", "left_hand");
+    json right_object = knowledge_->get_world_state(
+                                    "robot", "", "right_hand");
+
+    result.clear();
+
+    const std::string left =
+        left_object.is_string() ? left_object.get<std::string>() : "";
+    const std::string right =
+        right_object.is_string() ? right_object.get<std::string>() : "";
+
+    if (objectMatches(obj, left)) result = "left_hand";
+    if (objectMatches(obj, right)) result = "right_hand";
+
+    return result;
+}
+
 void Give::publishFeedback(const std::shared_ptr<GoalHandle>& gh,
                             GiveState                          state,
                             const std::string&                 detail)
@@ -93,19 +192,18 @@ void Give::publishFeedback(const std::shared_ptr<GoalHandle>& gh,
     RCLCPP_INFO(node_->get_logger(), "%s", msg.c_str());
 }
 
-// =========================================================
-// stateName
-// =========================================================
 std::string Give::stateName(GiveState s)
 {
     switch (s) {
-        case GiveState::READY:             return "READY";
-        case GiveState::MOVING_ARM:        return "MOVING_ARM";
-        case GiveState::SPEAKING:          return "SPEAKING";
-        case GiveState::MOVING_GRIPPER:    return "MOVING_GRIPPER";
-        case GiveState::WAITING:           return "WAITING";
-        case GiveState::SUCCESS:           return "SUCCESS";
-        case GiveState::FAILED:            return "FAILED";
-        default:                           return "UNKNOWN";
+        case GiveState::READY:                  return "READY";
+        case GiveState::SELECTING_HAND:         return "SELECTING_HAND";
+        case GiveState::MOVING_ARM:             return "MOVING_ARM";
+        case GiveState::SPEAKING:               return "SPEAKING";
+        case GiveState::MOVING_GRIPPER:         return "MOVING_GRIPPER";
+        case GiveState::REPORTING_OCCUPANCY:    return "REPORTING_OCCUPANCY";
+        case GiveState::WAITING:                return "WAITING";
+        case GiveState::SUCCESS:                return "SUCCESS";
+        case GiveState::FAILED:                 return "FAILED";
+        default:                                return "UNKNOWN";
     }
 }

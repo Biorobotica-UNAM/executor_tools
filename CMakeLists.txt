@@ -5,14 +5,23 @@ project(executor_tools)
 # Dependencies
 # -----------------------------
 find_package(ament_cmake REQUIRED)
+find_package(ament_index_cpp REQUIRED)
+find_package(actionlib_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(executor_interfaces REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(rcl_interfaces REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 find_package(hri_tools REQUIRED)
 find_package(navigation_tools REQUIRED)
 find_package(hardware_tools REQUIRED)
 find_package(vision_tools REQUIRED)
+find_package(vision_interfaces REQUIRED)
 find_package(manipulation_tools REQUIRED)
 find_package(planning_tools REQUIRED)
 find_package(knowledge_tools REQUIRED)
@@ -22,22 +31,34 @@ find_package(knowledge_tools REQUIRED)
 # -----------------------------
 add_library(${PROJECT_NAME}
   src/Say.cpp
+  src/Approach.cpp
   src/GoTo.cpp
   src/Check.cpp
   src/Point.cpp
   src/Align.cpp
   src/Drop.cpp
+  src/FindSpace.cpp
+  src/FindSpaceTable.cpp
+  src/FindSpaceContainer.cpp
+  src/FindSpaceShelf.cpp
   src/Give.cpp
   src/FindPerson.cpp
   src/FindObject.cpp
+  src/VerifyTake.cpp
   src/Focus.cpp
   src/Receive.cpp
   src/Follow.cpp
   src/Take.cpp
+  src/VisualGraspApproach.cpp
   src/Listen.cpp
-  src/Approach.cpp
-  src/FindPose
+  src/FindPose.cpp
+  src/Analyze.cpp
+  src/AnalyzePerson.cpp
+  src/SaveLoc.cpp
+  src/Fold.cpp
 )
+
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 
 target_include_directories(${PROJECT_NAME}
   PUBLIC
@@ -47,12 +68,21 @@ target_include_directories(${PROJECT_NAME}
 
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
+  ament_index_cpp
+  actionlib_msgs
   rclcpp_action
   executor_interfaces
+  geometry_msgs
+  rcl_interfaces
+  std_msgs
+  tf2
+  tf2_geometry_msgs
+  tf2_ros
   hri_tools
   navigation_tools
   hardware_tools
   vision_tools
+  vision_interfaces
   manipulation_tools
   planning_tools
   knowledge_tools
@@ -86,12 +116,21 @@ ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
 
 ament_export_dependencies(
   rclcpp
+  ament_index_cpp
+  actionlib_msgs
   rclcpp_action
   executor_interfaces
+  geometry_msgs
+  rcl_interfaces
+  std_msgs
+  tf2
+  tf2_geometry_msgs
+  tf2_ros
   hri_tools
   navigation_tools
   hardware_tools
   vision_tools
+  vision_interfaces
   manipulation_tools
   planning_tools
   knowledge_tools
