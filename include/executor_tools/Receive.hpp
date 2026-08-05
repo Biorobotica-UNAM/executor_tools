@@ -52,7 +52,7 @@ private:
     // Constantes cinemáticas heredadas de Point
     static constexpr std::array<double, 6> LEFT_ARM_POINTING = {0.4, 0.0, 0.3, 1.0, 0.0, 0.2};
     static constexpr std::array<double, 6> RIGHT_ARM_POINTING = {0.4, 0.0, -0.3, 1.0, 0.0, 0.2};
-    static constexpr std::array<double, 6> ARM_TRANSPORT  = {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
+    static constexpr std::array<double, 6> ARM_TRANSPORT  = {0.0, 0.0, 0.0, 1.5, 0.0, 1.35};
 
     rclcpp::Node::SharedPtr     node_;
     std::shared_ptr<Hardware>   hardware_;

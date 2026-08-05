@@ -72,7 +72,7 @@ Result FindObject::run(const std::string &argument,
           std::this_thread::sleep_for(20ms);
         }
 
-        std::this_thread::sleep_for(1500ms);
+        std::this_thread::sleep_for(3000ms);
 
         publishFeedback(gh, FindObjectState::SUCCESS, "empty_chair");
         return {true, "SUCCESS", "empty_chair_found"};

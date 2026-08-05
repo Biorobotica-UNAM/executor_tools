@@ -32,7 +32,6 @@ Result FindPerson::run(const std::string &argument,
   publishFeedback(gh, FindPersonState::READY, argument);
 
   const bool anybody = argument.rfind("anybody", 0) == 0;
-  const bool host    = argument.rfind("host", 0) == 0;
 
   std::string category;
   std::string person_index;
@@ -45,9 +44,6 @@ Result FindPerson::run(const std::string &argument,
     } else {
       person_index = std::to_string(getNextGuestIndex());
     }
-  } else if (host) {
-    category = "host";
-    person_index = "1";
   } else {
     const std::size_t sep = argument.rfind('_');
 
@@ -95,7 +91,7 @@ Result FindPerson::run(const std::string &argument,
 
     std::string found_name;
 
-    const bool found = scanPosition(sp.pan, sp.tilt, anybody, host, argument,
+    const bool found = scanPosition(sp.pan, sp.tilt, anybody, argument,
                                     category, person_index, found_name, gh);
 
     if (!gh->is_active())
@@ -195,7 +191,7 @@ bool FindPerson::waitForHeadStable(const std::shared_ptr<GoalHandle> &gh,
 // scanPosition
 // ============================================================
 
-bool FindPerson::scanPosition(double pan, double tilt, bool anybody, bool host,
+bool FindPerson::scanPosition(double pan, double tilt, bool anybody,
                               const std::string &target,
                               const std::string &category,
                               const std::string &person_index,
@@ -381,21 +377,6 @@ bool FindPerson::scanPosition(double pan, double tilt, bool anybody, bool host,
                     "[FindPerson] Could not register/overwrite face for '%s'; continuing with knowledge update",
                     found_name.c_str());
       }
-    } else if (host) {
-      found_name = "host_1";
-      RCLCPP_INFO(node_->get_logger(),
-                  "[FindPerson] Identified existing '%s', storing as slot '%s'",
-                  identified_name.c_str(), found_name.c_str());
-
-      publishFeedback(gh, FindPersonState::REGISTERING, found_name);
-      if (vision_->RegisterPerson(found_name)) {
-        RCLCPP_INFO(node_->get_logger(), "[FindPerson] Person registered/overwritten as: %s",
-                    found_name.c_str());
-      } else {
-        RCLCPP_WARN(node_->get_logger(),
-                    "[FindPerson] Could not register/overwrite face for '%s'; continuing with knowledge update",
-                    found_name.c_str());
-      }
     } else {
       found_name = identified_name;
       RCLCPP_INFO(node_->get_logger(), "[FindPerson] Person identified: %s", found_name.c_str());
@@ -425,19 +406,8 @@ bool FindPerson::scanPosition(double pan, double tilt, bool anybody, bool host,
     return false;
   }
 
-  if (!host) {
-    RCLCPP_INFO(node_->get_logger(),
-                "[FindPerson] Unknown person at this position — skipping");
-    return false;
-  }
-
   publishFeedback(gh, FindPersonState::REGISTERING);
-  std::string new_name;
-  
-  if (host)
-    new_name = "host_1";
-  else
-    new_name = generatePersonName(std::stoull(person_index));
+  const std::string new_name = generatePersonName(std::stoull(person_index));
 
   if (vision_->RegisterPerson(new_name)) {
     found_name = new_name;
@@ -455,7 +425,7 @@ bool FindPerson::scanPosition(double pan, double tilt, bool anybody, bool host,
     RCLCPP_INFO(node_->get_logger(), "[FindPerson] Description: %s", description.c_str());
     publishFeedback(gh, FindPersonState::UPDATING, found_name);
     updatePersonState(category, person_index, found_name, target_pose,
-                      current_detection.nav, description, (anybody || host));
+                      current_detection.nav, description, anybody);
   } else {
     RCLCPP_WARN(node_->get_logger(),
                 "[FindPerson] DescribePerson failed for '%s'", found_name.c_str());

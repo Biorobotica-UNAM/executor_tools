@@ -22,12 +22,12 @@ Result GoTo::run(const std::string&                 location_name,
     publishFeedback(gh, GoToState::READY, location_name);
 
 	// ── MOVING_TORSO ─────────────────────────────────────
-    publishFeedback(gh, GoToState::MOVING_TORSO);
-    bool torso_moved = hardware_->MoveTorso(0.3);
-    if (!torso_moved) {
-        publishFeedback(gh, GoToState::FAILED, "move_torso_failed");
-        return {false, "FAILED", "move_torso_failed"};
-    }
+    //publishFeedback(gh, GoToState::MOVING_TORSO);
+    //bool torso_moved = hardware_->MoveTorso(0.3);
+    //if (!torso_moved) {
+    //    publishFeedback(gh, GoToState::FAILED, "move_torso_failed");
+    //    return {false, "FAILED", "move_torso_failed"};
+    //}
 
     // ── NAVIGATING ────────────────────────────────────────
     publishFeedback(gh, GoToState::NAVIGATING, location_name);

@@ -52,7 +52,7 @@ private:
                          double tolerance_rad = 0.04,
                          int    stable_needed = 2);
 
-  bool scanPosition(double pan, double tilt, bool anybody, bool host,
+  bool scanPosition(double pan, double tilt, bool anybody,
                     const std::string &target, const std::string &category,
                     const std::string &person_index, std::string &found_name,
                     const std::shared_ptr<GoalHandle> &gh);

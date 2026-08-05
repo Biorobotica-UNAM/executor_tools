@@ -175,6 +175,48 @@ Result Take::run(
         return {true, "SUCCESS", arm_group_ + "_take_completed"};
     }
 
+    if (category_name == "basket")
+    {
+        if (!hri_->Say("Taking basket"))
+            publishFeedback(gh, TakeState::PREPARING_EXTEND, "say_failed");
+
+        // Angular movement
+        MoveBase(0.0, 1.5708, 0.0, 0.3);
+
+        // Lateral approach
+        MoveBase(-1.0 * SIDE_DISTANCE, 0.0, 0.15, 0.0);
+
+        // Drive the selected arm straight to the predefined basket pose
+        bool left_arm_ok = hardware_->MoveLeftArm({
+                BASKET_LEFT_POSE[0], BASKET_LEFT_POSE[1], BASKET_LEFT_POSE[2],
+                BASKET_LEFT_POSE[3], BASKET_LEFT_POSE[4], BASKET_LEFT_POSE[5]});
+        bool right_arm_ok = hardware_->MoveRightArm({
+                BASKET_RIGHT_POSE[0], BASKET_RIGHT_POSE[1], BASKET_RIGHT_POSE[2],
+                BASKET_RIGHT_POSE[3], BASKET_RIGHT_POSE[4], BASKET_RIGHT_POSE[5]});
+
+        if (!right_arm_ok || !left_arm_ok)
+        {
+            publishFeedback(gh, TakeState::FAILED, "basket_arm_pose_failed");
+            return {false, "FAILED", "basket_arm_pose_failed"};
+        }
+
+        if (!gh->is_active())
+            return {false, "FAILED", "goal_cancelled"};
+
+        // Lower the torso to grip/lift the basket
+        if (!hardware_->MoveTorso(BASKET_TORSO_HEIGHT_DOWN))
+        {
+            publishFeedback(gh, TakeState::FAILED, "basket_torso_failed");
+            return {false, "FAILED", "basket_torso_failed"};
+        }
+
+        // Lateral approach
+        MoveBase(SIDE_DISTANCE, 0.0, 0.15, 0.0);
+
+        publishFeedback(gh, TakeState::SUCCESS, arm_group_);
+        return {true, "SUCCESS", arm_group_ + "_take_completed"};
+    }
+
     if (x_coord > x_high_limit || x_coord < x_low_limit) {
         publishFeedback(gh, TakeState::FAILED, "pose_out_of_range");
         return {false, "FAILED", "pose_out_of_range"};
@@ -546,6 +588,31 @@ geometry_msgs::msg::PoseStamped Take::retractPose(
     pose.pose.orientation.z =  0.0;
     pose.pose.orientation.w =  0.707;
     return pose;
+}
+
+void Take::MoveBase(double distance, double angle,
+                         double linear_speed, double angular_speed)
+{
+    // duration needed to cover whichever is the "limiting" motion
+    double linear_time  = (linear_speed  > 0.0) ? std::abs(distance / linear_speed)  : 0.0;
+    double angular_time = (angular_speed > 0.0) ? std::abs(angle     / angular_speed) : 0.0;
+    double duration_s   = std::max(linear_time, angular_time);
+
+    double vy = (distance != 0.0) ? std::copysign(linear_speed, distance)  : 0.0;
+    double wz = (angle    != 0.0) ? std::copysign(angular_speed, angle)   : 0.0;
+
+    rclcpp::Rate rate(30.0);
+    const auto   start    = node_->now();
+
+    while (rclcpp::ok() &&
+           (node_->now() - start).seconds() < duration_s)
+    {
+        hardware_->MoveBase(0.0, vy, wz);
+
+        rate.sleep();
+    }
+
+    hardware_->MoveBase(0.0, 0.0, 0.0);
 }
 
 // ─────────────────────────────────────────────────────────────

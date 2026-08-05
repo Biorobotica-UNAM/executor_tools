@@ -114,6 +114,9 @@ private:
 
     PoseStamped retractPose(const std::string& arm) const;
 
+    void MoveBase(double distance, double angle,
+                         double linear_speed, double angular_speed);
+
     void publishFeedback(
         const std::shared_ptr<GoalHandle>& gh,
         TakeState                          state,
@@ -122,8 +125,12 @@ private:
     static std::string stateName(TakeState s);
 
     // ── Arm poses ─────────────────────────────────────────────
-    static constexpr std::array<double, 6> PREPARE_POSE   = {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
-    static constexpr std::array<double, 6> TRANSPORT_POSE = {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
+    static constexpr std::array<double, 6> PREPARE_POSE      = {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
+    static constexpr std::array<double, 6> TRANSPORT_POSE    = {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
+    static constexpr std::array<double, 6> BASKET_RIGHT_POSE = {0.0, 0.2, 0.0, 0.0, 0.0, 0.0};
+    static constexpr std::array<double, 6> BASKET_LEFT_POSE  = {0.0, -0.2, 0.0, 0.0, 0.0, 0.0};
+    static constexpr double SIDE_DISTANCE            = 0.6;
+    static constexpr double BASKET_TORSO_HEIGHT_DOWN = 0.0;
 
     // ── Dependencies ──────────────────────────────────────────
     rclcpp::Node::SharedPtr       node_;

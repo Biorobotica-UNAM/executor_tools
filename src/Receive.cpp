@@ -79,8 +79,10 @@ Result Receive::run(const std::string& object_name,
 
     // 4. Hablar 
     publishFeedback(gh, ReceiveState::SPEAKING, "Requesting placement of: " + item);
-    std::string phrase = "Please place the " + item + " in my hand. I will close my hand in 5. 4. 3. 2. 1.";
+    std::string phrase = "Please hang the " + item + " in my hand. I will close my hand in 10. 9. 8. 7. 6. 5. 4. 3. 2. 1.";
     hri_->Say(phrase);
+
+    rclcpp::sleep_for(std::chrono::milliseconds(1000));
 
     // 5. Cerrar la mano 
     publishFeedback(gh, ReceiveState::CLOSING_GRIPPER, "Closing gripper on " + item);
