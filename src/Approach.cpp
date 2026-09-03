@@ -261,7 +261,7 @@ Result Approach::run(const std::string &argument,
   // safe_drop necesita terminar mucho mas cerca que un objeto/persona: Drop usa
   // esa marca como pose de manipulacion, no solo como destino de navegacion.
   const double kArrivalTolerance =
-      is_person_target ? 1.0 : (is_safe_drop_target ? 0.08 : 0.30);
+      is_person_target ? 1.0 : (is_safe_drop_target ? 0.08 : 0.35);
   auto start_nav_time = std::chrono::steady_clock::now();
   const auto kMaxNavDuration = 90s;
   int last_reported_nav_status = -2;

@@ -52,7 +52,7 @@ Result FindObject::run(const std::string &argument,
 
     publishFeedback(gh, FindObjectState::MOVING_HEAD);
     hardware_->MoveHead({pan, tilt});
-    std::this_thread::sleep_for(3000ms);
+    std::this_thread::sleep_for(7000ms);
 
     publishFeedback(gh, FindObjectState::STABILIZING);
     std::this_thread::sleep_for(500ms);
