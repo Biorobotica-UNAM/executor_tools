@@ -95,7 +95,7 @@ private:
     bool use_base_final_approach_{true};
     bool use_cartesian_final_approach_{false};
     bool use_visual_servo_{true};
-    double base_final_approach_distance_m_{0.02};
+    double base_final_approach_distance_m_{0.0};
     double base_final_approach_speed_mps_{0.05};
     int visual_max_attempts_{3};
     double visual_min_step_m_{0.005};

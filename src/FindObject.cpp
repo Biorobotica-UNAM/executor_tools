@@ -52,7 +52,7 @@ Result FindObject::run(const std::string &argument,
 
     publishFeedback(gh, FindObjectState::MOVING_HEAD);
     hardware_->MoveHead({pan, tilt});
-    std::this_thread::sleep_for(1500ms);
+    std::this_thread::sleep_for(3000ms);
 
     publishFeedback(gh, FindObjectState::STABILIZING);
     std::this_thread::sleep_for(500ms);
@@ -72,7 +72,7 @@ Result FindObject::run(const std::string &argument,
           std::this_thread::sleep_for(20ms);
         }
 
-        std::this_thread::sleep_for(3000ms);
+        std::this_thread::sleep_for(5000ms);
 
         publishFeedback(gh, FindObjectState::SUCCESS, "empty_chair");
         return {true, "SUCCESS", "empty_chair_found"};
@@ -95,7 +95,7 @@ Result FindObject::run(const std::string &argument,
           std::this_thread::sleep_for(20ms);
         }
 
-        std::this_thread::sleep_for(1500ms);
+        std::this_thread::sleep_for(5000ms);
 
         geometry_msgs::msg::PoseStamped centered_object_pose,
             centered_object_nav;
