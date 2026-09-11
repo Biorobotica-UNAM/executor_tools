@@ -56,10 +56,21 @@ private:
         const actionlib_msgs::msg::GoalStatus::SharedPtr msg);
     bool isObjectTarget(const std::string &category,
                         const std::string &id) const;
+    bool getObjectManipulation(
+        const std::string &category,
+        const std::string &id,
+        double &x,
+        double &y,
+        std::string &detail) const;
     bool applyObjectLateralAdjustment(
         const std::string &category,
         const std::string &id,
         const geometry_msgs::msg::PoseStamped &local_pose,
+        const std::shared_ptr<GoalHandle> &gh,
+        std::string &detail);
+    bool applyObjectForwardAdjustment(
+        const std::string &category,
+        const std::string &id,
         const std::shared_ptr<GoalHandle> &gh,
         std::string &detail);
     bool moveBaseLaterally(double distance_m,
@@ -95,7 +106,14 @@ private:
     bool has_navigation_status_{false};
     int navigation_status_code_{-1};
     std::string navigation_status_text_;
-    double object_lateral_offset_m_{0.15};
+    double object_x_min_m_{0.3};
+    double object_x_max_m_{0.6};
+    double object_target_x_m_{0.45};
+    double object_max_forward_correction_m_{0.05};
+    double object_y_min_abs_m_{0.15};
+    double object_y_max_abs_m_{0.5};
+    double object_y_target_abs_m_{0.25};
+    double object_max_lateral_correction_m_{0.15};
     double centered_y_threshold_m_{0.08};
     double person_partial_distance_m_{1.0};
     double person_partial_min_remaining_m_{0.75};

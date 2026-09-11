@@ -540,20 +540,19 @@ bool Take::selectArm(
     const std::string& left_obj,
     const double y_coord) const
 {
-    arm_group = (y_coord >= 0.0) ? "left_arm_group" : "right_arm_group";
+    (void)y_coord;
 
-    if (arm_group == "left_arm_group" && left_obj == "nothing") {
+    // Test policy: prefer the left arm for take when it is available.
+    arm_group = "left_arm_group";
+    if (left_obj == "nothing") {
         hand = "left_hand";
         return true;
-    } else if (arm_group == "left_arm_group" && left_obj != "nothing") {
-        arm_group = "right_arm_group";
     }
 
-    if (arm_group == "right_arm_group" && right_obj == "nothing") {
+    arm_group = "right_arm_group";
+    if (right_obj == "nothing") {
         hand = "right_hand";
         return true;
-    } else if (arm_group == "right_arm_group" && right_obj != "nothing") {
-        return false;
     }
 
     return false;

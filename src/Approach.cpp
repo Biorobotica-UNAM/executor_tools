@@ -18,7 +18,7 @@ constexpr double kReferenceConsistencyWarnM = 0.10;
 constexpr double kObjectLateralSpeedMps = 0.05;
 constexpr double kSafeDropFinalCorrectionToleranceM = 0.04;
 constexpr double kSafeDropFinalCorrectionMaxM = 0.40;
-constexpr double kSafeDropFinalCorrectionSpeedMps = 0.05;
+constexpr double kLocalCorrectionSpeedMps = 0.05;
 
 std::string toLowerCopy(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(),
@@ -96,8 +96,22 @@ Approach::Approach(const rclcpp::Node::SharedPtr &node,
         return node_->get_parameter(name).as_double();
     };
 
-    object_lateral_offset_m_ =
-        declare_or_get_double("approach.object_lateral_offset_m", 0.15);
+    object_x_min_m_ =
+        declare_or_get_double("approach.object_x_min_m", 0.3);
+    object_x_max_m_ =
+        declare_or_get_double("approach.object_x_max_m", 0.6);
+    object_target_x_m_ =
+        declare_or_get_double("approach.object_target_x_m", 0.45);
+    object_max_forward_correction_m_ =
+        declare_or_get_double("approach.object_max_forward_correction_m", 0.05);
+    object_y_min_abs_m_ =
+        declare_or_get_double("approach.object_y_min_abs_m", 0.15);
+    object_y_max_abs_m_ =
+        declare_or_get_double("approach.object_y_max_abs_m", 0.5);
+    object_y_target_abs_m_ =
+        declare_or_get_double("approach.object_y_target_abs_m", 0.25);
+    object_max_lateral_correction_m_ =
+        declare_or_get_double("approach.object_max_lateral_correction_m", 0.15);
     centered_y_threshold_m_ =
         declare_or_get_double("approach.centered_y_threshold_m", 0.08);
     person_partial_distance_m_ =
@@ -320,7 +334,15 @@ Result Approach::run(const std::string &argument,
 	              if (!final_correction_detail.empty()) {
 	                  detail += "; " + final_correction_detail;
 	              }
-	              std::string lateral_detail;
+              std::string forward_detail;
+              if (!applyObjectForwardAdjustment(category, id, gh,
+                                                forward_detail)) {
+                  return {false, "FAILED", forward_detail};
+              }
+              if (!forward_detail.empty()) {
+                  detail += "; " + forward_detail;
+              }
+              std::string lateral_detail;
 	              if (!applyObjectLateralAdjustment(category, id, local_pose, gh,
 	                                                lateral_detail)) {
 	                  return {false, "FAILED", lateral_detail};
@@ -398,6 +420,14 @@ Result Approach::run(const std::string &argument,
               stopNavigation();
 
               std::string detail = "arrived_by_tf_fallback";
+              std::string forward_detail;
+              if (!applyObjectForwardAdjustment(category, id, gh,
+                                                forward_detail)) {
+                  return {false, "FAILED", forward_detail};
+              }
+              if (!forward_detail.empty()) {
+                  detail += "; " + forward_detail;
+              }
               std::string lateral_detail;
               if (!applyObjectLateralAdjustment(category, id, local_pose, gh,
                                                 lateral_detail)) {
@@ -731,9 +761,98 @@ bool Approach::isTerminalNavigationStatus(int status) {
 
 bool Approach::isObjectTarget(const std::string &category,
                               const std::string &id) const {
+    double x = 0.0;
+    double y = 0.0;
+    std::string detail;
+    return getObjectManipulation(category, id, x, y, detail);
+}
+
+bool Approach::getObjectManipulation(
+    const std::string &category,
+    const std::string &id,
+    double &x,
+    double &y,
+    std::string &detail) const {
+    detail.clear();
     const auto manipulation =
         knowledge_->get_world_state(category, id, "manipulation");
-    return manipulation.is_array() && manipulation.size() >= 7;
+
+    if (!manipulation.is_array() || manipulation.size() < 7 ||
+        !manipulation[0].is_number() || !manipulation[1].is_number()) {
+        detail = "object_adjustment_skipped_invalid_manipulation";
+        return false;
+    }
+
+    x = manipulation[0].get<double>();
+    y = manipulation[1].get<double>();
+    if (std::abs(x) < 1e-6 && std::abs(y) < 1e-6) {
+        detail = "object_adjustment_skipped_empty_manipulation";
+        return false;
+    }
+
+    return true;
+}
+
+bool Approach::applyObjectForwardAdjustment(
+    const std::string &category,
+    const std::string &id,
+    const std::shared_ptr<GoalHandle> &gh,
+    std::string &detail) {
+    detail.clear();
+
+    if (category == "safe_drop" || object_max_forward_correction_m_ <= 0.0) {
+        return true;
+    }
+
+    double object_x = 0.0;
+    double object_y = 0.0;
+    if (!getObjectManipulation(category, id, object_x, object_y, detail)) {
+        publishFeedback(gh, ApproachState::APPROACHING, detail);
+        return true;
+    }
+
+    if (object_x >= object_x_min_m_ && object_x <= object_x_max_m_) {
+        detail = "object_forward_adjustment_skipped_x_in_range";
+        RCLCPP_INFO(node_->get_logger(),
+                    "[Approach] Forward adjustment skipped: manipulation x=%.3f in range [%.3f, %.3f]",
+                    object_x,
+                    object_x_min_m_,
+                    object_x_max_m_);
+        publishFeedback(gh, ApproachState::APPROACHING, detail);
+        return true;
+    }
+
+    double correction_m = object_x - object_target_x_m_;
+    correction_m = std::clamp(
+        correction_m,
+        -object_max_forward_correction_m_,
+        object_max_forward_correction_m_);
+
+    if (std::abs(correction_m) < 1e-3) {
+        detail = "object_forward_adjustment_skipped_small_error";
+        publishFeedback(gh, ApproachState::APPROACHING, detail);
+        return true;
+    }
+
+    detail = correction_m > 0.0 ?
+        "object_forward_adjustment_forward" :
+        "object_forward_adjustment_backward";
+    RCLCPP_INFO(node_->get_logger(),
+                "[Approach] Forward adjustment from manipulation x=%.3f target=%.3f correction=%.3f m",
+                object_x,
+                object_target_x_m_,
+                correction_m);
+    publishFeedback(gh, ApproachState::APPROACHING, detail);
+
+    if (!moveBaseRelative(correction_m, 0.0, gh)) {
+        detail = "object_forward_adjustment_cancelled";
+        publishFeedback(gh, ApproachState::FAILED, detail);
+        return false;
+    }
+
+    detail += "_done";
+    publishFeedback(gh, ApproachState::APPROACHING, detail);
+    return true;
 }
 
 bool Approach::applyObjectLateralAdjustment(
@@ -744,12 +863,13 @@ bool Approach::applyObjectLateralAdjustment(
     std::string &detail) {
     detail.clear();
 
-    if (!isObjectTarget(category, id) || object_lateral_offset_m_ <= 0.0) {
+    if (!isObjectTarget(category, id) || object_max_lateral_correction_m_ <= 0.0) {
         return true;
     }
 
+    const bool is_drop_target = category == "safe_drop";
     const double target_y = local_pose.pose.position.y;
-    if (std::abs(target_y) > centered_y_threshold_m_) {
+    if (is_drop_target && std::abs(target_y) > centered_y_threshold_m_) {
         detail = "object_lateral_adjustment_skipped_not_centered";
         RCLCPP_INFO(node_->get_logger(),
                     "[Approach] Object lateral adjustment skipped: target y=%.3f m threshold=%.3f m",
@@ -779,7 +899,6 @@ bool Approach::applyObjectLateralAdjustment(
     const bool right_occupied = !right_free;
     const bool left_occupied = !left_free;
 
-    const bool is_drop_target = category == "safe_drop";
     bool use_right_hand = false;
     bool drop_context_selected = false;
     const char *selection_reason = "free hand";
@@ -863,20 +982,62 @@ bool Approach::applyObjectLateralAdjustment(
             publishFeedback(gh, ApproachState::APPROACHING, detail);
             return true;
         }
-        use_right_hand = right_free;
+        // Test policy: mirror Take::selectArm and prefer the left hand.
+        use_right_hand = !left_free && right_free;
     }
 
-    const double distance_m =
-        use_right_hand ? object_lateral_offset_m_ : -object_lateral_offset_m_;
+    double distance_m = 0.0;
+    if (is_drop_target) {
+        distance_m =
+            use_right_hand ? object_max_lateral_correction_m_ :
+            -object_max_lateral_correction_m_;
+    } else {
+        double object_x = 0.0;
+        double object_y = 0.0;
+        if (!getObjectManipulation(category, id, object_x, object_y, detail)) {
+            publishFeedback(gh, ApproachState::APPROACHING, detail);
+            return true;
+        }
+
+        const double desired_y =
+            use_right_hand ? -object_y_target_abs_m_ : object_y_target_abs_m_;
+        const bool y_in_take_range =
+            std::abs(object_y) >= object_y_min_abs_m_ &&
+            std::abs(object_y) <= object_y_max_abs_m_;
+        const bool y_matches_selected_side =
+            use_right_hand ? object_y < 0.0 : object_y > 0.0;
+
+        if (y_in_take_range && y_matches_selected_side) {
+            detail = "object_lateral_adjustment_skipped_y_in_range";
+            RCLCPP_INFO(node_->get_logger(),
+                        "[Approach] Lateral adjustment skipped: manipulation y=%.3f works for %s hand",
+                        object_y,
+                        use_right_hand ? "right" : "left");
+            publishFeedback(gh, ApproachState::APPROACHING, detail);
+            return true;
+        }
+
+        distance_m = object_y - desired_y;
+        distance_m = std::clamp(
+            distance_m,
+            -object_max_lateral_correction_m_,
+            object_max_lateral_correction_m_);
+
+        if (std::abs(distance_m) < 1e-3) {
+            detail = "object_lateral_adjustment_skipped_small_error";
+            publishFeedback(gh, ApproachState::APPROACHING, detail);
+            return true;
+        }
+    }
+
     const char *selected_hand = use_right_hand ? "right_hand" : "left_hand";
-    const char *direction = use_right_hand ? "left" : "right";
+    const char *direction = distance_m > 0.0 ? "left" : "right";
 
     detail = std::string("object_lateral_adjustment_") + selected_hand +
              "_move_" + direction;
 
     RCLCPP_INFO(node_->get_logger(),
-                "[Approach] Object centered at y=%.3f m. Using %s (%s), moving base %s %.3f m",
-                target_y,
+                "[Approach] Lateral adjustment using %s (%s), moving base %s %.3f m",
                 selected_hand,
                 selection_reason,
                 direction,
@@ -997,7 +1158,7 @@ bool Approach::moveBaseRelative(
         return true;
     }
 
-    const double duration_s = distance / kSafeDropFinalCorrectionSpeedMps;
+    const double duration_s = distance / kLocalCorrectionSpeedMps;
     const double vx = dx_m / duration_s;
     const double vy = dy_m / duration_s;
     const auto start_time = std::chrono::steady_clock::now();
