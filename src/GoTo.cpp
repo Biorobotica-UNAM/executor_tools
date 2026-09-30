@@ -22,12 +22,27 @@ Result GoTo::run(const std::string&                 location_name,
     publishFeedback(gh, GoToState::READY, location_name);
 
 	// ── MOVING_TORSO ─────────────────────────────────────
-    //publishFeedback(gh, GoToState::MOVING_TORSO);
-    //bool torso_moved = hardware_->MoveTorso(0.3);
-    //if (!torso_moved) {
-    //    publishFeedback(gh, GoToState::FAILED, "move_torso_failed");
-    //    return {false, "FAILED", "move_torso_failed"};
-    //}
+    publishFeedback(gh, GoToState::MOVING_TORSO);
+    bool torso_moved = hardware_->MoveTorso(0.3);
+    if (!torso_moved) {
+        publishFeedback(gh, GoToState::FAILED, "move_torso_failed");
+        return {false, "FAILED", "move_torso_failed"};
+    }
+
+	// ── MOVING_ARMS ─────────────────────────────────────
+    publishFeedback(gh, GoToState::MOVING_ARMS);
+	bool left_arm_moved = hardware_->MoveLeftArm({LEFT_ARM_NAVIGATING[0], LEFT_ARM_NAVIGATING[1], LEFT_ARM_NAVIGATING[2],
+													LEFT_ARM_NAVIGATING[3], LEFT_ARM_NAVIGATING[4], LEFT_ARM_NAVIGATING[5]})
+	if (!left_arm_moved) {
+        publishFeedback(gh, GiveState::FAILED, "left_arm_navigation_failed");
+        return {false, "FAILED", "left_arm_navigation_failed"};
+    }
+	bool right_arm_moved = hardware_->MoveRightArm({RIGHT_ARM_NAVIGATING[0], RIGHT_ARM_NAVIGATING[1], RIGHT_ARM_NAVIGATING[2],
+													RIGHT_ARM_NAVIGATING[3], RIGHT_ARM_NAVIGATING[4], RIGHT_ARM_NAVIGATING[5]})
+	if (!right_arm_moved) {
+        publishFeedback(gh, GiveState::FAILED, "right_arm_navigation_failed");
+        return {false, "FAILED", "right_arm_navigation_failed"};
+    }
 
     // ── NAVIGATING ────────────────────────────────────────
     publishFeedback(gh, GoToState::NAVIGATING, location_name);
@@ -71,6 +86,7 @@ std::string GoTo::stateName(GoToState s)
     switch (s) {
         case GoToState::READY:      return "READY";
 		case GoToState::MOVING_TORSO: return "MOVING_TORSO";
+		case GoToState::MOVING_ARMS: return "MOVING_ARMS";
         case GoToState::NAVIGATING: return "NAVIGATING";
         case GoToState::SUCCESS:    return "SUCCESS";
         case GoToState::FAILED:     return "FAILED";

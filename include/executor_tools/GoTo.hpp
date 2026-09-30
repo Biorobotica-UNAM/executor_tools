@@ -16,6 +16,7 @@
 enum class GoToState {
     READY,
 	MOVING_TORSO,
+	MOVING_ARMS,
     NAVIGATING,
     SUCCESS,
     FAILED
@@ -40,6 +41,9 @@ private:
                          const std::string&                 detail = "");
 
     static std::string stateName(GoToState s);
+
+	static constexpr std::array<double, 6> LEFT_ARM_NAVIGATING = {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
+    static constexpr std::array<double, 6> RIGHT_ARM_NAVIGATING = {-0.9, 0.0, 0.0, 1.5, 0.0, 0.9};
 
     rclcpp::Node::SharedPtr     node_;
 	std::shared_ptr<Hardware> hardware_;
