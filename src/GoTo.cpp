@@ -32,13 +32,13 @@ Result GoTo::run(const std::string&                 location_name,
 	// ── MOVING_ARMS ─────────────────────────────────────
     publishFeedback(gh, GoToState::MOVING_ARMS);
 	bool left_arm_moved = hardware_->MoveLeftArm({LEFT_ARM_NAVIGATING[0], LEFT_ARM_NAVIGATING[1], LEFT_ARM_NAVIGATING[2],
-													LEFT_ARM_NAVIGATING[3], LEFT_ARM_NAVIGATING[4], LEFT_ARM_NAVIGATING[5]})
+													LEFT_ARM_NAVIGATING[3], LEFT_ARM_NAVIGATING[4], LEFT_ARM_NAVIGATING[5]});
 	if (!left_arm_moved) {
         publishFeedback(gh, GiveState::FAILED, "left_arm_navigation_failed");
         return {false, "FAILED", "left_arm_navigation_failed"};
     }
 	bool right_arm_moved = hardware_->MoveRightArm({RIGHT_ARM_NAVIGATING[0], RIGHT_ARM_NAVIGATING[1], RIGHT_ARM_NAVIGATING[2],
-													RIGHT_ARM_NAVIGATING[3], RIGHT_ARM_NAVIGATING[4], RIGHT_ARM_NAVIGATING[5]})
+													RIGHT_ARM_NAVIGATING[3], RIGHT_ARM_NAVIGATING[4], RIGHT_ARM_NAVIGATING[5]});
 	if (!right_arm_moved) {
         publishFeedback(gh, GiveState::FAILED, "right_arm_navigation_failed");
         return {false, "FAILED", "right_arm_navigation_failed"};
