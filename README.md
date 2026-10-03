@@ -16,7 +16,7 @@ The package follows a standard ROS 2 C++ structure, separating interface definit
 * **`Knowledge`**: Manages the local knowledge bank, including keyword filtering via YAML.
 * **Behavioral Tools**:
 
-| Action | FSM | Description |
+| Acción | FSM | Descripción |
 | :--- | :--- | :--- |
 | **`say`** | `Say` | Pronuncia una frase del banco de conocimiento mediante el sintetizador de voz (TTS). |
 | **`listen`** | `Listen` | Captura audio, extrae entidades nombradas y actualiza el estado del mundo. |
