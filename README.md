@@ -14,12 +14,34 @@ The package follows a standard ROS 2 C++ structure, separating interface definit
 
 * **`Executor`**: Base class that handles the `AuthorizeTask` service calls to the Supervisor.
 * **`Knowledge`**: Manages the local knowledge bank, including keyword filtering via YAML.
-* **Behavioral Tools**: 
-    * `GoTo`: Interface for the navigation system.
-    * `Follow`: Human tracking activation.
-    * `Listen` & `Say`: HRI (Human-Robot Interaction) utilities.
-    * `Check`: Hardware status monitoring.
-    * `Save`: Data persistence during tasks.
+* **Behavioral Tools**:
+
+| Action | FSM | Description |
+| :--- | :--- | :--- |
+| **`say`** | `Say` | Pronuncia una frase del banco de conocimiento mediante el sintetizador de voz (TTS). |
+| **`listen`** | `Listen` | Captura audio, extrae entidades nombradas y actualiza el estado del mundo. |
+| **`go_to`** | `GoTo` | Ajusta la altura del torso y navega hacia una ubicación nombrada. |
+| **`check`** | `Check` | Verifica el estado de un componente de hardware o sensor (p. ej., estado de una puerta). |
+| **`point`** | `Point` | Alinea la base y la cabeza hacia un objetivo y extiende el brazo para señalarlo. |
+| **`give`** | `Give` | Extiende el brazo que sostiene un objeto y abre el gripper tras confirmar la recepción. |
+| **`receive`** | `Receive` | Extiende el brazo con el gripper abierto y lo cierra al detectar el objeto entregado por una persona. |
+| **`take`** | `Take` | FSM principal de agarre. Ejecuta la aproximación visual fina mediante `VisualGraspApproach`, planea con `manipulation_tools`, cierra el gripper y retrae la trayectoria. |
+| **`verify_take`** | `VerifyTake` | Confirma por visión la presencia del objeto tras la maniobra de agarre. |
+| **`drop`** | `Drop` | Consume una TF de espacio seguro producida por `FindSpace` y deposita el objeto. |
+| **`find_space`** | `FindSpace` | Localiza y valida una TF de espacio libre sobre superficies (mesas, repisas) para depositar objetos. |
+| **`find_object`** | `FindObject` | Escanea con la cabeza, detecta objetos por visión y actualiza su pose en el mundo. |
+| **`find_person`** | `FindPerson` | Detecta, localiza e identifica a una persona, actualizando su registro en el estado del mundo. |
+| **`find_pose`** | `FindPose` | Detecta la postura de una persona y la almacena en un búfer compartido. |
+| **`approach` / `approach_partial`** | `Approach` | Aproxima el robot a una persona u objeto. La variante `approach_partial` invoca `runPartial` para acercamientos incompletos. |
+| **`align`** | `Align` | Alinea la base respecto a un objetivo visual mediante control en lazo cerrado. |
+| **`focus`** | `Focus` | Centra la cámara de la cabeza en un objetivo previamente detectado. |
+| **`follow`** | `Follow` | Habilita o deshabilita el servicio de seguimiento de personas. |
+| **`analyze_objects`** | `AnalyzeObjects` | Realiza análisis de conteo, tamaño o color en objetos detectados. |
+| **`analyze_person`** | `AnalyzePerson` | Analiza vestimenta o gestos de una persona. |
+| **`save_loc`** | `SaveLoc` | Guarda la pose actual o relativa del robot como una nueva ubicación nombrada. |
+| **`fold`** | `Fold` | Dobla una prenda sobre una mesa en dos fases (mangas y base) guiándose por puntos clave de visión. |
+
+---
 
 ## Manipulacion: VisualGraspApproach
 
