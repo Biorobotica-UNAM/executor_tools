@@ -271,7 +271,7 @@ Result AnalyzePerson::run(const std::string &argument,
     }
 
     publishFeedback(gh, AnalyzePersonState::SUCCESS, result_msg);
-    return {true, "SUCCESS", result_msg};
+    return {true, "SUCCESS", "person_analyzed:" + result_msg};
   }
 
   publishFeedback(gh, AnalyzePersonState::FAILED, result_msg);
