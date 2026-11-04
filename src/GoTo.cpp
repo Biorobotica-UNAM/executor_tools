@@ -25,8 +25,9 @@ Result GoTo::run(const std::string&                 location_name,
     publishFeedback(gh, GoToState::MOVING_TORSO);
     bool torso_moved = hardware_->MoveTorso(0.3);
     if (!torso_moved) {
-        publishFeedback(gh, GoToState::FAILED, "move_torso_failed");
-        return {false, "FAILED", "move_torso_failed"};
+        RCLCPP_WARN(node_->get_logger(),
+                    "[go_to] MoveTorso failed before navigating to '%s'; continuing navigation anyway.",
+                    location_name.c_str());
     }
 
 	// ── MOVING_ARMS ─────────────────────────────────────
@@ -34,14 +35,16 @@ Result GoTo::run(const std::string&                 location_name,
 	bool left_arm_moved = hardware_->MoveLeftArm({LEFT_ARM_NAVIGATING[0], LEFT_ARM_NAVIGATING[1], LEFT_ARM_NAVIGATING[2],
 													LEFT_ARM_NAVIGATING[3], LEFT_ARM_NAVIGATING[4], LEFT_ARM_NAVIGATING[5]});
 	if (!left_arm_moved) {
-        publishFeedback(gh, GoToState::FAILED, "left_arm_navigation_failed");
-        return {false, "FAILED", "left_arm_navigation_failed"};
+        RCLCPP_WARN(node_->get_logger(),
+                    "[go_to] MoveLeftArm failed before navigating to '%s'; continuing navigation anyway.",
+                    location_name.c_str());
     }
 	bool right_arm_moved = hardware_->MoveRightArm({RIGHT_ARM_NAVIGATING[0], RIGHT_ARM_NAVIGATING[1], RIGHT_ARM_NAVIGATING[2],
 													RIGHT_ARM_NAVIGATING[3], RIGHT_ARM_NAVIGATING[4], RIGHT_ARM_NAVIGATING[5]});
 	if (!right_arm_moved) {
-        publishFeedback(gh, GoToState::FAILED, "right_arm_navigation_failed");
-        return {false, "FAILED", "right_arm_navigation_failed"};
+        RCLCPP_WARN(node_->get_logger(),
+                    "[go_to] MoveRightArm failed before navigating to '%s'; continuing navigation anyway.",
+                    location_name.c_str());
     }
 
     // ── NAVIGATING ────────────────────────────────────────

@@ -74,6 +74,11 @@ Result FindPerson::run(const std::string &argument,
     for (double tilt_deg : {0.0, -10.0, -20.0, -30.0}) {
       scan_points.push_back({0.0, tilt_deg * kDegToRad});
     }
+    for (double pan : {-0.5, 0.5}) {
+      for (double tilt_deg : {-10.0, -20.0}) {
+        scan_points.push_back({pan, tilt_deg * kDegToRad});
+      }
+    }
   } else {
     constexpr double kDegToRad = 0.017453292519943295;
     for (double tilt_deg : {-15.0, -30.0}) {
@@ -277,7 +282,22 @@ bool FindPerson::scanPosition(double pan, double tilt, bool anybody,
     if (!gh->is_active())
       return false;
 
-    current_detection = refined;
+    const double current_dist = std::hypot(
+        current_detection.pose.pose.position.x,
+        current_detection.pose.pose.position.y);
+    const double refined_dist = std::hypot(
+        refined.pose.pose.position.x,
+        refined.pose.pose.position.y);
+
+    if (current_dist > 0.2 && refined_dist > current_dist + 0.45) {
+      RCLCPP_WARN(
+          node_->get_logger(),
+          "[FindPerson] Centering iter=%d refined pose jumped far (%.2f m -> %.2f m); keeping closer pose to avoid background wall",
+          iter, current_dist, refined_dist);
+      current_detection.coords = refined.coords;
+    } else {
+      current_detection = refined;
+    }
 
     // ── 3d. Comprobar si la cara ya está centrada ─────────
     double face_center_y = kImageCenterY;
@@ -384,16 +404,18 @@ bool FindPerson::scanPosition(double pan, double tilt, bool anybody,
 
     publishFeedback(gh, FindPersonState::DESCRIBING);
 
-    std::string description;
+    std::string description = "person";
     if (vision_->DescribePerson(found_name, description)) {
       RCLCPP_INFO(node_->get_logger(), "[FindPerson] Description: %s", description.c_str());
-      publishFeedback(gh, FindPersonState::UPDATING, found_name);
-      updatePersonState(category, person_index, found_name, target_pose,
-                        current_detection.nav, description, true);
     } else {
       RCLCPP_WARN(node_->get_logger(),
-                  "[FindPerson] DescribePerson failed for '%s'", found_name.c_str());
+                  "[FindPerson] DescribePerson failed for '%s'; saving pose with fallback description",
+                  found_name.c_str());
+      description = "person";
     }
+    publishFeedback(gh, FindPersonState::UPDATING, found_name);
+    updatePersonState(category, person_index, found_name, target_pose,
+                      current_detection.nav, description, true);
 
     return true;
   }
@@ -420,16 +442,18 @@ bool FindPerson::scanPosition(double pan, double tilt, bool anybody,
 
   publishFeedback(gh, FindPersonState::DESCRIBING);
 
-  std::string description;
+  std::string description = "person";
   if (vision_->DescribePerson(found_name, description)) {
     RCLCPP_INFO(node_->get_logger(), "[FindPerson] Description: %s", description.c_str());
-    publishFeedback(gh, FindPersonState::UPDATING, found_name);
-    updatePersonState(category, person_index, found_name, target_pose,
-                      current_detection.nav, description, anybody);
   } else {
     RCLCPP_WARN(node_->get_logger(),
-                "[FindPerson] DescribePerson failed for '%s'", found_name.c_str());
+                "[FindPerson] DescribePerson failed for '%s'; saving pose with fallback description",
+                found_name.c_str());
+    description = "person";
   }
+  publishFeedback(gh, FindPersonState::UPDATING, found_name);
+  updatePersonState(category, person_index, found_name, target_pose,
+                    current_detection.nav, description, anybody);
 
   return true;
 }

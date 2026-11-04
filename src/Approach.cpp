@@ -9,7 +9,8 @@
 
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "hardware_tools/Hardware.hpp"
-#include "navigation_tools/Navigation.hpp" 
+#include "navigation_tools/Navigation.hpp"
+#include "vision_tools/Vision.hpp"
 
 using namespace std::chrono_literals;
 
@@ -65,6 +66,165 @@ bool objectTokenMatches(const std::string &expected, const std::string &held) {
            expected_norm == stripNumericSuffix(held_norm) ||
            stripNumericSuffix(expected_norm) == held_norm;
 }
+
+bool isPersonCategory(const std::string &category) {
+    return category == "customer" || category == "guest" ||
+           category == "host" || category == "user" ||
+           category == "person" || category == "anybody" ||
+           category == "human" || category == "someone";
+}
+
+void parseTargetArgument(const std::string &argument,
+                         std::string &category,
+                         std::string &id) {
+    const std::size_t sep = argument.rfind('_');
+    if (sep != std::string::npos && sep + 1 < argument.size()) {
+        const std::string suffix = argument.substr(sep + 1);
+        const bool is_numeric = std::all_of(
+            suffix.begin(), suffix.end(),
+            [](unsigned char c) { return std::isdigit(c); });
+        if (is_numeric || suffix == "last") {
+            category = argument.substr(0, sep);
+            id = suffix;
+        } else {
+            category = argument;
+            id = "last";
+        }
+    } else {
+        category = argument;
+        id = "last";
+    }
+
+    if (category == "person" || category == "anybody" ||
+        category == "human" || category == "someone") {
+        category = "guest";
+    }
+}
+
+bool isValidNavigationArray(const nlohmann::json &nav_array) {
+    if (!nav_array.is_array() || nav_array.size() < 7) {
+        return false;
+    }
+    for (std::size_t i = 0; i < 7; ++i) {
+        if (nav_array[i].is_number() &&
+            std::abs(nav_array[i].get<double>()) > 1e-6) {
+            return true;
+        }
+    }
+    return false;
+}
+
+nlohmann::json poseToJsonArray(const geometry_msgs::msg::Pose &pose) {
+    return nlohmann::json::array({
+        pose.position.x,
+        pose.position.y,
+        pose.position.z,
+        pose.orientation.x,
+        pose.orientation.y,
+        pose.orientation.z,
+        pose.orientation.w
+    });
+}
+
+nlohmann::json resolveTargetNavigation(
+    const std::string &argument,
+    std::string &category,
+    std::string &id,
+    const std::shared_ptr<Knowledge> &knowledge,
+    const std::shared_ptr<Vision> &vision,
+    const rclcpp::Logger &logger) {
+    parseTargetArgument(argument, category, id);
+
+    RCLCPP_INFO(logger, "[Approach] Querying Knowledge for key: %s%s%s",
+                category.c_str(), id.empty() ? "" : "_", id.c_str());
+
+    nlohmann::json nav_array =
+        knowledge->get_world_state(category, id, "navigation");
+    if (isValidNavigationArray(nav_array)) {
+        return nav_array;
+    }
+
+    // Fallback 1: buscar por nombre o en otras categorías de personas dentro de world_state
+    const nlohmann::json world = knowledge->get_world_state("world");
+    if (world.is_object()) {
+        const std::string norm_arg = toLowerCopy(argument);
+        const std::string norm_cat = toLowerCopy(category);
+        for (auto it = world.begin(); it != world.end(); ++it) {
+            if (!it.value().is_object() || !it.value().contains(it.key())) {
+                continue;
+            }
+            const auto &entries = it.value()[it.key()];
+            if (!entries.is_array()) {
+                continue;
+            }
+            for (auto rit = entries.rbegin(); rit != entries.rend(); ++rit) {
+                if (!rit->is_object() || !rit->contains("navigation")) {
+                    continue;
+                }
+                const auto &cand_nav = (*rit)["navigation"];
+                if (!isValidNavigationArray(cand_nav)) {
+                    continue;
+                }
+                const std::string cand_name =
+                    rit->value("name", std::string(""));
+                const bool name_matches =
+                    !cand_name.empty() &&
+                    (toLowerCopy(cand_name) == norm_arg ||
+                     toLowerCopy(cand_name) == norm_cat);
+                const bool generic_person_match =
+                    isPersonCategory(category) && isPersonCategory(it.key());
+                if (name_matches || generic_person_match) {
+                    category = it.key();
+                    id = std::to_string(rit->value("number", 1));
+                    RCLCPP_INFO(
+                        logger,
+                        "[Approach] Resolved '%s' via Knowledge search -> %s_%s",
+                        argument.c_str(), category.c_str(), id.c_str());
+                    return cand_nav;
+                }
+            }
+        }
+    }
+
+    // Fallback 2: Detección visual autónoma si Knowledge no tiene pose previa
+    if (vision && category != "safe_drop") {
+        if (isPersonCategory(category)) {
+            RCLCPP_WARN(
+                logger,
+                "[Approach] No valid pose in Knowledge for '%s'; attempting direct visual person detection...",
+                argument.c_str());
+            Vision::PersonDetection det;
+            if (vision->DetectPersonPose(det) && det.success) {
+                nav_array = poseToJsonArray(det.nav.pose);
+                knowledge->update_world_state(
+                    category, id.empty() ? "last" : id, "navigation",
+                    nav_array.dump());
+                RCLCPP_INFO(
+                    logger,
+                    "[Approach] Direct visual person detection succeeded for '%s'",
+                    argument.c_str());
+                return nav_array;
+            }
+        } else {
+            RCLCPP_WARN(
+                logger,
+                "[Approach] No valid pose in Knowledge for '%s'; attempting direct visual object detection...",
+                argument.c_str());
+            geometry_msgs::msg::PoseStamped pose, nav;
+            std::string detected_name;
+            if (vision->GetOwlPose(category, pose, nav, detected_name)) {
+                nav_array = poseToJsonArray(nav.pose);
+                RCLCPP_INFO(
+                    logger,
+                    "[Approach] Direct visual object detection succeeded for '%s' (%s)",
+                    argument.c_str(), detected_name.c_str());
+                return nav_array;
+            }
+        }
+    }
+
+    return nlohmann::json();
+}
 }
 
 // =========================================================
@@ -87,6 +247,37 @@ Approach::Approach(const rclcpp::Node::SharedPtr &node,
             std::bind(&Approach::navigationStatusCallback,
                       this,
                       std::placeholders::_1));
+    collision_risk_sub_ =
+        node_->create_subscription<std_msgs::msg::Bool>(
+            "/navigation/navigation/potential_fields/collision_risk",
+            rclcpp::SensorDataQoS(),
+            std::bind(&Approach::collisionRiskCallback,
+                      this,
+                      std::placeholders::_1));
+    collision_risk_global_sub_ =
+        node_->create_subscription<std_msgs::msg::Bool>(
+            "/navigation/potential_fields/collision_risk",
+            rclcpp::SensorDataQoS(),
+            std::bind(&Approach::collisionRiskCallback,
+                      this,
+                      std::placeholders::_1));
+    simple_move_status_sub_ =
+        node_->create_subscription<actionlib_msgs::msg::GoalStatus>(
+            "/navigation/simple_move/goal_reached",
+            rclcpp::QoS(10).durability_volatile(),
+            std::bind(&Approach::simpleMoveStatusCallback,
+                      this,
+                      std::placeholders::_1));
+
+    nav_stop_pub_ =
+        node_->create_publisher<std_msgs::msg::Empty>(
+            "/navigation/stop", rclcpp::QoS(10));
+    simple_move_stop_pub_ =
+        node_->create_publisher<std_msgs::msg::Empty>(
+            "/navigation/simple_move/stop", rclcpp::QoS(10));
+    nav_ctrl_stop_pub_ =
+        node_->create_publisher<std_msgs::msg::Bool>(
+            "/navigation/navigation_ctrl/stop", rclcpp::QoS(10));
 
     auto declare_or_get_double = [this](const std::string &name,
                                         double default_value) {
@@ -119,31 +310,15 @@ Result Approach::run(const std::string &argument,
 
   publishFeedback(gh, ApproachState::READY, argument);
 
-  // ── STEP 1: PARSEO DINÁMICO DE CATEGORÍA E ID (100% Genérico) ──
+  // ── STEP 1 & 2: PARSEO DINÁMICO Y RESOLUCIÓN DE OBJETIVO ──────
+  publishFeedback(gh, ApproachState::LOADING, argument);
+
   std::string category = "";
   std::string id = "";
-  
-  std::size_t sep = argument.rfind('_');
-  if (sep != std::string::npos &&
-      sep + 1 < argument.size() &&
-      std::all_of(argument.begin() + sep + 1, argument.end(),
-                  [](unsigned char c) { return std::isdigit(c); })) {
-      category = argument.substr(0, sep);
-      id = argument.substr(sep + 1);
-  } else {
-      category = argument;
-      id = ""; 
-  }
+  nlohmann::json nav_array = resolveTargetNavigation(
+      argument, category, id, knowledge_, vision_, node_->get_logger());
 
-  RCLCPP_INFO(node_->get_logger(), "[Approach] Querying Knowledge for key: %s%s%s", 
-              category.c_str(), id.empty() ? "" : "_", id.c_str());
-
-  // ── STEP 2: CONSULTA AL ESTADO DEL MUNDO ───────────────────────
-  publishFeedback(gh, ApproachState::LOADING, argument);
-  
-  nlohmann::json nav_array = knowledge_->get_world_state(category, id, "navigation");
-
-  if (nav_array.empty() || !nav_array.is_array() || nav_array.size() < 7) {
+  if (!isValidNavigationArray(nav_array)) {
       RCLCPP_ERROR(node_->get_logger(), 
                    "[Approach] Empty or invalid navigation array for target: %s_%s", 
                    category.c_str(), id.c_str());
@@ -251,21 +426,52 @@ Result Approach::run(const std::string &argument,
     global_pose.pose.orientation.z,
     global_pose.pose.orientation.w);
 
+  const bool is_person_target = isPersonCategory(category);
+  const bool is_safe_drop_target = category == "safe_drop";
+  // Para persona, global_pose ya tiene un offset de 0.70m frente a la persona
+  // (NavPose(pose, 0.70)), por lo que una tolerancia de 0.15m al goal deja al
+  // robot a ~0.80m reales de la persona.
+  const double kArrivalTolerance =
+      is_person_target ? 0.15 : (is_safe_drop_target ? 0.08 : 0.35);
+
+  geometry_msgs::msg::PoseStamped odom_goal_pose;
+  bool has_odom_goal = false;
+  if (is_person_target) {
+      try {
+          odom_goal_pose = tf_buffer_->transform(local_pose, "odom", 200ms);
+          has_odom_goal = true;
+      } catch (const tf2::TransformException &ex) {
+          RCLCPP_WARN(node_->get_logger(),
+                      "[Approach] Could not transform fixed person goal to odom: %s",
+                      ex.what());
+      }
+  }
+
+  const double initial_local_distance =
+      std::hypot(local_pose.pose.position.x, local_pose.pose.position.y);
+  if (is_person_target && initial_local_distance <= kArrivalTolerance) {
+      RCLCPP_INFO(
+          node_->get_logger(),
+          "[Approach] Person target '%s' already within arrival tolerance (%.3f m <= %.3f m); orienting in place.",
+          argument.c_str(), initial_local_distance, kArrivalTolerance);
+      std::string orient_detail;
+      confirmAndOrientToPerson(category, id, global_pose, gh, false, orient_detail);
+      std::string detail = "already_within_person_tolerance";
+      if (!orient_detail.empty()) {
+          detail += "; " + orient_detail;
+      }
+      publishFeedback(gh, ApproachState::SUCCESS, detail);
+      return {true, "SUCCESS", detail};
+  }
+
   resetNavigationStatus();
   navigation_->Go(global_pose);
 
-  const bool is_person_target =
-      (category == "customer" || category == "guest" ||
-       category == "host" || category == "user");
-  const bool is_safe_drop_target = category == "safe_drop";
-  // safe_drop necesita terminar mucho mas cerca que un objeto/persona: Drop usa
-  // esa marca como pose de manipulacion, no solo como destino de navegacion.
-  const double kArrivalTolerance =
-      is_person_target ? 1.0 : (is_safe_drop_target ? 0.08 : 0.35);
   auto start_nav_time = std::chrono::steady_clock::now();
   const auto kMaxNavDuration = 90s;
   int last_reported_nav_status = -2;
   std::string last_reported_nav_text;
+  bool retried_non_person_obstacle = false;
 
   RCLCPP_INFO(node_->get_logger(),
               "[Approach] Entering tracking loop. Monitoring navigation status and distance to goal...");
@@ -312,6 +518,17 @@ Result Approach::run(const std::string &argument,
 	              RCLCPP_INFO(node_->get_logger(),
 	                          "[Approach] Navigation reported success: %s",
 	                          detail.c_str());
+                  if (is_person_target) {
+                      stopNavigation();
+                      std::string orient_detail;
+                      confirmAndOrientToPerson(category, id, global_pose, gh, false,
+                                               orient_detail);
+                      if (!orient_detail.empty()) {
+                          detail += "; " + orient_detail;
+                      }
+                      publishFeedback(gh, ApproachState::SUCCESS, detail);
+                      return {true, "SUCCESS", detail};
+                  }
 	              std::string final_correction_detail;
 	              if (!applySafeDropFinalCorrection(category, global_pose, gh,
 	                                                final_correction_detail)) {
@@ -332,6 +549,14 @@ Result Approach::run(const std::string &argument,
               return {true, "SUCCESS", detail};
           }
 
+          if (is_person_target) {
+              RCLCPP_WARN(
+                  node_->get_logger(),
+                  "[Approach] Full navigation failed for person '%s' (%s); falling back to runPartial...",
+                  argument.c_str(), detail.c_str());
+              return runPartial(argument, gh);
+          }
+
           RCLCPP_ERROR(node_->get_logger(),
                        "[Approach] Navigation reported failure: %s",
                        detail.c_str());
@@ -348,6 +573,24 @@ Result Approach::run(const std::string &argument,
           double dy = global_pose.pose.position.y - current_ry;
           double distance_to_goal = std::sqrt(dx * dx + dy * dy);
 
+          double odom_distance_to_goal = distance_to_goal;
+          if (is_person_target && has_odom_goal) {
+              try {
+                  const auto tf_robot_odom = tf_buffer_->lookupTransform(
+                      "odom", "base_link", tf2::TimePointZero, 50ms);
+                  const double odx = odom_goal_pose.pose.position.x -
+                                     tf_robot_odom.transform.translation.x;
+                  const double ody = odom_goal_pose.pose.position.y -
+                                     tf_robot_odom.transform.translation.y;
+                  odom_distance_to_goal = std::hypot(odx, ody);
+              } catch (const tf2::TransformException &) {
+              }
+          }
+
+          const double effective_distance =
+              is_person_target ? std::min(distance_to_goal, odom_distance_to_goal)
+                               : distance_to_goal;
+
           auto map_pose_now = global_pose;
           map_pose_now.header.stamp = node_->now();
           const auto target_in_base =
@@ -362,8 +605,8 @@ Result Approach::run(const std::string &argument,
 
           RCLCPP_INFO_THROTTLE(
               node_->get_logger(), *node_->get_clock(), 2000,
-              "[Approach] Reference check: map_dist=%.3f m base_projected_dist=%.3f m diff=%.3f m",
-              distance_to_goal, base_projected_distance,
+              "[Approach] Reference check: map_dist=%.3f m odom_dist=%.3f m base_projected_dist=%.3f m diff=%.3f m",
+              distance_to_goal, odom_distance_to_goal, base_projected_distance,
               reference_distance_error);
 
           if (reference_distance_error > kReferenceConsistencyWarnM) {
@@ -373,14 +616,60 @@ Result Approach::run(const std::string &argument,
                   reference_distance_error);
           }
 
-          if (distance_to_goal <= kArrivalTolerance) {
+          const bool obstacle_detected_near_person =
+              is_person_target &&
+              ((effective_distance <= 0.55 && nav_status.collision_risk) ||
+               (effective_distance <= 0.90 &&
+                containsToken(nav_status.text, "obstacles")));
+
+          if (obstacle_detected_near_person) {
+              RCLCPP_WARN(
+                  node_->get_logger(),
+                  "[Approach] Obstacle detected near person goal (effective_dist=%.3f m, collision_risk=%d, text='%s'); stopping to confirm person...",
+                  effective_distance,
+                  nav_status.collision_risk,
+                  nav_status.text.c_str());
+
+              stopNavigation();
+              publishFeedback(gh, ApproachState::APPROACHING,
+                              "obstacle_near_person_confirming");
+
+              std::string confirm_detail;
+              const bool require_visual = (effective_distance > 0.45);
+              if (confirmAndOrientToPerson(category, id, global_pose, gh,
+                                           require_visual, confirm_detail)) {
+                  {
+                      std::lock_guard<std::mutex> lock(navigation_status_mutex_);
+                      waiting_navigation_status_ = false;
+                  }
+                  const std::string detail =
+                      "person_obstacle_confirmed: " + confirm_detail;
+                  publishFeedback(gh, ApproachState::SUCCESS, detail);
+                  return {true, "SUCCESS", detail};
+              }
+
+              if (!retried_non_person_obstacle && gh->is_active()) {
+                  retried_non_person_obstacle = true;
+                  RCLCPP_INFO(
+                      node_->get_logger(),
+                      "[Approach] Obstacle was not confirmed as target person (%s); resuming navigation to fixed goal once.",
+                      confirm_detail.c_str());
+                  resetNavigationStatus();
+                  navigation_->Go(global_pose);
+                  continue;
+              }
+          }
+
+          if (effective_distance <= kArrivalTolerance) {
               {
                   RCLCPP_INFO(
                   node_->get_logger(),
                   "[Approach] TF check:"
-                  " distance=%.4f"
+                  " effective_distance=%.4f (map=%.4f odom=%.4f)"
                   " tolerance=%.4f",
+                  effective_distance,
                   distance_to_goal,
+                  odom_distance_to_goal,
                   kArrivalTolerance);
                   std::lock_guard<std::mutex> lock(navigation_status_mutex_);
                   waiting_navigation_status_ = false;
@@ -388,16 +677,23 @@ Result Approach::run(const std::string &argument,
               RCLCPP_WARN(
               node_->get_logger(),
               "[Approach] EXITING BY TF FALLBACK!"
-              " distance=%.4f <= tolerance=%.4f — stopping nav.",
-              distance_to_goal,
+              " effective_distance=%.4f <= tolerance=%.4f — stopping nav.",
+              effective_distance,
               kArrivalTolerance);
 
-              // FIX: Go() publica en un tópico; el nav_controller sigue
-              // activo cuando salimos por TF fallback. Publicamos la pose
-              // actual como nuevo goal para que se detenga de inmediato.
               stopNavigation();
 
               std::string detail = "arrived_by_tf_fallback";
+              if (is_person_target) {
+                  std::string orient_detail;
+                  confirmAndOrientToPerson(category, id, global_pose, gh, false,
+                                           orient_detail);
+                  if (!orient_detail.empty()) {
+                      detail += "; " + orient_detail;
+                  }
+                  publishFeedback(gh, ApproachState::SUCCESS, detail);
+                  return {true, "SUCCESS", detail};
+              }
               std::string lateral_detail;
               if (!applyObjectLateralAdjustment(category, id, local_pose, gh,
                                                 lateral_detail)) {
@@ -448,26 +744,18 @@ Result Approach::runPartial(const std::string &argument,
 
   std::string category;
   std::string id;
-  std::size_t sep = argument.find('_');
-  if (sep != std::string::npos) {
-      category = argument.substr(0, sep);
-      id = argument.substr(sep + 1);
-  } else {
-      category = argument;
-      id = "";
-  }
+  parseTargetArgument(argument, category, id);
 
-  if (category != "customer" && category != "guest" &&
-      category != "person" && category != "human") {
+  if (!isPersonCategory(category)) {
       publishFeedback(gh, ApproachState::FAILED, "partial_only_for_person_targets");
       return {false, "FAILED", "partial_only_for_person_targets"};
   }
 
   publishFeedback(gh, ApproachState::LOADING, argument);
 
-  const nlohmann::json nav_array =
-      knowledge_->get_world_state(category, id, "navigation");
-  if (nav_array.empty() || !nav_array.is_array() || nav_array.size() < 7) {
+  const nlohmann::json nav_array = resolveTargetNavigation(
+      argument, category, id, knowledge_, vision_, node_->get_logger());
+  if (!isValidNavigationArray(nav_array)) {
       publishFeedback(gh, ApproachState::FAILED, "invalid_knowledge_data");
       return {false, "FAILED", "invalid_knowledge_data"};
   }
@@ -647,32 +935,23 @@ Result Approach::runPartial(const std::string &argument,
 // =========================================================
 void Approach::stopNavigation()
 {
-    // Go() publica en un tópico simple (/nav_control/goal), no es un action,
-    // así que no existe un Cancel() nativo. La estrategia es sobrescribir el
-    // goal con la pose actual del robot: el nav_controller recibe "ve a donde
-    // ya estás", distancia ≈ 0, y deja de comandar velocidades de inmediato.
-    try {
-        const auto tf_robot =
-            tf_buffer_->lookupTransform("map", "base_link",
-                                        tf2::TimePointZero, 50ms);
-        geometry_msgs::msg::PoseStamped current_pose;
-        current_pose.header.frame_id   = "map";
-        current_pose.header.stamp      = node_->now();
-        current_pose.pose.position.x   = tf_robot.transform.translation.x;
-        current_pose.pose.position.y   = tf_robot.transform.translation.y;
-        current_pose.pose.position.z   = tf_robot.transform.translation.z;
-        current_pose.pose.orientation  = tf_robot.transform.rotation;
-        navigation_->Go(current_pose);
-        RCLCPP_INFO(node_->get_logger(),
-                    "[Approach] stopNavigation: published current pose as goal"
-                    " (x=%.3f y=%.3f) to halt nav_controller.",
-                    current_pose.pose.position.x,
-                    current_pose.pose.position.y);
-    } catch (const tf2::TransformException &ex) {
-        RCLCPP_WARN(node_->get_logger(),
-                    "[Approach] stopNavigation: TF unavailable, nav_controller"
-                    " may keep running briefly: %s", ex.what());
+    std_msgs::msg::Empty empty_msg;
+    if (nav_stop_pub_) {
+        nav_stop_pub_->publish(empty_msg);
     }
+    if (simple_move_stop_pub_) {
+        simple_move_stop_pub_->publish(empty_msg);
+    }
+    if (nav_ctrl_stop_pub_) {
+        std_msgs::msg::Bool stop_bool;
+        stop_bool.data = true;
+        nav_ctrl_stop_pub_->publish(stop_bool);
+    }
+    if (hardware_) {
+        hardware_->MoveBase(0.0, 0.0, 0.0);
+    }
+    RCLCPP_INFO(node_->get_logger(),
+                "[Approach] stopNavigation: sent stop signals to mvn_pln and simple_move and zeroed base velocity.");
 }
 
 // =========================================================
@@ -1020,6 +1299,157 @@ bool Approach::moveBaseRelative(
     return true;
 }
 
+bool Approach::rotateBaseInPlace(
+    double yaw_rad,
+    const std::shared_ptr<GoalHandle> &gh) const {
+    if (!hardware_ || std::abs(yaw_rad) < 0.08) {
+        return true;
+    }
+
+    constexpr double kRotateAngularSpeedRadps = 0.35;
+    const double direction = yaw_rad > 0.0 ? 1.0 : -1.0;
+    const double duration_s = std::abs(yaw_rad) / kRotateAngularSpeedRadps;
+    const auto start_time = std::chrono::steady_clock::now();
+    rclcpp::Rate rate(30.0);
+
+    while (rclcpp::ok() &&
+           std::chrono::duration<double>(
+               std::chrono::steady_clock::now() - start_time).count() <
+               duration_s) {
+        if (!gh || !gh->is_active()) {
+            hardware_->MoveBase(0.0, 0.0, 0.0);
+            return false;
+        }
+        hardware_->MoveBase(0.0, 0.0, direction * kRotateAngularSpeedRadps);
+        rate.sleep();
+    }
+
+    hardware_->MoveBase(0.0, 0.0, 0.0);
+    return true;
+}
+
+bool Approach::confirmAndOrientToPerson(
+    const std::string &category,
+    const std::string &id,
+    const geometry_msgs::msg::PoseStamped &global_pose,
+    const std::shared_ptr<GoalHandle> &gh,
+    bool require_visual_confirmation,
+    std::string &detail) {
+    detail.clear();
+    if (!gh || !gh->is_active()) {
+        detail = "goal_cancelled";
+        return false;
+    }
+
+    // 1. Orientar hacia la dirección del punto fijo en base_link (solo giro en el lugar)
+    double dist_in_base = 0.0;
+    try {
+        auto map_pose_now = global_pose;
+        map_pose_now.header.stamp = node_->now();
+        const auto target_in_base =
+            tf_buffer_->transform(map_pose_now, "base_link", 100ms);
+        dist_in_base = std::hypot(
+            target_in_base.pose.position.x,
+            target_in_base.pose.position.y);
+        if (dist_in_base > 0.12) {
+            const double yaw_to_target = std::atan2(
+                target_in_base.pose.position.y,
+                target_in_base.pose.position.x);
+            if (std::abs(yaw_to_target) > 0.12) {
+                RCLCPP_INFO(
+                    node_->get_logger(),
+                    "[Approach] Rotating base in place %.2f rad toward fixed person target...",
+                    yaw_to_target);
+                rotateBaseInPlace(yaw_to_target, gh);
+            }
+        }
+    } catch (const tf2::TransformException &ex) {
+        RCLCPP_WARN(node_->get_logger(),
+                    "[Approach] Could not compute initial yaw to fixed person goal: %s",
+                    ex.what());
+    }
+
+    constexpr double kDesiredPersonDistanceM = 0.80;
+    constexpr double kPersonAdvanceSpeedMps = 0.15;
+
+    auto advanceForwardSmoothly = [&](double advance_m) {
+        if (!hardware_ || advance_m <= 0.05) {
+            return;
+        }
+        const double clamped_advance = std::min(0.65, advance_m);
+        const double duration_s = clamped_advance / kPersonAdvanceSpeedMps;
+        const auto start_time = std::chrono::steady_clock::now();
+        rclcpp::Rate rate(30.0);
+        RCLCPP_INFO(
+            node_->get_logger(),
+            "[Approach] Advancing base %.2f m forward to reach ~0.80 m from person...",
+            clamped_advance);
+        while (rclcpp::ok() &&
+               std::chrono::duration<double>(
+                   std::chrono::steady_clock::now() - start_time).count() <
+                   duration_s) {
+            if (!gh || !gh->is_active()) {
+                break;
+            }
+            hardware_->MoveBase(kPersonAdvanceSpeedMps, 0.0, 0.0);
+            rate.sleep();
+        }
+        hardware_->MoveBase(0.0, 0.0, 0.0);
+    };
+
+    // 2. Confirmar visualmente si la persona está frente al robot y afinar orientación/distancia (~0.80m)
+    if (vision_) {
+        if (hardware_) {
+            hardware_->MoveHead({0.0, -0.15}, 3s);
+        }
+        Vision::PersonDetection confirmed_det;
+        if (vision_->DetectPersonPose(confirmed_det, 2s) && confirmed_det.success) {
+            const double person_dist = std::hypot(
+                confirmed_det.pose.pose.position.x,
+                confirmed_det.pose.pose.position.y);
+            const double person_yaw = std::atan2(
+                confirmed_det.pose.pose.position.y,
+                confirmed_det.pose.pose.position.x);
+
+            RCLCPP_INFO(
+                node_->get_logger(),
+                "[Approach] Confirmed person visually at dist=%.2f m yaw=%.2f rad",
+                person_dist, person_yaw);
+
+            if (std::abs(person_yaw) > 0.10) {
+                rotateBaseInPlace(person_yaw, gh);
+            }
+            if (person_dist > kDesiredPersonDistanceM + 0.08 &&
+                person_dist <= 1.85) {
+                advanceForwardSmoothly(person_dist - kDesiredPersonDistanceM);
+            }
+            if (hardware_) {
+                hardware_->LookAt(confirmed_det.pose);
+            }
+            if (knowledge_) {
+                const auto updated_nav = poseToJsonArray(confirmed_det.nav.pose);
+                knowledge_->update_world_state(
+                    category, id.empty() ? "last" : id, "navigation",
+                    updated_nav.dump());
+            }
+            detail = "person_confirmed_and_oriented_0.8m";
+            return true;
+        }
+    }
+
+    if (require_visual_confirmation) {
+        detail = "obstacle_not_confirmed_as_person";
+        return false;
+    }
+
+    if (dist_in_base > 0.18 && dist_in_base <= 0.65) {
+        advanceForwardSmoothly(dist_in_base - 0.10);
+    }
+
+    detail = "oriented_to_fixed_person_goal";
+    return true;
+}
+
 void Approach::resetNavigationStatus() {
     std::lock_guard<std::mutex> lock(navigation_status_mutex_);
     waiting_navigation_status_ = true;
@@ -1027,8 +1457,14 @@ void Approach::resetNavigationStatus() {
     navigation_done_ = false;
     navigation_success_ = false;
     has_navigation_status_ = false;
+    collision_risk_detected_ = false;
     navigation_status_code_ = -1;
     navigation_status_text_.clear();
+}
+
+void Approach::clearCollisionRiskFlag() {
+    std::lock_guard<std::mutex> lock(navigation_status_mutex_);
+    collision_risk_detected_ = false;
 }
 
 Approach::NavigationStatusSnapshot Approach::navigationStatusSnapshot() {
@@ -1037,8 +1473,35 @@ Approach::NavigationStatusSnapshot Approach::navigationStatusSnapshot() {
         has_navigation_status_,
         navigation_done_,
         navigation_success_,
+        collision_risk_detected_,
         navigation_status_code_,
         navigation_status_text_};
+}
+
+void Approach::collisionRiskCallback(
+    const std_msgs::msg::Bool::SharedPtr msg) {
+    if (!msg || !msg->data) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(navigation_status_mutex_);
+    if (!waiting_navigation_status_ || navigation_done_) {
+        return;
+    }
+    collision_risk_detected_ = true;
+}
+
+void Approach::simpleMoveStatusCallback(
+    const actionlib_msgs::msg::GoalStatus::SharedPtr msg) {
+    if (!msg) {
+        return;
+    }
+    if (msg->status == actionlib_msgs::msg::GoalStatus::ABORTED &&
+        msg->text == "collision_risk") {
+        std::lock_guard<std::mutex> lock(navigation_status_mutex_);
+        if (waiting_navigation_status_ && !navigation_done_) {
+            collision_risk_detected_ = true;
+        }
+    }
 }
 
 void Approach::navigationStatusCallback(
