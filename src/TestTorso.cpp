@@ -8,8 +8,8 @@ using namespace std::chrono_literals;
 
 namespace {
 
-constexpr double TORSO_BOTTOM = 0.00;
-constexpr double TORSO_MIDDLE = 0.15;
+constexpr double TORSO_BOTTOM = 0.10;
+constexpr double TORSO_MIDDLE = 0.20;
 constexpr double TORSO_TOP    = 0.30;
 
 constexpr auto TORSO_SETTLE = 4000ms;
