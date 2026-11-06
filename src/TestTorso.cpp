@@ -18,12 +18,13 @@ struct TorsoStep {
     TestTorsoState state;
     double         position;
     const char*    label;
+    const char*    speech;
 };
 
 constexpr std::array<TorsoStep, 3> TORSO_SEQUENCE = {{
-    {TestTorsoState::MOVING_MIDDLE, TORSO_MIDDLE, "middle"},
-    {TestTorsoState::MOVING_BOTTOM, TORSO_BOTTOM, "bottom"},
-    {TestTorsoState::MOVING_TOP,    TORSO_TOP,    "top"},
+    {TestTorsoState::MOVING_MIDDLE, TORSO_MIDDLE, "middle", "I am going to start the torso test."},
+    {TestTorsoState::MOVING_BOTTOM, TORSO_BOTTOM, "bottom", "I am lowering my torso."},
+    {TestTorsoState::MOVING_TOP,    TORSO_TOP,    "top",    "I am raising my trunk."},
 }};
 
 }
@@ -31,9 +32,10 @@ constexpr std::array<TorsoStep, 3> TORSO_SEQUENCE = {{
 // =========================================================
 // Constructor
 // =========================================================
-TestTorso::TestTorso(const rclcpp::Node::SharedPtr&   node,
-                     const std::shared_ptr<Hardware>& hardware)
-: node_(node), hardware_(hardware)
+TestTorso::TestTorso(const rclcpp::Node::SharedPtr&    node,
+                     const std::shared_ptr<Hardware>& hardware,
+                     const std::shared_ptr<HRI>&      hri)
+: node_(node), hardware_(hardware), hri_(hri)
 {}
 
 // =========================================================
@@ -54,6 +56,9 @@ Result TestTorso::run(const std::string&                 argument,
 
         publishFeedback(gh, step.state, step.label);
 
+        // Anuncio informativo por voz en paralelo al movimiento
+        sayAsync(step.speech);
+
         if (!hardware_->MoveTorso(step.position)) {
             const std::string reason = std::string("torso_failed_") + step.label;
             publishFeedback(gh, TestTorsoState::FAILED, reason);
@@ -66,6 +71,18 @@ Result TestTorso::run(const std::string&                 argument,
     // ── SUCCESS ───────────────────────────────────────────
     publishFeedback(gh, TestTorsoState::SUCCESS, "torso_test_completed");
     return {true, "SUCCESS", "torso_test_completed"};
+}
+
+// =========================================================
+// sayAsync
+// =========================================================
+void TestTorso::sayAsync(const std::string& text)
+{
+    if (!hri_ || text.empty()) return;
+
+    std::thread([this, text]() {
+        hri_->Say(text);
+    }).detach();
 }
 
 // =========================================================

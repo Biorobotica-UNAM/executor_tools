@@ -62,7 +62,7 @@ Result TestArms::run(const std::string&                 argument,
         publishFeedback(gh, waving, side);
 
         if (hri_) {
-            std::string greeting = is_left ? "I am moving my left arm." : "I am moving my right arm.";
+            std::string greeting = is_left ? "I am moving my left arm for the test." : "I am moving my right arm for the test.";
             std::thread([this, greeting]() {
                 hri_->Say(greeting);
             }).detach();
