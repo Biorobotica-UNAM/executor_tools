@@ -56,6 +56,9 @@ add_library(${PROJECT_NAME}
   src/AnalyzePerson.cpp
   src/SaveLoc.cpp
   src/Fold.cpp
+  src/TestHead.cpp
+  src/TestTorso.cpp
+  src/TestArms.cpp
 )
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
