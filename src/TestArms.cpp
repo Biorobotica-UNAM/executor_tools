@@ -16,8 +16,9 @@ constexpr auto WAVE_PAUSE  = 400ms;
 // Constructor
 // =========================================================
 TestArms::TestArms(const rclcpp::Node::SharedPtr&   node,
-                   const std::shared_ptr<Hardware>& hardware)
-: node_(node), hardware_(hardware)
+                   const std::shared_ptr<Hardware>& hardware,
+                   const std::shared_ptr<HRI>&      hri)
+: node_(node), hardware_(hardware), hri_(hri)
 {}
 
 // =========================================================
@@ -57,8 +58,16 @@ Result TestArms::run(const std::string&                 argument,
         }
         std::this_thread::sleep_for(ARM_SETTLE);
 
-        // 2. Saludar
+        // 2. Saludar (movimiento + voz )
         publishFeedback(gh, waving, side);
+
+        if (hri_) {
+            std::string greeting = is_left ? "I am moving my left arm." : "I am moving my right arm.";
+            std::thread([this, greeting]() {
+                hri_->Say(greeting);
+            }).detach();
+        }
+
         if (!waveArm(gh, is_left)) {
             publishFeedback(gh, TestArmsState::FAILED, side + "_arm_wave_failed");
             return {false, "FAILED", side + "_arm_wave_failed"};
@@ -72,6 +81,21 @@ Result TestArms::run(const std::string&                 argument,
         }
         std::this_thread::sleep_for(ARM_SETTLE);
     }
+
+    // ── 4. Regresar ambos brazos a pose inicial ───────────
+    if (!gh->is_active())
+        return {false, "FAILED", "goal_cancelled"};
+
+    if (!moveArm(true, LEFT_ARM_INITIAL)) {
+        publishFeedback(gh, TestArmsState::FAILED, "left_arm_initial_failed");
+        return {false, "FAILED", "left_arm_initial_failed"};
+    }
+
+    if (!moveArm(false, RIGHT_ARM_INITIAL)) {
+        publishFeedback(gh, TestArmsState::FAILED, "right_arm_initial_failed");
+        return {false, "FAILED", "right_arm_initial_failed"};
+    }
+    std::this_thread::sleep_for(ARM_SETTLE);
 
     // ── SUCCESS ───────────────────────────────────────────
     publishFeedback(gh, TestArmsState::SUCCESS, "arms_test_completed");
@@ -149,15 +173,15 @@ void TestArms::publishFeedback(const std::shared_ptr<GoalHandle>& gh,
 std::string TestArms::stateName(TestArmsState s)
 {
     switch (s) {
-        case TestArmsState::READY:               return "READY";
-        case TestArmsState::RAISING_LEFT_ARM:    return "RAISING_LEFT_ARM";
-        case TestArmsState::WAVING_LEFT_ARM:     return "WAVING_LEFT_ARM";
-        case TestArmsState::LOWERING_LEFT_ARM:   return "LOWERING_LEFT_ARM";
-        case TestArmsState::RAISING_RIGHT_ARM:   return "RAISING_RIGHT_ARM";
-        case TestArmsState::WAVING_RIGHT_ARM:    return "WAVING_RIGHT_ARM";
-        case TestArmsState::LOWERING_RIGHT_ARM:  return "LOWERING_RIGHT_ARM";
-        case TestArmsState::SUCCESS:             return "SUCCESS";
-        case TestArmsState::FAILED:              return "FAILED";
-        default:                                 return "UNKNOWN";
+        case TestArmsState::READY:              return "READY";
+        case TestArmsState::RAISING_LEFT_ARM:   return "RAISING_LEFT_ARM";
+        case TestArmsState::WAVING_LEFT_ARM:    return "WAVING_LEFT_ARM";
+        case TestArmsState::LOWERING_LEFT_ARM:  return "LOWERING_LEFT_ARM";
+        case TestArmsState::RAISING_RIGHT_ARM:  return "RAISING_RIGHT_ARM";
+        case TestArmsState::WAVING_RIGHT_ARM:   return "WAVING_RIGHT_ARM";
+        case TestArmsState::LOWERING_RIGHT_ARM: return "LOWERING_RIGHT_ARM";
+        case TestArmsState::SUCCESS:            return "SUCCESS";
+        case TestArmsState::FAILED:             return "FAILED";
+        default:                                return "UNKNOWN";
     }
 }
